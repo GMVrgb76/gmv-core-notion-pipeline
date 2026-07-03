@@ -225,6 +225,34 @@ esac
 ;;
 
 
+timeline)
+sub="$2"
+
+case "$sub" in
+latest)
+"$HOME/.gmv_core/10_API/timeline_service.py" latest
+;;
+
+show)
+OID="$3"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv timeline show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/timeline_service.py" show "$OID"
+;;
+
+*)
+echo "GMV TIMELINE"
+echo
+echo "Commands:"
+echo "  gmv timeline latest"
+echo "  gmv timeline show <OID>"
+;;
+esac
+;;
+
+
 import)
 sub="$2"
 
@@ -275,6 +303,8 @@ echo "  gmv relation show <OID>"
 echo "  gmv event latest"
 echo "  gmv event show <OID>"
 echo "  gmv event count"
+echo "  gmv timeline latest"
+echo "  gmv timeline show <OID>"
 echo "  gmv import file <path>"
 echo "  gmv import queue"
 echo "  gmv import pending"
