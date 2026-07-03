@@ -380,6 +380,38 @@ echo "  gmv service show <SRV-OID>"
 esac
 ;;
 
+plugin)
+sub="$2"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/plugin_service.py" list
+;;
+
+services)
+"$HOME/.gmv_core/10_API/plugin_service.py" services
+;;
+
+show)
+IDENTIFIER="$3"
+if [ -z "$IDENTIFIER" ]; then
+  echo "Usage: gmv plugin show <PLG-OID or slug>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/plugin_service.py" show "$IDENTIFIER"
+;;
+
+*)
+echo "GMV PLUGIN"
+echo
+echo "Commands:"
+echo "  gmv plugin list"
+echo "  gmv plugin services"
+echo "  gmv plugin show <PLG-OID or slug>"
+;;
+esac
+;;
+
 *)
 echo "GMV CLI"
 echo
@@ -389,6 +421,9 @@ echo "  gmv doctor"
 echo "  gmv service list"
 echo "  gmv service runs"
 echo "  gmv service show <SRV-OID>"
+echo "  gmv plugin list"
+echo "  gmv plugin services"
+echo "  gmv plugin show <PLG-OID or slug>"
 echo "  gmv object list"
 echo "  gmv object show <OID>"
 echo "  gmv object count"
