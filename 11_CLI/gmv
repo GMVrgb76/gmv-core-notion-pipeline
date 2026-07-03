@@ -348,12 +348,47 @@ echo "  gmv snapshot list"
 esac
 ;;
 
+service)
+sub="$2"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/service_service.py" list
+;;
+
+runs)
+"$HOME/.gmv_core/10_API/service_service.py" runs
+;;
+
+show)
+OID="$3"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv service show <SRV-OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/service_service.py" show "$OID"
+;;
+
+*)
+echo "GMV SERVICE"
+echo
+echo "Commands:"
+echo "  gmv service list"
+echo "  gmv service runs"
+echo "  gmv service show <SRV-OID>"
+;;
+esac
+;;
+
 *)
 echo "GMV CLI"
 echo
 echo "Commands:"
 echo "  gmv status"
 echo "  gmv doctor"
+echo "  gmv service list"
+echo "  gmv service runs"
+echo "  gmv service show <SRV-OID>"
 echo "  gmv object list"
 echo "  gmv object show <OID>"
 echo "  gmv object count"
