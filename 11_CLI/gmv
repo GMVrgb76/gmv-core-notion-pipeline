@@ -326,6 +326,28 @@ fi
 "$HOME/.gmv_core/10_API/search_service.py" "$QUERY"
 ;;
 
+snapshot)
+sub="$2"
+
+case "$sub" in
+create)
+"$HOME/.gmv_core/10_API/snapshot_service.py" create
+;;
+
+list)
+"$HOME/.gmv_core/10_API/snapshot_service.py" list
+;;
+
+*)
+echo "GMV SNAPSHOT"
+echo
+echo "Commands:"
+echo "  gmv snapshot create"
+echo "  gmv snapshot list"
+;;
+esac
+;;
+
 *)
 echo "GMV CLI"
 echo
@@ -350,6 +372,8 @@ echo "  gmv search <query>"
 echo "  gmv queue list"
 echo "  gmv queue pending"
 echo "  gmv queue show <import_id>"
+echo "  gmv snapshot create"
+echo "  gmv snapshot list"
 echo "  gmv import file <path>"
 echo "  gmv import queue"
 echo "  gmv import pending"
