@@ -192,6 +192,39 @@ esac
 ;;
 
 
+event)
+sub="$2"
+
+case "$sub" in
+latest)
+"$HOME/.gmv_core/10_API/event_service.py" latest
+;;
+
+show)
+OID="$3"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv event show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/event_service.py" show "$OID"
+;;
+
+count)
+"$HOME/.gmv_core/10_API/event_service.py" count
+;;
+
+*)
+echo "GMV EVENT"
+echo
+echo "Commands:"
+echo "  gmv event latest"
+echo "  gmv event show <OID>"
+echo "  gmv event count"
+;;
+esac
+;;
+
+
 import)
 sub="$2"
 
@@ -239,6 +272,9 @@ echo "  gmv resource count"
 echo "  gmv relation list"
 echo "  gmv relation count"
 echo "  gmv relation show <OID>"
+echo "  gmv event latest"
+echo "  gmv event show <OID>"
+echo "  gmv event count"
 echo "  gmv import file <path>"
 echo "  gmv import queue"
 echo "  gmv import pending"
