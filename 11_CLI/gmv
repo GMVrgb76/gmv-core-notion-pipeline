@@ -285,6 +285,15 @@ echo "  gmv import pending"
 esac
 ;;
 
+search)
+QUERY="${*:2}"
+if [ -z "$QUERY" ]; then
+  echo "Usage: gmv search <query>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/search_service.py" "$QUERY"
+;;
+
 *)
 echo "GMV CLI"
 echo
@@ -305,6 +314,7 @@ echo "  gmv event show <OID>"
 echo "  gmv event count"
 echo "  gmv timeline latest"
 echo "  gmv timeline show <OID>"
+echo "  gmv search <query>"
 echo "  gmv import file <path>"
 echo "  gmv import queue"
 echo "  gmv import pending"
