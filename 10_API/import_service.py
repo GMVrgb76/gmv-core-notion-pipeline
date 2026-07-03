@@ -8,6 +8,11 @@ from datetime import datetime
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 
+QUEUE_COLUMNS = """
+import_id,resource_oid,source_path,filename,status,review_status,
+proposed_destination,confidence,error,created_at,updated_at
+"""
+
 def sha256_file(path):
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -19,6 +24,38 @@ def next_resource_oid(cur):
     cur.execute("SELECT COUNT(*) FROM objects WHERE type='Resource'")
     n = cur.fetchone()[0] + 1
     return f"RES-{n:06d}"
+
+def update_import_queue(cur, resource_oid, path, filename, now):
+    cur.execute(
+        "SELECT import_id FROM import_queue WHERE source_path=? ORDER BY import_id LIMIT 1",
+        (str(path),),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.execute("""
+        UPDATE import_queue
+        SET resource_oid=?, filename=?, error=NULL, updated_at=?
+        WHERE import_id=?
+        """, (resource_oid, filename, now, row[0]))
+    else:
+        cur.execute("""
+        INSERT INTO import_queue
+        (resource_oid,source_path,filename,created_at,updated_at)
+        VALUES (?,?,?,?,?)
+        """, (resource_oid, str(path), filename, now, now))
+
+def list_import_queue(pending_only=False):
+    query = f"SELECT {QUEUE_COLUMNS} FROM import_queue"
+    if pending_only:
+        query += " WHERE status='pending' OR review_status='pending_review'"
+    query += " ORDER BY created_at DESC, import_id DESC"
+
+    with sqlite3.connect(DB) as conn:
+        return conn.execute(query).fetchall()
+
+def print_import_queue(rows):
+    for row in rows:
+        print("|".join("" if value is None else str(value) for value in row))
 
 def import_file(file_path):
     p = Path(file_path).expanduser().resolve()
@@ -38,6 +75,7 @@ def import_file(file_path):
 
     if existing:
         oid = existing[0]
+        update_import_queue(cur, oid, p, p.name, now)
         cur.execute("""
         INSERT INTO events (oid,event_at,event_type,description,source)
         VALUES (?,?,?,?,?)
@@ -75,6 +113,8 @@ def import_file(file_path):
     VALUES (?,?,?,?,?)
     """, (oid, now, "resource_imported", f"Resource imported: {p}", "import_service"))
 
+    update_import_queue(cur, oid, p, p.name, now)
+
     conn.commit()
     conn.close()
 
@@ -83,10 +123,26 @@ def import_file(file_path):
     print(f"SHA256: {digest}")
 
 def main():
-    if len(sys.argv) < 3 or sys.argv[1] != "file":
-        print("Usage: import_service.py file <path>")
+    if len(sys.argv) < 2:
+        print("Usage:")
+        print("  import_service.py file <path>")
+        print("  import_service.py queue")
+        print("  import_service.py pending")
         sys.exit(2)
-    import_file(sys.argv[2])
+
+    command = sys.argv[1]
+    if command == "file":
+        if len(sys.argv) < 3:
+            print("Usage: import_service.py file <path>")
+            sys.exit(2)
+        import_file(sys.argv[2])
+    elif command == "queue":
+        print_import_queue(list_import_queue())
+    elif command == "pending":
+        print_import_queue(list_import_queue(pending_only=True))
+    else:
+        print("Unknown command:", command)
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()

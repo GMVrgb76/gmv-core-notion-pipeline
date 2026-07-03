@@ -172,11 +172,21 @@ fi
 "$HOME/.gmv_core/10_API/import_service.py" file "$TARGET"
 ;;
 
+queue)
+"$HOME/.gmv_core/10_API/import_service.py" queue
+;;
+
+pending)
+"$HOME/.gmv_core/10_API/import_service.py" pending
+;;
+
 *)
 echo "GMV IMPORT"
 echo
 echo "Commands:"
 echo "  gmv import file <path>"
+echo "  gmv import queue"
+echo "  gmv import pending"
 ;;
 esac
 ;;
@@ -194,5 +204,7 @@ echo "  gmv relation list"
 echo "  gmv relation count"
 echo "  gmv relation show <OID>"
 echo "  gmv import file <path>"
+echo "  gmv import queue"
+echo "  gmv import pending"
 ;;
 esac
