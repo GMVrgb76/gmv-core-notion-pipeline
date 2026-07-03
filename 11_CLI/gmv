@@ -125,6 +125,39 @@ esac
 ;;
 
 
+resource)
+sub="$2"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/resource_service.py" list
+;;
+
+show)
+OID="$3"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv resource show <RES-OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/resource_service.py" show "$OID"
+;;
+
+count)
+"$HOME/.gmv_core/10_API/resource_service.py" count
+;;
+
+*)
+echo "GMV RESOURCE"
+echo
+echo "Commands:"
+echo "  gmv resource list"
+echo "  gmv resource show <RES-OID>"
+echo "  gmv resource count"
+;;
+esac
+;;
+
+
 relation)
 sub="$2"
 
@@ -200,6 +233,9 @@ echo "  gmv doctor"
 echo "  gmv object list"
 echo "  gmv object show <OID>"
 echo "  gmv object count"
+echo "  gmv resource list"
+echo "  gmv resource show <RES-OID>"
+echo "  gmv resource count"
 echo "  gmv relation list"
 echo "  gmv relation count"
 echo "  gmv relation show <OID>"
