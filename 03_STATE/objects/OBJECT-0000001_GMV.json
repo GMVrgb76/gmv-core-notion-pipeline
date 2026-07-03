@@ -1,0 +1,43 @@
+{
+  "oid": "OBJECT-0000001",
+  "type": "Person",
+  "name": "Giacomo Marco Valerio",
+  "status": "active",
+  "role": [
+    "Architect",
+    "Gallerist",
+    "Founder Area35",
+    "GMV Core Owner"
+  ],
+  "identity": {
+    "created_at": "2026-07-02",
+    "created_by": "GMV Core",
+    "immutable": true
+  },
+  "attributes": {
+    "city": "Milano",
+    "domains": [
+      "architecture",
+      "contemporary art",
+      "real estate",
+      "AI systems",
+      "GCC cultural projects"
+    ]
+  },
+  "relations": [],
+  "timeline": [
+    {
+      "date": "2026-07-02",
+      "event": "First Object created in GMV Core"
+    }
+  ],
+  "documents": [],
+  "state": {
+    "current_focus": "GMV Core V2 object architecture",
+    "priority": "high"
+  },
+  "metrics": {
+    "completeness": 0.35,
+    "confidence": 0.9
+  }
+}

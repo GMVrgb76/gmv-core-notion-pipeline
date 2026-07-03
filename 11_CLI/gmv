@@ -1,0 +1,198 @@
+#!/bin/bash
+
+DB="$HOME/.gmv_core/09_DATABASE/GMV.db"
+
+case "$1" in
+
+status)
+echo
+echo "=================================================="
+echo "               GMV OS STATUS"
+echo "=================================================="
+
+echo
+echo "SERVICES"
+launchctl list | grep com.gmv || true
+
+echo
+echo "LAST ENGINE RUNS"
+sqlite3 "$DB" "SELECT id, engine, run_at, status FROM engine_runs ORDER BY id DESC LIMIT 10;"
+
+echo
+echo "REGISTERED SERVICES"
+sqlite3 "$DB" "SELECT service_oid, service_name, status FROM service_registry_view;"
+
+echo
+echo "REGISTERED PLUGINS"
+sqlite3 "$DB" "SELECT plugin_oid, plugin_name, version, status FROM plugin_registry_view;"
+
+echo
+echo "OBJECT COUNTS"
+sqlite3 "$DB" "SELECT type, COUNT(*) FROM objects GROUP BY type ORDER BY type;"
+
+echo
+echo "=================================================="
+echo "SYSTEM READY"
+echo "=================================================="
+;;
+
+doctor)
+echo
+echo "=================================================="
+echo "               GMV DOCTOR"
+echo "=================================================="
+
+echo
+echo "[1] DATABASE"
+sqlite3 "$DB" "PRAGMA integrity_check;"
+
+echo
+echo "[2] OBJECT COUNTS"
+sqlite3 "$DB" "SELECT type, COUNT(*) FROM objects GROUP BY type ORDER BY type;"
+
+echo
+echo "[3] REGISTERED SERVICES"
+sqlite3 "$DB" "SELECT service_name,status FROM service_registry_view;"
+
+echo
+echo "[4] REGISTERED PLUGINS"
+sqlite3 "$DB" "SELECT plugin_name,status FROM plugin_registry_view;"
+
+echo
+echo "[5] DATABASE VIEWS"
+sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='view' ORDER BY name;"
+
+echo
+echo "[6] LAST ENGINE RUNS"
+sqlite3 "$DB" "SELECT engine,run_at,status FROM engine_runs ORDER BY id DESC LIMIT 10;"
+
+echo
+echo "[7] LAUNCHAGENTS"
+launchctl list | grep com.gmv || true
+
+echo
+echo "[8] ORPHAN SERVICE RUNS"
+sqlite3 "$DB" "SELECT COUNT(*) FROM service_runs sr LEFT JOIN objects o ON sr.service_oid=o.oid WHERE o.oid IS NULL;"
+
+echo
+echo "[9] ORPHAN EVENTS"
+sqlite3 "$DB" "SELECT COUNT(*) FROM events e LEFT JOIN objects o ON e.oid=o.oid WHERE o.oid IS NULL;"
+
+echo
+echo "[10] PENDING PLUGINS"
+sqlite3 "$DB" "SELECT plugin_name FROM plugin_registry_view WHERE status='pending';"
+
+echo
+echo "=================================================="
+echo "GMV DOCTOR COMPLETED"
+echo "=================================================="
+;;
+
+object)
+sub="$2"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/object_service.py" list
+;;
+
+show)
+OID="$3"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv object show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/object_service.py" show "$OID"
+;;
+
+count)
+"$HOME/.gmv_core/10_API/object_service.py" count
+;;
+
+*)
+echo "GMV OBJECT"
+echo
+echo "Commands:"
+echo "  gmv object list"
+echo "  gmv object show <OID>"
+echo "  gmv object count"
+echo "  gmv relation list"
+echo "  gmv relation count"
+echo "  gmv relation show <OID>"
+echo "  gmv import file <path>"
+;;
+esac
+;;
+
+
+relation)
+sub="$2"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/relation_service.py" list
+;;
+
+count)
+"$HOME/.gmv_core/10_API/relation_service.py" count
+;;
+
+show)
+OID="$3"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv relation show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/relation_service.py" show "$OID"
+;;
+
+*)
+echo "GMV RELATION"
+echo
+echo "Commands:"
+echo "  gmv relation list"
+echo "  gmv relation count"
+echo "  gmv relation show <OID>"
+echo "  gmv import file <path>"
+;;
+esac
+;;
+
+
+import)
+sub="$2"
+
+case "$sub" in
+file)
+TARGET="$3"
+if [ -z "$TARGET" ]; then
+  echo "Usage: gmv import file <path>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/import_service.py" file "$TARGET"
+;;
+
+*)
+echo "GMV IMPORT"
+echo
+echo "Commands:"
+echo "  gmv import file <path>"
+;;
+esac
+;;
+
+*)
+echo "GMV CLI"
+echo
+echo "Commands:"
+echo "  gmv status"
+echo "  gmv doctor"
+echo "  gmv object list"
+echo "  gmv object show <OID>"
+echo "  gmv object count"
+echo "  gmv relation list"
+echo "  gmv relation count"
+echo "  gmv relation show <OID>"
+echo "  gmv import file <path>"
+;;
+esac
