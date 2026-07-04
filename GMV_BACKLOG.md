@@ -2,9 +2,27 @@
 
 ## CURRENT PHASE
 
-GMV Intelligence Layer
+Core Integrity
+
+GMV OS currently has a Core foundation with partial ingestion scaffolding. Intelligence, Reasoning, Decision, and autonomous workflow capabilities are not current-phase deliverables.
 
 ## HIGH PRIORITY
+
+- Reproducible runtime and development tooling
+- Isolated automated tests and CI gates
+- Versioned database migrations
+- Canonical OID rules and transaction-safe allocation
+- Typed CLI validation
+- Database protection and recovery evidence
+
+## PHASE GATES
+
+- Reasoning work remains paused until the Core Integrity, Reliability, Data / Database, Automation, and governed Knowledge exit criteria are proven.
+- Decision work remains paused until governed Reasoning evaluation, evidence, approval, and human-review policies are operational.
+- Autonomous workflow execution remains paused until canonical identity and Events, verified recovery, strict health checks, queue claim/retry controls, and authorization boundaries are operational.
+- Application caching remains deferred until authoritative state, Event-driven invalidation, measured need, and deterministic rebuild tests exist.
+
+## LATER ROADMAP
 
 - Watch Folder
 - Import Queue Automation
@@ -13,9 +31,6 @@ GMV Intelligence Layer
 - Entity Extraction Engine
 - Relation Extraction Engine
 - Knowledge Graph Expansion
-
-## MEDIUM PRIORITY
-
 - Reasoning Engine
 - Decision Engine
 - Workflow Engine
@@ -31,13 +46,15 @@ GMV Intelligence Layer
 - Notification Center
 - Mobile Companion
 
-## DONE
+## IMPLEMENTED SURFACES
 
-- Core
-- Knowledge Engine
-- Object Service
-- Relation Service
-- Import Service
+The following surfaces exist, but their presence does not establish phase completion or full architecture compliance:
+
+- Core bootstrap
+- Knowledge Engine V0
+- Object Service surface
+- Relation Service surface
+- Import Service surface
 - Resource CLI
 - Event CLI
 - Timeline CLI
