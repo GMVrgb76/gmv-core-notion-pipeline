@@ -332,14 +332,14 @@ S001-01 through S001-11
 - **Task ID:** S001-11
 - **Related backlog IDs:** `CLI-003`, `ARC-004`, `MAIN-001`
 - **Purpose:** Introduce typed validation for OIDs, numeric IDs, paths, statuses, and slugs plus one exit/error taxonomy, without redesigning the whole CLI or changing unrelated outputs.
-- **Files that will probably be modified:** `gmv_core/validation.py`, `gmv_core/errors.py`, `tests/cli/test_validation.py`, selected narrow adapters in `10_API/`, and minimally `11_CLI/gmv` if needed to preserve exit propagation.
+- **Files that will probably be modified:** `gmv_core/validation.py`, `gmv_core/errors.py`, `tests/cli/test_cli_validation.py`, selected narrow adapters in `10_API/`, and minimally `11_CLI/gmv` if needed to preserve exit propagation.
 - **Estimated duration:** 90 minutes
 - **Risk level:** High
 - **Rollback strategy:** Revert one validator integration at a time; preserve characterized valid-input behavior and exit codes until a separately approved contract change.
 - **Validation commands:**
 
   ```bash
-  python -m pytest -q tests/cli/test_validation.py tests/characterization/test_cli.py
+  python -m pytest -q tests/cli/test_cli_validation.py tests/characterization/test_cli.py
   python -m ruff check gmv_core tests/cli
   gmv object show INVALID-OID; test $? -ne 0
   gmv queue show not-a-number; test $? -ne 0

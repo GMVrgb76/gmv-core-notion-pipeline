@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
+import importlib
 import sqlite3
 import sys
 from pathlib import Path
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+CLIInputError = importlib.import_module("gmv_core.errors").CLIInputError
+validate_positive_id = importlib.import_module("gmv_core.validation").validate_positive_id
 
 QUEUE_COLUMNS = """
 import_id,resource_oid,filename,status,review_status,proposed_destination,
@@ -26,6 +33,7 @@ def list_queue(pending_only=False):
 
 
 def show_queue_entry(import_id):
+    import_id = validate_positive_id(import_id, argument="import_id")
     with connect() as conn:
         return conn.execute(
             f"SELECT {QUEUE_COLUMNS} FROM import_queue_view WHERE import_id=?",
@@ -56,7 +64,11 @@ def main():
         if len(sys.argv) < 3:
             print("Usage: queue_service.py show <import_id>")
             sys.exit(2)
-        row = show_queue_entry(sys.argv[2])
+        try:
+            row = show_queue_entry(sys.argv[2])
+        except CLIInputError as error:
+            print(f"error: {error}", file=sys.stderr)
+            sys.exit(error.exit_code)
         if not row:
             print("Queue entry not found")
             sys.exit(1)

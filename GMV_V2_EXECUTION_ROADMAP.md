@@ -133,7 +133,7 @@ Create a reproducible development, test, migration, identity, and release baseli
 ### Validation commands
 
 ```bash
-python -m pytest -q tests/migrations tests/identity tests/cli/test_validation.py
+python -m pytest -q tests/migrations tests/identity tests/cli/test_cli_validation.py
 python -m ruff check .
 gmv doctor
 gmv status

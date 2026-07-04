@@ -25,6 +25,17 @@ class ValidationError(GMVError):
     """Base class for input contract violations."""
 
 
+class CLIInputError(ValidationError):
+    """Raised when a CLI argument violates its declared input contract."""
+
+    exit_code = 2
+
+    def __init__(self, argument: str, detail: str) -> None:
+        self.argument = argument
+        self.detail = detail
+        super().__init__(f"invalid {argument}: {detail}")
+
+
 class OIDValidationError(ValidationError):
     """Raised when an Object identifier violates the canonical OID contract."""
 
