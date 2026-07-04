@@ -11,3 +11,11 @@ class ConfigurationError(GMVError):
 
 class PathValidationError(GMVError):
     """Raised when a path violates an explicit path contract."""
+
+
+class MigrationError(GMVError):
+    """Base class for migration failures."""
+
+
+class MigrationStateError(MigrationError):
+    """Raised when a database cannot safely accept the requested migration."""
