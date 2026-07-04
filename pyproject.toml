@@ -1,0 +1,18 @@
+[build-system]
+requires = [
+    "setuptools==82.0.1",
+    "wheel==0.47.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmv-core"
+version = "2.0.0a0"
+description = "Local core of the GMV Master System"
+readme = "README_CORE.md"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[tool.setuptools]
+packages = []
+include-package-data = false
