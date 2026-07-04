@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 import hashlib
+import importlib
 import mimetypes
 import sqlite3
 import sys
 from pathlib import Path
 from datetime import datetime
+
+CORE = Path(__file__).resolve().parents[1]
+if str(CORE) not in sys.path:
+    sys.path.insert(0, str(CORE))
+
+CURRENT_SCHEMA_VERSION = importlib.import_module(
+    "gmv_core.migrations"
+).CURRENT_SCHEMA_VERSION
+allocate_and_create_object = importlib.import_module(
+    "gmv_core.repositories.identity"
+).allocate_and_create_object
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 
@@ -20,10 +32,13 @@ def sha256_file(path):
             h.update(chunk)
     return h.hexdigest()
 
-def next_resource_oid(cur):
-    cur.execute("SELECT COUNT(*) FROM objects WHERE type='Resource'")
-    n = cur.fetchone()[0] + 1
-    return f"RES-{n:06d}"
+def require_current_schema(conn):
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version != CURRENT_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Import requires schema version {CURRENT_SCHEMA_VERSION}; found {version}. "
+            "Run the approved migration before importing."
+        )
 
 def update_import_queue(cur, resource_oid, path, filename, now):
     cur.execute(
@@ -63,64 +78,77 @@ def import_file(file_path):
         print(f"File not found: {p}")
         sys.exit(1)
 
+    conn = sqlite3.connect(DB)
+    try:
+        require_current_schema(conn)
+    except RuntimeError as error:
+        conn.close()
+        print(str(error), file=sys.stderr)
+        return 1
+
     now = datetime.now().isoformat(timespec="seconds")
     digest = sha256_file(p)
     mime, _ = mimetypes.guess_type(str(p))
 
-    conn = sqlite3.connect(DB)
-    cur = conn.cursor()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.cursor()
+        cur.execute("SELECT resource_oid FROM resources WHERE sha256=?", (digest,))
+        existing = cur.fetchone()
 
-    cur.execute("SELECT resource_oid FROM resources WHERE sha256=?", (digest,))
-    existing = cur.fetchone()
+        if existing:
+            oid = existing[0]
+            update_import_queue(cur, oid, p, p.name, now)
+            cur.execute("""
+            INSERT INTO events (oid,event_at,event_type,description,source)
+            VALUES (?,?,?,?,?)
+            """, (oid, now, "resource_seen_again", f"Resource seen again: {p}", "import_service"))
+            conn.commit()
+            print(f"Existing resource: {oid}")
+            return 0
 
-    if existing:
-        oid = existing[0]
-        update_import_queue(cur, oid, p, p.name, now)
+        oid = allocate_and_create_object(
+            conn,
+            object_type="Resource",
+            name=p.name,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+
+        cur.execute("""
+        INSERT INTO resources
+        (resource_oid,path,filename,extension,mime_guess,size_bytes,sha256,imported_at,status)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        """, (
+            oid,
+            str(p),
+            p.name,
+            p.suffix.lower(),
+            mime or "",
+            p.stat().st_size,
+            digest,
+            now,
+            "active"
+        ))
+
         cur.execute("""
         INSERT INTO events (oid,event_at,event_type,description,source)
         VALUES (?,?,?,?,?)
-        """, (oid, now, "resource_seen_again", f"Resource seen again: {p}", "import_service"))
+        """, (oid, now, "resource_imported", f"Resource imported: {p}", "import_service"))
+
+        update_import_queue(cur, oid, p, p.name, now)
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
         conn.close()
-        print(f"Existing resource: {oid}")
-        return
-
-    oid = next_resource_oid(cur)
-
-    cur.execute("""
-    INSERT INTO objects (oid,type,name,status,created_at,updated_at)
-    VALUES (?,?,?,?,?,?)
-    """, (oid, "Resource", p.name, "active", now, now))
-
-    cur.execute("""
-    INSERT INTO resources
-    (resource_oid,path,filename,extension,mime_guess,size_bytes,sha256,imported_at,status)
-    VALUES (?,?,?,?,?,?,?,?,?)
-    """, (
-        oid,
-        str(p),
-        p.name,
-        p.suffix.lower(),
-        mime or "",
-        p.stat().st_size,
-        digest,
-        now,
-        "active"
-    ))
-
-    cur.execute("""
-    INSERT INTO events (oid,event_at,event_type,description,source)
-    VALUES (?,?,?,?,?)
-    """, (oid, now, "resource_imported", f"Resource imported: {p}", "import_service"))
-
-    update_import_queue(cur, oid, p, p.name, now)
-
-    conn.commit()
-    conn.close()
 
     print(f"Imported resource: {oid}")
     print(f"Path: {p}")
     print(f"SHA256: {digest}")
+    return 0
 
 def main():
     if len(sys.argv) < 2:
@@ -135,7 +163,7 @@ def main():
         if len(sys.argv) < 3:
             print("Usage: import_service.py file <path>")
             sys.exit(2)
-        import_file(sys.argv[2])
+        raise SystemExit(import_file(sys.argv[2]))
     elif command == "queue":
         print_import_queue(list_import_queue())
     elif command == "pending":

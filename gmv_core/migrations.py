@@ -11,6 +11,9 @@ from gmv_core.errors import MigrationError, MigrationStateError
 
 BASELINE_VERSION = 1
 BASELINE_RESOURCE = "migration_sql/001_baseline.sql"
+OID_SEQUENCE_VERSION = 2
+OID_SEQUENCE_RESOURCE = "migration_sql/002_oid_sequences.sql"
+CURRENT_SCHEMA_VERSION = OID_SEQUENCE_VERSION
 
 
 def _quoted_identifier(identifier: str) -> str:
@@ -89,10 +92,12 @@ def _schema_signature(connection: sqlite3.Connection) -> tuple[object, ...]:
     return objects, columns, indexes, index_columns, foreign_keys
 
 
+def _migration_sql(resource: str) -> str:
+    return resources.files("gmv_core").joinpath(resource).read_text(encoding="utf-8")
+
+
 def _baseline_sql() -> str:
-    return resources.files("gmv_core").joinpath(BASELINE_RESOURCE).read_text(
-        encoding="utf-8"
-    )
+    return _migration_sql(BASELINE_RESOURCE)
 
 
 def _baseline_signature() -> tuple[object, ...]:
@@ -117,39 +122,69 @@ def _adopt_current_shape(connection: sqlite3.Connection) -> int:
     return BASELINE_VERSION
 
 
-def migrate(database: str | Path) -> int:
+def _version(connection: sqlite3.Connection) -> int:
+    row = connection.execute("PRAGMA user_version").fetchone()
+    return int(row[0]) if row is not None else 0
+
+
+def _apply_migration(
+    connection: sqlite3.Connection,
+    *,
+    target: Path,
+    version: int,
+    resource: str,
+) -> None:
+    try:
+        connection.executescript(_migration_sql(resource))
+    except sqlite3.Error as error:
+        connection.rollback()
+        raise MigrationError(
+            f"migration {version} failed for {target}: {error}"
+        ) from error
+    result = _version(connection)
+    if result != version:
+        raise MigrationError(f"migration {version} did not set expected version: {result}")
+
+
+def migrate(
+    database: str | Path,
+    *,
+    target_version: int = CURRENT_SCHEMA_VERSION,
+) -> int:
     """Migrate an explicit SQLite target and return its resulting version."""
     target = Path(database)
     if not target.parent.exists():
         raise MigrationStateError(f"migration target directory does not exist: {target.parent}")
+    if target_version not in {BASELINE_VERSION, OID_SEQUENCE_VERSION}:
+        raise MigrationStateError(f"unsupported target schema version: {target_version}")
 
     try:
         with sqlite3.connect(target) as connection:
-            version_row = connection.execute("PRAGMA user_version").fetchone()
-            current_version = int(version_row[0]) if version_row is not None else 0
-
-            if current_version == BASELINE_VERSION:
-                return current_version
-            if current_version != 0:
+            current_version = _version(connection)
+            if current_version > target_version:
                 raise MigrationStateError(
-                    f"unsupported schema version {current_version}; expected 0 or {BASELINE_VERSION}"
+                    f"database version {current_version} is newer than target {target_version}"
                 )
-            if _schema_object_count(connection) != 0:
-                return _adopt_current_shape(connection)
-
-            try:
-                connection.executescript(_baseline_sql())
-            except sqlite3.Error as error:
-                connection.rollback()
-                raise MigrationError(f"baseline migration failed for {target}: {error}") from error
-
-            result_row = connection.execute("PRAGMA user_version").fetchone()
-            result = int(result_row[0]) if result_row is not None else 0
-            if result != BASELINE_VERSION:
-                raise MigrationError(
-                    f"baseline migration did not set version {BASELINE_VERSION}: {result}"
+            if current_version == 0:
+                if _schema_object_count(connection) != 0:
+                    current_version = _adopt_current_shape(connection)
+                else:
+                    _apply_migration(
+                        connection,
+                        target=target,
+                        version=BASELINE_VERSION,
+                        resource=BASELINE_RESOURCE,
+                    )
+                    current_version = BASELINE_VERSION
+            if target_version == OID_SEQUENCE_VERSION and current_version == BASELINE_VERSION:
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=OID_SEQUENCE_VERSION,
+                    resource=OID_SEQUENCE_RESOURCE,
                 )
-            return result
+                current_version = OID_SEQUENCE_VERSION
+            return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
 
@@ -157,8 +192,14 @@ def migrate(database: str | Path) -> int:
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Migrate an explicit GMV SQLite target")
     parser.add_argument("--database", required=True, type=Path)
+    parser.add_argument(
+        "--target-version",
+        type=int,
+        choices=(BASELINE_VERSION, OID_SEQUENCE_VERSION),
+        default=CURRENT_SCHEMA_VERSION,
+    )
     options = parser.parse_args(arguments)
-    version = migrate(options.database)
+    version = migrate(options.database, target_version=options.target_version)
     print(f"schema_version={version}")
     return 0
 

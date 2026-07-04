@@ -57,7 +57,7 @@ def test_baseline_matches_characterized_schema(tmp_path: Path) -> None:
     migrated = tmp_path / "migrated.db"
     _create_characterized_database(characterized)
 
-    assert migrate(migrated) == BASELINE_VERSION
+    assert migrate(migrated, target_version=BASELINE_VERSION) == BASELINE_VERSION
     assert _schema_signature(migrated) == _schema_signature(characterized)
 
     with sqlite3.connect(migrated) as connection:

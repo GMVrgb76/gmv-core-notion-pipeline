@@ -24,11 +24,17 @@ def test_failed_baseline_rolls_back_and_can_recover(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = tmp_path / "recoverable.db"
-    valid_baseline = migrations._baseline_sql
-    monkeypatch.setattr(migrations, "_baseline_sql", lambda: BROKEN_BASELINE)
+    valid_loader = migrations._migration_sql
 
-    with pytest.raises(MigrationError, match="baseline migration failed"):
-        migrations.migrate(database)
+    def broken_loader(resource: str) -> str:
+        if resource == migrations.BASELINE_RESOURCE:
+            return BROKEN_BASELINE
+        return valid_loader(resource)
+
+    monkeypatch.setattr(migrations, "_migration_sql", broken_loader)
+
+    with pytest.raises(MigrationError, match="migration 1 failed"):
+        migrations.migrate(database, target_version=migrations.BASELINE_VERSION)
 
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (0,)
@@ -36,5 +42,8 @@ def test_failed_baseline_rolls_back_and_can_recover(
             "SELECT name FROM sqlite_master WHERE name='partial_write'"
         ).fetchone() is None
 
-    monkeypatch.setattr(migrations, "_baseline_sql", valid_baseline)
-    assert migrations.migrate(database) == migrations.BASELINE_VERSION
+    monkeypatch.setattr(migrations, "_migration_sql", valid_loader)
+    assert (
+        migrations.migrate(database, target_version=migrations.BASELINE_VERSION)
+        == migrations.BASELINE_VERSION
+    )

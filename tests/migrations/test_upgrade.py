@@ -24,7 +24,7 @@ def test_current_shape_adoption_preserves_schema_and_rows(tmp_path: Path) -> Non
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
 
     before = _dump(database)
-    assert migrate(database) == BASELINE_VERSION
+    assert migrate(database, target_version=BASELINE_VERSION) == BASELINE_VERSION
     assert _dump(database) == before
 
     with sqlite3.connect(database) as connection:

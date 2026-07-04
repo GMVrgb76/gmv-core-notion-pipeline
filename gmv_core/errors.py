@@ -27,3 +27,7 @@ class ValidationError(GMVError):
 
 class OIDValidationError(ValidationError):
     """Raised when an Object identifier violates the canonical OID contract."""
+
+
+class OIDAllocationError(GMVError):
+    """Raised when an OID cannot be allocated under the identity contract."""
