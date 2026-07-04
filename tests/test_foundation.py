@@ -37,11 +37,13 @@ def test_configuration_resolution_is_explicit(tmp_path: Path) -> None:
 
 def test_imports_have_no_output_or_filesystem_side_effects(tmp_path: Path) -> None:
     repository = Path(__file__).resolve().parents[1]
+    sandbox = tmp_path / "import-sandbox"
+    sandbox.mkdir()
     environment = os.environ.copy()
     environment.update(
         {
-            "GMV_HOME": str(tmp_path / "injected-core"),
-            "HOME": str(tmp_path),
+            "GMV_HOME": str(sandbox / "injected-core"),
+            "HOME": str(sandbox),
             "PYTHONPATH": str(repository),
         }
     )
@@ -52,7 +54,7 @@ def test_imports_have_no_output_or_filesystem_side_effects(tmp_path: Path) -> No
             "-c",
             "import gmv_core; import gmv_core.config; import gmv_core.errors",
         ],
-        cwd=tmp_path,
+        cwd=sandbox,
         env=environment,
         check=False,
         capture_output=True,
@@ -62,4 +64,4 @@ def test_imports_have_no_output_or_filesystem_side_effects(tmp_path: Path) -> No
     assert result.returncode == 0
     assert result.stdout == ""
     assert result.stderr == ""
-    assert list(tmp_path.iterdir()) == []
+    assert list(sandbox.iterdir()) == []
