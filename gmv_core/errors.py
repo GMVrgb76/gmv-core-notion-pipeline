@@ -19,3 +19,11 @@ class MigrationError(GMVError):
 
 class MigrationStateError(MigrationError):
     """Raised when a database cannot safely accept the requested migration."""
+
+
+class ValidationError(GMVError):
+    """Base class for input contract violations."""
+
+
+class OIDValidationError(ValidationError):
+    """Raised when an Object identifier violates the canonical OID contract."""
