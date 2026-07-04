@@ -11,6 +11,7 @@ Pygments==2.20.0
 PyYAML==6.0.3
 pyproject-hooks==1.2.0
 pytest==9.1.1
+pytest-repeat==0.9.4
 requests==2.34.2
 ruff==0.15.20
 setuptools==82.0.1
