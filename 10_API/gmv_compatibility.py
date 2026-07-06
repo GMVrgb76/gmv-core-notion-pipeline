@@ -15,6 +15,8 @@ from pathlib import Path
 from types import FrameType
 from typing import BinaryIO
 
+from operational_records import append_record, build_record
+
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE" / "GMV.db"
 LOGDIR = CORE / "04_LOGS"
@@ -245,13 +247,14 @@ def run_engine(engine: str, command: list[str]) -> int:
             maximum=16 * 1024 * 1024,
         )
     )
-    start = datetime.now()
+    start = datetime.now().astimezone()
     return_code, stdout, stderr, status = run_bounded_process(
         command,
         timeout_seconds=timeout_seconds,
         max_output_bytes=max_output_bytes,
     )
-    duration = (datetime.now() - start).total_seconds()
+    ended_at = datetime.now().astimezone()
+    duration = (ended_at - start).total_seconds()
 
     stdout_path.write_text(stdout)
     stderr_path.write_text(stderr)
@@ -260,6 +263,26 @@ def run_engine(engine: str, command: list[str]) -> int:
         f"{engine} compatibility run completed with status {status}, "
         f"return code {return_code}"
     )
+
+    error_code = {
+        "OK": "none",
+        "ERROR": "process_exit",
+        "TIMEOUT": "timeout",
+        "CANCELLED": "cancelled",
+    }[status]
+    record = build_record(
+        service=engine,
+        status=status,
+        error_code=error_code,
+        started_at=start,
+        ended_at=ended_at,
+        return_code=return_code,
+        command=command,
+        summary=summary,
+        artifact_paths=[stdout_path, stderr_path],
+        correlation_id=os.environ.get("GMV_CORRELATION_ID"),
+    )
+    append_record(LOGDIR / "operations.jsonl", record)
 
     conn = init_db()
     cur = conn.cursor()
@@ -286,6 +309,7 @@ def run_engine(engine: str, command: list[str]) -> int:
 
     print("=== GMV COMPATIBILITY LAYER ===")
     print(summary)
+    print("run_id:", record["run_id"])
     print("stdout:", stdout_path)
     print("stderr:", stderr_path)
 

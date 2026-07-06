@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gmv://schemas/operational-run-record/v1",
+  "title": "GMV Operational Run Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "correlation_id",
+    "service",
+    "status",
+    "error_code",
+    "started_at",
+    "ended_at",
+    "fresh_until",
+    "return_code",
+    "command",
+    "summary",
+    "artifacts",
+    "runbook"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^RUN-[0-9a-f]{32}$"},
+    "correlation_id": {"type": "string", "pattern": "^COR-[0-9a-f]{32}$"},
+    "service": {"type": "string", "maxLength": 128},
+    "status": {"enum": ["OK", "ERROR", "TIMEOUT", "CANCELLED"]},
+    "error_code": {
+      "enum": ["none", "validation", "dependency", "process_exit", "timeout", "cancelled", "internal"]
+    },
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": "string", "format": "date-time"},
+    "fresh_until": {"type": "string", "format": "date-time"},
+    "return_code": {"type": "integer"},
+    "command": {"type": "array", "items": {"type": "string", "maxLength": 4096}},
+    "summary": {"type": "string", "maxLength": 4096},
+    "artifacts": {"type": "array"},
+    "runbook": {"type": "string", "maxLength": 128}
+  }
+}
