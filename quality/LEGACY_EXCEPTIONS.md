@@ -6,7 +6,7 @@ These exceptions quarantine findings that predate the Sprint 001 quality gate. T
 
 Owner: Sprint 002 Reliability workstream.
 
-Expiry: before Sprint 002 closeout.
+Expiry: carried beyond Sprint 002 under explicit closeout review.
 
 - `01_RUNTIME/knowledge_engine.py`: `E401`; legacy combined imports.
 - `01_RUNTIME/legacy_inventory.py`: `E401`, `F401`; legacy combined and unused imports.
@@ -21,6 +21,13 @@ The `S101` and `S603` exceptions under `tests/` cover pytest assertions and fixe
 
 Owner: Sprint 002 security and runtime-data cleanup (`SEC-004`).
 
-Expiry: before Sprint 002 closeout.
+Expiry: review before the next security-tooling milestone.
 
-The baseline contains two existing findings: a high-entropy extension list in `legacy_inventory.py` and a hash value in the tracked legacy SQLite snapshot. New findings are rejected. Baseline entries may be removed after their owning files are corrected or removed through an approved task; they must never be refreshed merely to make CI pass.
+The baseline contains one existing high-entropy extension-list finding in
+`legacy_inventory.py` and three reviewed SHA-256 release pins in the Daily Log,
+Market Engine, and Morning Brief scheduler scripts. The release pins authenticate
+the approved local source files and are not credentials. The prior SQLite
+snapshot finding was removed by S002-14 after S002-13 stopped tracking the
+snapshot. New findings are rejected. Baseline entries may be removed after their
+owning files are corrected or removed through an approved task; they must never
+be refreshed merely to make CI pass.
