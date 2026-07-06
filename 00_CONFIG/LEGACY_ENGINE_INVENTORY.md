@@ -36,7 +36,7 @@ scheduled or currently executing.
   `2026-06-26T14:27:08+0200`.
 - **Core compatibility entrypoint:**
   `~/.gmv_core/12_SCHEDULER/run_morning_brief_compatibility.sh`, SHA-256
-  `516d4475b9d9be9d5e1c5c67953f3c10df8be8091fb8e0df01eb66f2cae56064`.
+  `25768c039e203ace32b3f72b6caa6a2ba694c1c2639cf5143217268b833afbc0`.
 - **Execution environment:** LaunchAgent `com.gmv.morningbrief` invokes
   `/bin/bash -lc` on the compatibility entrypoint; scheduled at 07:00 and loaded
   at the Sprint baseline. The legacy script invokes `/opt/homebrew/bin/python3`,
@@ -65,7 +65,7 @@ scheduled or currently executing.
   `2026-06-23T10:58:18+0200`.
 - **Core compatibility entrypoint:**
   `~/.gmv_core/12_SCHEDULER/run_daily_log_compatibility.sh`, SHA-256
-  `2e10a67a4c414d5f4163da6ecb278d82d8ff3ae7b86cb1fce7efc72694fae52b`.
+  `aa1c6f264dbd5367f1a1ded87ca4da718f04bc6e436ebe6a1d8ae9e96e160a64`.
 - **Execution environment:** LaunchAgent `com.gmv.dailylog` invokes
   `/bin/bash -lc` on the compatibility entrypoint; scheduled at 06:30 and loaded
   at the Sprint baseline. The legacy script uses macOS/BSD shell utilities.
@@ -88,12 +88,14 @@ scheduled or currently executing.
   `e8309aaa15deb6595d903b6ae9e6748d33a2ce9ddae71d3f628648435f4ac15b`.
 - **Observed source metadata:** 5,012 bytes; modified
   `2026-06-28T19:54:20+0200`.
+- **Pinned local release:**
+  `~/.gmv_core/01_RUNTIME/legacy/market_engine_v2.py`, SHA-256
+  `dd06ec16723fff21a2474688092ae2843abe2800b8a9d2eeb7a28d966b2bdd65`.
 - **Core compatibility entrypoint:**
-  `~/.gmv_core/12_SCHEDULER/run_market_engine_compatibility.sh`, SHA-256
-  `1d8b68e72e7476753131ccf73d1d6614208f282d352370f8cf80409581cca08b`.
-- **Execution environment:** the wrapper passes a Python command string to the
-  compatibility layer. No `com.gmv.market*` LaunchAgent was installed or loaded
-  at the Sprint baseline.
+  `~/.gmv_core/12_SCHEDULER/run_market_engine_compatibility.sh`.
+- **Execution environment:** the wrapper passes an explicit Python argv vector
+  and verifies the pinned source hash before execution. No `com.gmv.market*`
+  LaunchAgent was installed or loaded at the Sprint baseline.
 - **Reads:** Dropbox Markdown below `02_IMMOBILI/00_MARKET/` and
   `02_IMMOBILI/02_COMPARABLES/`.
 - **Writes:** Dropbox `MARKET_REPORT.md` and `MARKET_STATUS.md` when executed,

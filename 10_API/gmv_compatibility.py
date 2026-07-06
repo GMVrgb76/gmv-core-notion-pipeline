@@ -2,6 +2,7 @@
 
 import re
 import os
+import hashlib
 import shlex
 import shutil
 import signal
@@ -200,6 +201,28 @@ def validate_invocation(arguments: list[str]) -> tuple[str, list[str]]:
     return engine, command
 
 
+def validate_release_pin(command: list[str]) -> None:
+    source = os.environ.get("GMV_COMPAT_SOURCE")
+    expected_hash = os.environ.get("GMV_COMPAT_EXPECTED_SHA256")
+    if source is None and expected_hash is None:
+        return
+    if not source or not expected_hash:
+        raise ValueError("release pin requires both source path and SHA-256")
+
+    source_path = Path(source).expanduser()
+    if str(source_path) not in command:
+        raise ValueError("release source is not present in command argv")
+    if not source_path.is_file():
+        raise ValueError(f"release source not found: {source_path}")
+    actual_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+        raise ValueError("release SHA-256 is invalid")
+    if actual_hash != expected_hash:
+        raise ValueError(
+            f"release hash mismatch: expected {expected_hash}, got {actual_hash}"
+        )
+
+
 def run_engine(engine: str, command: list[str]) -> int:
     LOGDIR.mkdir(parents=True, exist_ok=True)
     OUTDIR.mkdir(parents=True, exist_ok=True)
@@ -271,6 +294,7 @@ def run_engine(engine: str, command: list[str]) -> int:
 if __name__ == "__main__":
     try:
         engine_name, command_argv = validate_invocation(sys.argv)
+        validate_release_pin(command_argv)
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(2)
