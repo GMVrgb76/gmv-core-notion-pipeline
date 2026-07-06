@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from secure_storage import atomic_write_text, require_private, secure_directory
+from audit_integrity import append as append_audit
 
 SCHEMA_VERSION = 1
 POLICY_VERSION = "GMV Recovery Policy v1"
@@ -121,18 +122,7 @@ def verify_backup(backup: Path) -> dict[str, Any]:
 def _audit(root: Path, event: dict[str, object]) -> None:
     audit_dir = root / "audit"
     secure_directory(audit_dir)
-    target = audit_dir / "backup_events.jsonl"
-    lock_path = audit_dir / ".audit.lock"
-    descriptor = os.open(lock_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-    with os.fdopen(descriptor, "a") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        line = json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
-        output = os.open(target, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-        try:
-            os.write(output, line.encode())
-            os.fsync(output)
-        finally:
-            os.close(output)
+    append_audit(audit_dir / "backup_events.v2.jsonl", event)
 
 
 def create_backup(

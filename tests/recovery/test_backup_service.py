@@ -63,7 +63,7 @@ def test_interrupted_creation_leaves_no_partial_set(tmp_path: Path, monkeypatch:
     with pytest.raises(ValueError, match="stop"):
         BACKUP.create_backup(core, root)
     assert list((root / "sets").iterdir()) == []
-    assert "failed" in (root / "audit" / "backup_events.jsonl").read_text()
+    assert "failed" in (root / "audit" / "backup_events.v2.jsonl").read_text()
 
 
 def test_milestones_are_never_retention_candidates(tmp_path: Path) -> None:
