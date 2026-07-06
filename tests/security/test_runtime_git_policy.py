@@ -20,9 +20,11 @@ def test_runtime_paths_are_protected_and_fixtures_are_not() -> None:
 def test_secret_and_private_path_fixtures_are_rejected() -> None:
     secret = POLICY.scan_text("password=super-secret-value", "fixture")  # gmv-policy-test-fixture
     private_path = POLICY.scan_text("source=/Users/person/private/file", "fixture")  # gmv-policy-test-fixture
+    markdown_path = POLICY.scan_text("path: `/Users/person/private/file`", "fixture")  # gmv-policy-test-fixture
 
     assert [finding.kind for finding in secret] == ["credential_assignment"]
     assert [finding.kind for finding in private_path] == ["personal_absolute_path"]
+    assert [finding.kind for finding in markdown_path] == ["personal_absolute_path"]
 
 
 def test_redacted_and_relative_values_are_allowed() -> None:

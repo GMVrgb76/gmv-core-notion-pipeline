@@ -25,7 +25,7 @@ FIXTURE_MARKER = "gmv-policy-test-fixture"
 SENSITIVE_PATTERNS = (
     (
         "personal_absolute_path",
-        re.compile(r"(?:^|[\s'\"=])(?:/Users/[^/\s]+|/home/[^/\s]+)(?:/|\b)"),
+        re.compile(r"(?:^|[\s'\"=`])(?:/Users/[^/\s]+|/home/[^/\s]+)(?:/|\b)"),
     ),
     (
         "private_key",
