@@ -73,6 +73,9 @@ def test_milestones_are_never_retention_candidates(tmp_path: Path) -> None:
     rolling = BACKUP.create_backup(core, root, now=old)
     BACKUP.create_backup(core, root, kind="milestone", milestone="Sprint 002", now=old + timedelta(seconds=1))
     assert BACKUP.retention_candidates(root, now=datetime(2026, 7, 6, tzinfo=UTC)) == [rolling]
+    removed = BACKUP.apply_retention(root, now=datetime(2026, 7, 6, tzinfo=UTC))
+    assert removed == [rolling.name]
+    assert any((root / "sets").iterdir())
 
 
 def test_restore_refuses_existing_target(tmp_path: Path) -> None:

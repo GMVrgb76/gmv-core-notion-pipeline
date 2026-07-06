@@ -218,6 +218,18 @@ def retention_candidates(root: Path, *, now: datetime | None = None) -> list[Pat
     return candidates
 
 
+def apply_retention(root: Path, *, now: datetime | None = None) -> list[str]:
+    candidates = retention_candidates(root, now=now)
+    verified = [path for path in sorted((root / "sets").glob("BKP-*")) if path not in candidates]
+    if not verified:
+        raise ValueError("retention would remove the only recovery set")
+    removed = []
+    for path in candidates:
+        shutil.rmtree(path)
+        removed.append(path.name)
+    return removed
+
+
 def restore_check(backup: Path, target: Path) -> dict[str, Any]:
     if target.exists():
         raise FileExistsError("restore-check target already exists")
@@ -240,6 +252,7 @@ def main(arguments: list[str] | None = None) -> int:
     create.add_argument("--root", type=Path, default=Path.home() / ".gmv_backups")
     create.add_argument("--kind", choices=("rolling", "milestone"), default="rolling")
     create.add_argument("--milestone")
+    create.add_argument("--encrypt", action="store_true")
     verify = subparsers.add_parser("verify")
     verify.add_argument("backup", type=Path)
     inspect = subparsers.add_parser("inspect")
@@ -247,9 +260,14 @@ def main(arguments: list[str] | None = None) -> int:
     restore = subparsers.add_parser("restore-check")
     restore.add_argument("backup", type=Path)
     restore.add_argument("target", type=Path)
+    retention = subparsers.add_parser("retention")
+    retention.add_argument("--root", type=Path, default=Path.home() / ".gmv_backups")
+    retention.add_argument("--apply", action="store_true")
     options = parser.parse_args(arguments)
     try:
         if options.command == "create":
+            if options.encrypt:
+                raise ValueError("encryption key custody is not approved; refusing")
             result = create_backup(
                 options.core,
                 options.root,
@@ -262,8 +280,12 @@ def main(arguments: list[str] | None = None) -> int:
         elif options.command == "inspect":
             manifest = json.loads((options.backup / "manifest.json").read_text())
             print(json.dumps(manifest, sort_keys=True))
-        else:
+        elif options.command == "restore-check":
             print(json.dumps(restore_check(options.backup, options.target), sort_keys=True))
+        else:
+            candidates = retention_candidates(options.root)
+            result = apply_retention(options.root) if options.apply else [path.name for path in candidates]
+            print(json.dumps(result, sort_keys=True))
     except (OSError, ValueError, sqlite3.Error, subprocess.SubprocessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
