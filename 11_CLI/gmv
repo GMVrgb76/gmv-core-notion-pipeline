@@ -350,12 +350,34 @@ list)
 "$HOME/.gmv_core/10_API/snapshot_service.py" list
 ;;
 
+inspect|verify)
+TARGET="${3:-}"
+if [ -z "$TARGET" ]; then
+  echo "Usage: gmv snapshot $sub <BACKUP_PATH>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/backup_service.py" "$sub" "$TARGET"
+;;
+
+restore-check)
+BACKUP="${3:-}"
+TARGET="${4:-}"
+if [ -z "$BACKUP" ] || [ -z "$TARGET" ]; then
+  echo "Usage: gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/backup_service.py" restore-check "$BACKUP" "$TARGET"
+;;
+
 *)
 echo "GMV SNAPSHOT"
 echo
 echo "Commands:"
 echo "  gmv snapshot create"
 echo "  gmv snapshot list"
+echo "  gmv snapshot inspect <BACKUP_PATH>"
+echo "  gmv snapshot verify <BACKUP_PATH>"
+echo "  gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET>"
 ;;
 esac
 ;;

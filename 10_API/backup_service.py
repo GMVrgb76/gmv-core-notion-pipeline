@@ -242,6 +242,11 @@ def main(arguments: list[str] | None = None) -> int:
     create.add_argument("--milestone")
     verify = subparsers.add_parser("verify")
     verify.add_argument("backup", type=Path)
+    inspect = subparsers.add_parser("inspect")
+    inspect.add_argument("backup", type=Path)
+    restore = subparsers.add_parser("restore-check")
+    restore.add_argument("backup", type=Path)
+    restore.add_argument("target", type=Path)
     options = parser.parse_args(arguments)
     try:
         if options.command == "create":
@@ -252,8 +257,13 @@ def main(arguments: list[str] | None = None) -> int:
                 milestone=options.milestone,
             )
             print(result)
-        else:
+        elif options.command == "verify":
             print(json.dumps(verify_backup(options.backup), sort_keys=True))
+        elif options.command == "inspect":
+            manifest = json.loads((options.backup / "manifest.json").read_text())
+            print(json.dumps(manifest, sort_keys=True))
+        else:
+            print(json.dumps(restore_check(options.backup, options.target), sort_keys=True))
     except (OSError, ValueError, sqlite3.Error, subprocess.SubprocessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

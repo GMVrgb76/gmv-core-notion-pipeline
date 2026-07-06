@@ -97,3 +97,9 @@ def test_scheduler_uses_pinned_python_and_private_umask() -> None:
     assert ".venv/bin/python" in script
     assert "<key>StartInterval</key>\n  <integer>900</integer>" in plist
     assert "<key>Umask</key>\n  <integer>63</integer>" in plist
+
+
+def test_cli_has_no_live_restore_surface() -> None:
+    cli = (ROOT / "11_CLI" / "gmv").read_text()
+    assert "restore-check" in cli
+    assert "snapshot restore <" not in cli
