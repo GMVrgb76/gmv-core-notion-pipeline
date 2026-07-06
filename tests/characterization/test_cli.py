@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import textwrap
 
@@ -19,39 +20,20 @@ def _run_cli(cli_environment: dict[str, str], *arguments: str) -> subprocess.Com
 
 
 def test_status_output_is_characterized(cli_environment: dict[str, str]) -> None:
-    result = _run_cli(cli_environment, "status")
-
-    expected = textwrap.dedent(
-        """
-        ==================================================
-                       GMV OS STATUS
-        ==================================================
-
-        SERVICES
-
-        LAST ENGINE RUNS
-        1|fixture_engine|2026-01-01T01:00:00|OK
-
-        REGISTERED SERVICES
-        SRV-000001|Fixture Service|active
-
-        REGISTERED PLUGINS
-        PLG-000001|Fixture Plugin|0.0|active
-
-        OBJECT COUNTS
-        Plugin|1
-        Resource|1
-        Service|1
-        System|1
-
-        ==================================================
-        SYSTEM READY
-        ==================================================
-        """
+    result = _run_cli(
+        cli_environment,
+        "status",
+        "--json",
+        "--now",
+        "2026-07-06T12:00:00+00:00",
     )
-    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+
+    assert result.returncode == 1
     assert result.stderr == ""
-    assert result.stdout == expected
+    assert payload["state"] == "failed"
+    assert payload["observed_at"] == "2026-07-06T12:00:00+00:00"
+    assert "SYSTEM READY" not in result.stdout
 
 
 def test_doctor_output_is_characterized(cli_environment: dict[str, str]) -> None:

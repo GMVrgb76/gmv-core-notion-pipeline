@@ -22,6 +22,8 @@ def strict_cli_environment(
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE test_sentinel")
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
+        connection.execute("DELETE FROM engine_runs")
+    database.chmod(0o600)
 
     executable_directory = tmp_path / "test-bin"
     executable_directory.mkdir()
@@ -50,12 +52,13 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def test_missing_sqlite_dependency_fails_before_status(
+def test_missing_python_dependency_fails_before_status(
     strict_cli_environment: dict[str, str],
     tmp_path: Path,
 ) -> None:
-    isolated_bin = tmp_path / "missing-sqlite-bin"
+    isolated_bin = tmp_path / "missing-python-bin"
     isolated_bin.mkdir()
+    (isolated_bin / "dirname").symlink_to("/usr/bin/dirname")
     environment = strict_cli_environment.copy()
     environment["PATH"] = str(isolated_bin)
 
@@ -63,10 +66,10 @@ def test_missing_sqlite_dependency_fails_before_status(
 
     assert result.returncode == 127
     assert result.stdout == ""
-    assert result.stderr == "error: required command not found: sqlite3\n"
+    assert "python3" in result.stderr
 
 
-def test_sqlite_failure_propagates_and_stops_status(
+def test_status_no_longer_executes_shell_sqlite(
     strict_cli_environment: dict[str, str],
     tmp_path: Path,
 ) -> None:
@@ -78,29 +81,28 @@ def test_sqlite_failure_propagates_and_stops_status(
 
     result = _run_cli(environment, "status")
 
-    assert result.returncode == 19
-    assert "LAST ENGINE RUNS" in result.stdout
+    assert result.returncode == 0
+    assert "STATE|DEGRADED" in result.stdout
     assert "SYSTEM READY" not in result.stdout
 
 
-def test_missing_optional_launchctl_does_not_fail_status(
+def test_status_does_not_depend_on_optional_launchctl(
     strict_cli_environment: dict[str, str],
     tmp_path: Path,
 ) -> None:
     isolated_bin = tmp_path / "sqlite-only-bin"
     isolated_bin.mkdir()
-    (isolated_bin / "sqlite3").symlink_to("/usr/bin/sqlite3")
     environment = strict_cli_environment.copy()
-    environment["PATH"] = str(isolated_bin)
+    environment["PATH"] = f"{isolated_bin}:{environment['PATH']}"
 
     result = _run_cli(environment, "status")
 
     assert result.returncode == 0
-    assert "SYSTEM READY" in result.stdout
-    assert result.stderr == "warning: optional command not found: launchctl\n"
+    assert "STATE|DEGRADED" in result.stdout
+    assert result.stderr == ""
 
 
-def test_failed_optional_launchctl_does_not_fail_status(
+def test_failed_optional_launchctl_is_not_invoked_by_status(
     strict_cli_environment: dict[str, str],
 ) -> None:
     launchctl = Path(strict_cli_environment["PATH"].split(":", 1)[0]) / "launchctl"
@@ -109,8 +111,8 @@ def test_failed_optional_launchctl_does_not_fail_status(
     result = _run_cli(strict_cli_environment, "status")
 
     assert result.returncode == 0
-    assert "SYSTEM READY" in result.stdout
-    assert result.stderr == "warning: optional command failed: launchctl list\n"
+    assert "STATE|DEGRADED" in result.stdout
+    assert result.stderr == ""
 
 
 def test_child_command_failure_propagates(

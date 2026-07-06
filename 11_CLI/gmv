@@ -38,36 +38,8 @@ command_name="${1:-}"
 case "$command_name" in
 
 status)
-require_command sqlite3
-echo
-echo "=================================================="
-echo "               GMV OS STATUS"
-echo "=================================================="
-
-echo
-echo "SERVICES"
-show_launchagents
-
-echo
-echo "LAST ENGINE RUNS"
-sqlite3 "$DB" "SELECT id, engine, run_at, status FROM engine_runs ORDER BY id DESC LIMIT 10;"
-
-echo
-echo "REGISTERED SERVICES"
-sqlite3 "$DB" "SELECT service_oid, service_name, status FROM service_registry_view;"
-
-echo
-echo "REGISTERED PLUGINS"
-sqlite3 "$DB" "SELECT plugin_oid, plugin_name, version, status FROM plugin_registry_view;"
-
-echo
-echo "OBJECT COUNTS"
-sqlite3 "$DB" "SELECT type, COUNT(*) FROM objects GROUP BY type ORDER BY type;"
-
-echo
-echo "=================================================="
-echo "SYSTEM READY"
-echo "=================================================="
+shift
+"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/status_service.py" "$@"
 ;;
 
 doctor)
