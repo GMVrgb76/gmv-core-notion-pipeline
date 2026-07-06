@@ -12,6 +12,7 @@ This document defines the canonical governance and planning documents for the GM
 | V2 backlog | `GMV_V2_BACKLOG.md` |
 | V2 execution roadmap | `GMV_V2_EXECUTION_ROADMAP.md` |
 | Sprint 001 implementation plan | `SPRINT_001_IMPLEMENTATION_PLAN.md` |
+| Sprint 002 implementation plan | `SPRINT_002_IMPLEMENTATION_PLAN.md` |
 | Technical review | `GMV_TECHNICAL_REVIEW.md` |
 | Changelog | `GMV_CHANGELOG.md` |
 
