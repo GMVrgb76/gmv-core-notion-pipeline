@@ -6,3 +6,14 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+# Mutable GMV runtime state (source and sanitized fixtures remain tracked).
+.DS_Store
+/02_INDEXES/
+/03_STATE/
+/04_LOGS/
+/05_OUTPUT/
+/06_CACHE/
+/07_IMPORT/
+/08_BACKUP_LOCAL/
+/09_DATABASE/
