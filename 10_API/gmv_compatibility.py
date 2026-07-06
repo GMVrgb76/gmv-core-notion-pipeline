@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-from pathlib import Path
+
+import re
+import shlex
+import shutil
+import sqlite3
+import subprocess
+import sys
 from datetime import datetime
-import sqlite3, subprocess, sys, json, os
+from pathlib import Path
 
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE" / "GMV.db"
 LOGDIR = CORE / "04_LOGS"
 OUTDIR = CORE / "05_OUTPUT" / "compatibility"
-
-LOGDIR.mkdir(parents=True, exist_ok=True)
-OUTDIR.mkdir(parents=True, exist_ok=True)
+ENGINE_PATTERN = re.compile(r"[a-z][a-z0-9_]*\Z")
 
 def init_db():
     conn = sqlite3.connect(DB)
@@ -40,14 +44,44 @@ def init_db():
     conn.commit()
     return conn
 
-def run_engine(engine, command):
+def validate_invocation(arguments: list[str]) -> tuple[str, list[str]]:
+    if len(arguments) < 4 or arguments[2] != "--":
+        raise ValueError("usage: gmv_compatibility.py ENGINE_NAME -- COMMAND [ARG ...]")
+
+    engine = arguments[1]
+    command = arguments[3:]
+    if not ENGINE_PATTERN.fullmatch(engine):
+        raise ValueError("invalid engine name: use lowercase letters, digits, and underscores")
+
+    executable = command[0]
+    if "/" in executable:
+        executable_path = Path(executable).expanduser()
+        if not executable_path.is_file() or not executable_path.stat().st_mode & 0o111:
+            raise ValueError(f"command is not executable: {executable}")
+    elif shutil.which(executable) is None:
+        raise ValueError(f"command not found: {executable}")
+
+    return engine, command
+
+
+def run_engine(engine: str, command: list[str]) -> int:
+    LOGDIR.mkdir(parents=True, exist_ok=True)
+    OUTDIR.mkdir(parents=True, exist_ok=True)
+    DB.parent.mkdir(parents=True, exist_ok=True)
+
     now = datetime.now().isoformat(timespec="seconds")
     stamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
     stdout_path = OUTDIR / f"{stamp}_{engine}.out.log"
     stderr_path = OUTDIR / f"{stamp}_{engine}.err.log"
 
     start = datetime.now()
-    proc = subprocess.run(command, shell=True, capture_output=True, text=True)
+    # The argv vector and executable are validated above; a shell is never used.
+    proc = subprocess.run(  # noqa: S603 - required compatibility execution boundary
+        command,
+        shell=False,
+        capture_output=True,
+        text=True,
+    )
     duration = (datetime.now() - start).total_seconds()
 
     stdout_path.write_text(proc.stdout or "")
@@ -64,7 +98,7 @@ def run_engine(engine, command):
     (engine, run_at, status, duration_seconds, command, stdout_path, stderr_path, summary)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        engine, now, status, duration, command,
+        engine, now, status, duration, shlex.join(command),
         str(stdout_path), str(stderr_path), summary
     ))
 
@@ -87,10 +121,10 @@ def run_engine(engine, command):
     return proc.returncode
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: gmv_compatibility.py ENGINE_NAME COMMAND", file=sys.stderr)
+    try:
+        engine_name, command_argv = validate_invocation(sys.argv)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
         sys.exit(2)
 
-    engine = sys.argv[1]
-    command = " ".join(sys.argv[2:])
-    sys.exit(run_engine(engine, command))
+    sys.exit(run_engine(engine_name, command_argv))
