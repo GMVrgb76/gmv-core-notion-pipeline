@@ -1,0 +1,136 @@
+"""Regression tests for the transitional strict Bash CLI contract."""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+import subprocess
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from tests.characterization.conftest import CLI, SCHEMA_FIXTURE
+
+
+@pytest.fixture
+def strict_cli_environment(
+    isolated_gmv: object,
+    tmp_path: Path,
+) -> Iterator[dict[str, str]]:
+    database = Path(getattr(isolated_gmv, "database"))
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE test_sentinel")
+        connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
+
+    executable_directory = tmp_path / "test-bin"
+    executable_directory.mkdir()
+    _write_executable(executable_directory / "launchctl", "exit 0")
+
+    environment = os.environ.copy()
+    environment["PATH"] = f"{executable_directory}:{environment['PATH']}"
+    yield environment
+
+
+def _run_cli(
+    environment: dict[str, str],
+    *arguments: str,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(CLI), *arguments],
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _write_executable(path: Path, body: str) -> None:
+    path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+    path.chmod(0o755)
+
+
+def test_missing_sqlite_dependency_fails_before_status(
+    strict_cli_environment: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    isolated_bin = tmp_path / "missing-sqlite-bin"
+    isolated_bin.mkdir()
+    environment = strict_cli_environment.copy()
+    environment["PATH"] = str(isolated_bin)
+
+    result = _run_cli(environment, "status")
+
+    assert result.returncode == 127
+    assert result.stdout == ""
+    assert result.stderr == "error: required command not found: sqlite3\n"
+
+
+def test_sqlite_failure_propagates_and_stops_status(
+    strict_cli_environment: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    failing_bin = tmp_path / "failing-sqlite-bin"
+    failing_bin.mkdir()
+    _write_executable(failing_bin / "sqlite3", "exit 19")
+    environment = strict_cli_environment.copy()
+    environment["PATH"] = f"{failing_bin}:{environment['PATH']}"
+
+    result = _run_cli(environment, "status")
+
+    assert result.returncode == 19
+    assert "LAST ENGINE RUNS" in result.stdout
+    assert "SYSTEM READY" not in result.stdout
+
+
+def test_missing_optional_launchctl_does_not_fail_status(
+    strict_cli_environment: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    isolated_bin = tmp_path / "sqlite-only-bin"
+    isolated_bin.mkdir()
+    (isolated_bin / "sqlite3").symlink_to("/usr/bin/sqlite3")
+    environment = strict_cli_environment.copy()
+    environment["PATH"] = str(isolated_bin)
+
+    result = _run_cli(environment, "status")
+
+    assert result.returncode == 0
+    assert "SYSTEM READY" in result.stdout
+    assert result.stderr == "warning: optional command not found: launchctl\n"
+
+
+def test_failed_optional_launchctl_does_not_fail_status(
+    strict_cli_environment: dict[str, str],
+) -> None:
+    launchctl = Path(strict_cli_environment["PATH"].split(":", 1)[0]) / "launchctl"
+    _write_executable(launchctl, "exit 31")
+
+    result = _run_cli(strict_cli_environment, "status")
+
+    assert result.returncode == 0
+    assert "SYSTEM READY" in result.stdout
+    assert result.stderr == "warning: optional command failed: launchctl list\n"
+
+
+def test_child_command_failure_propagates(
+    strict_cli_environment: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    service = tmp_path / ".gmv_core" / "10_API" / "object_service.py"
+    service.parent.mkdir(parents=True)
+    _write_executable(service, "exit 23")
+
+    result = _run_cli(strict_cli_environment, "object", "list")
+
+    assert result.returncode == 23
+
+
+def test_no_arguments_remains_a_valid_help_request(
+    strict_cli_environment: dict[str, str],
+) -> None:
+    result = _run_cli(strict_cli_environment)
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout.startswith("GMV CLI\n")
