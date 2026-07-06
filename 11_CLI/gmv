@@ -71,6 +71,11 @@ echo "=================================================="
 ;;
 
 doctor)
+if [ "${2:-}" = "--strict" ]; then
+  shift 2
+  "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/doctor_service.py" "$@"
+  exit $?
+fi
 require_command sqlite3
 echo
 echo "=================================================="
