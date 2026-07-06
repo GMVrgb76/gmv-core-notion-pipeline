@@ -89,3 +89,11 @@ def test_manifest_disables_automatic_restore(tmp_path: Path) -> None:
     assert manifest["automatic_restore_authority"] is False
     assert manifest["policy"] == "GMV Recovery Policy v1"
     assert os.path.basename(manifest["entries"][0]["path"]) == "GMV.db"
+
+
+def test_scheduler_uses_pinned_python_and_private_umask() -> None:
+    script = (ROOT / "12_SCHEDULER" / "run_backup.sh").read_text()
+    plist = (ROOT / "12_SCHEDULER" / "com.gmv.backup.plist.template").read_text()
+    assert ".venv/bin/python" in script
+    assert "<key>StartInterval</key>\n  <integer>900</integer>" in plist
+    assert "<key>Umask</key>\n  <integer>63</integer>" in plist
