@@ -41,6 +41,22 @@ def _parse_datetime(value: object) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _load_service_records(
+    records_path: Path,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    valid_records: list[dict[str, Any]] = []
+    invalid_records: list[str] = []
+    records = read_records(records_path)
+    for record in records:
+        try:
+            validate_record(record)
+        except (ValueError, json.JSONDecodeError) as error:
+            invalid_records.append(str(error))
+        else:
+            valid_records.append(record)
+    return valid_records, invalid_records
+
+
 def _service_results(
     records_path: Path,
     *,
@@ -57,19 +73,27 @@ def _service_results(
             )
         ]
     try:
-        records = read_records(records_path)
-        for record in records:
-            validate_record(record)
+        records, invalid_records = _load_service_records(records_path)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         return [
             HealthResult(
                 "service.freshness",
-                "FAIL",
-                "required",
+                "UNAVAILABLE",
+                "degraded",
                 f"invalid operational records: {error}",
             )
         ]
     if not records:
+        if invalid_records:
+            return [
+                HealthResult(
+                    "service.freshness",
+                    "UNAVAILABLE",
+                    "degraded",
+                    "historical malformed operational records skipped: "
+                    + "; ".join(invalid_records),
+                )
+            ]
         return [
             HealthResult(
                 "service.freshness",
@@ -94,13 +118,18 @@ def _service_results(
         policy_fresh_until = ended_at + timedelta(seconds=stale_after_seconds)
         fresh_until = min(configured_fresh_until, policy_fresh_until)
         status = str(record["status"])
+        note = (
+            f"; skipped {len(invalid_records)} malformed historical record(s)"
+            if invalid_records
+            else ""
+        )
         if status != "OK":
             results.append(
                 HealthResult(
                     f"service.freshness.{service}",
                     "DEGRADED",
                     "degraded",
-                    f"latest status is {status}",
+                    f"latest status is {status}{note}",
                 )
             )
         elif now > fresh_until:
@@ -109,7 +138,7 @@ def _service_results(
                     f"service.freshness.{service}",
                     "DEGRADED",
                     "degraded",
-                    f"stale since {fresh_until.isoformat()}",
+                    f"stale since {fresh_until.isoformat()}{note}",
                 )
             )
         else:
@@ -118,7 +147,7 @@ def _service_results(
                     f"service.freshness.{service}",
                     "PASS",
                     "degraded",
-                    f"fresh until {fresh_until.isoformat()}",
+                    f"fresh until {fresh_until.isoformat()}{note}",
                 )
             )
     return results

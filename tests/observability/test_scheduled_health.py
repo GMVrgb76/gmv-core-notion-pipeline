@@ -109,6 +109,42 @@ def test_stale_service_is_degraded_without_failed_exit(tmp_path: Path) -> None:
     assert "stale since" in service["message"]
 
 
+def test_malformed_historical_record_does_not_block_current_freshness(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    now = datetime(2026, 7, 6, tzinfo=UTC)
+    records = tmp_path / "operations.jsonl"
+    records.write_text(
+        "\n".join(
+            [
+                (
+                    '{"schema_version":1,"run_id":"RUN-reset-'
+                    '00000000000000000000000000000000","correlation_id":"COR-reset-'
+                    '00000000000000000000000000000000","service":"gmv-core",'
+                    '"status":"OK","error_code":"none","started_at":"2026-07-07T00:00:00Z",'
+                    '"ended_at":"2026-07-07T00:00:01Z","fresh_until":"2026-07-08T00:00:00Z",'
+                    '"return_code":0,"command":["gmv","reset"],"summary":"system reset baseline",'
+                    '"artifacts":[],"runbook":"RUNBOOK-NONE"}'
+                ),
+                json.dumps(_record("research", now - timedelta(hours=1))),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run(database, records, now)
+
+    payload = json.loads(result.stdout)
+    research = next(
+        check for check in payload["checks"] if check["name"] == "service.freshness.research"
+    )
+    assert result.returncode == 0
+    assert research["status"] == "PASS"
+    assert "skipped 1 malformed historical record" in research["message"]
+
+
 def test_required_failures_aggregate_to_nonzero(tmp_path: Path) -> None:
     now = datetime(2026, 7, 6, tzinfo=UTC)
     result = _run(tmp_path / "missing.db", tmp_path / "missing.jsonl", now)
