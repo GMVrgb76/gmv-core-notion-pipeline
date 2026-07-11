@@ -35,6 +35,15 @@ def _core(tmp_path: Path) -> Path:
     return core
 
 
+def _run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(ROOT / "10_API" / "backup_service.py"), *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_create_verify_and_isolated_restore(tmp_path: Path) -> None:
     core = _core(tmp_path)
     root = tmp_path / "backups"
@@ -106,3 +115,69 @@ def test_cli_has_no_live_restore_surface() -> None:
     cli = (ROOT / "11_CLI" / "gmv").read_text()
     assert "restore-check" in cli
     assert "snapshot restore <" not in cli
+
+
+def test_cli_inspect_verify_and_restore_check_are_stable(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    root = tmp_path / "backups"
+    backup = BACKUP.create_backup(core, root, now=datetime(2026, 7, 6, tzinfo=UTC))
+    target = tmp_path / "isolated"
+
+    inspect = _run_cli("inspect", str(backup))
+    verify = _run_cli("verify", str(backup))
+    restore = _run_cli("restore-check", str(backup), str(target))
+
+    assert inspect.returncode == 0
+    manifest = json.loads(inspect.stdout)
+    assert manifest["schema_version"] == 1
+    assert manifest["policy"] == "GMV Recovery Policy v1"
+
+    assert verify.returncode == 0
+    evidence = json.loads(verify.stdout)
+    assert evidence["integrity"] == "ok"
+    assert evidence["backup_id"] == manifest["backup_id"]
+
+    assert restore.returncode == 0
+    restored = json.loads(restore.stdout)
+    assert restored["canonical_overwrite"] is False
+    assert restored["target"] == str(target)
+    assert (target / "09_DATABASE" / "GMV.db").is_file()
+
+
+def test_cli_create_rejects_encrypt_flag(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    root = tmp_path / "backups"
+
+    result = _run_cli(
+        "create",
+        "--core",
+        str(core),
+        "--root",
+        str(root),
+        "--encrypt",
+    )
+
+    assert result.returncode == 1
+    assert "key custody is not approved" in result.stderr
+    assert not root.exists()
+
+
+def test_cli_verify_rejects_missing_and_wrong_schema_manifest(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    root = tmp_path / "backups"
+    backup = BACKUP.create_backup(core, root, now=datetime(2026, 7, 6, tzinfo=UTC))
+
+    (backup / "manifest.json").unlink()
+    missing = _run_cli("verify", str(backup))
+    assert missing.returncode == 1
+    assert missing.stderr.startswith("error:")
+
+    backup = BACKUP.create_backup(core, root, now=datetime(2026, 7, 6, tzinfo=UTC))
+    manifest_path = backup / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 999
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2), encoding="utf-8")
+
+    wrong_schema = _run_cli("verify", str(backup))
+    assert wrong_schema.returncode == 1
+    assert "unsupported backup manifest schema" in wrong_schema.stderr

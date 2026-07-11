@@ -7,7 +7,7 @@ import argparse
 import json
 import sqlite3
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from health_service import (
@@ -19,6 +19,7 @@ from health_service import (
 )
 
 SCHEMA_VERSION = 1
+UTC = timezone.utc
 
 
 def _queue_result(database: Path) -> HealthResult:

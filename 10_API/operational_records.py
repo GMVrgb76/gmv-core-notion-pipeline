@@ -8,9 +8,11 @@ import json
 import os
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+UTC = timezone.utc
 
 SCHEMA_VERSION = 1
 MAX_FIELD_LENGTH = 4096

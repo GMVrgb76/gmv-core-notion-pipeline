@@ -14,12 +14,14 @@ import sqlite3
 import subprocess
 import sys
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from secure_storage import atomic_write_text, require_private, secure_directory
 from audit_integrity import append as append_audit
+
+UTC = timezone.utc
 
 SCHEMA_VERSION = 1
 POLICY_VERSION = "GMV Recovery Policy v1"

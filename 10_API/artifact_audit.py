@@ -7,9 +7,11 @@ import argparse
 import json
 import sqlite3
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+UTC = timezone.utc
 
 
 def connect_read_only(database: Path) -> sqlite3.Connection:

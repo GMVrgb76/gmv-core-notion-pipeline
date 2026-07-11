@@ -7,13 +7,15 @@ import argparse
 import json
 import signal
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import FrameType
 from typing import Any, Callable
 
 from doctor_service import run_checks
 from operational_records import read_records, validate_record
+
+UTC = timezone.utc
 
 SCHEMA_VERSION = 1
 EXIT_FAILED = 1
@@ -24,7 +26,7 @@ class HealthTimeoutError(TimeoutError):
     """Raised when a scheduled health run exceeds its policy bound."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, )
 class HealthResult:
     name: str
     status: str
