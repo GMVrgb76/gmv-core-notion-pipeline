@@ -45,6 +45,15 @@ that task's report; this file states only the operative facts.
   and marked `Disabled: true` (a standard, documented launchd mechanism).
   `ProgramArguments`, `StartCalendarInterval`, and every other key are
   unchanged.
+- `launchd`'s own per-user service database (`gui/<uid>`, not a file):
+  `com.gmv.apprentice` was additionally disabled via
+  `launchctl disable gui/$(id -u)/com.gmv.apprentice`. Confirmed via
+  `launchctl print-disabled gui/$(id -u)` (`"com.gmv.apprentice" => disabled`)
+  and `launchctl print gui/$(id -u)/com.gmv.apprentice` ("Could not find
+  service... in domain" — not loaded). This is a second, independent,
+  persistent disable layer, separate from the plist's own `Disabled` key, and
+  is the more authoritative of the two on macOS: it survives reboots and any
+  future plist edit that does not also re-enable the service at this layer.
 
 ## What was not changed
 
@@ -64,13 +73,20 @@ that task's report; this file states only the operative facts.
 
 ## Manual reactivation path
 
+Two independent disable layers exist; both must be reversed — either one
+alone is sufficient to keep the job from running.
+
 1. Diagnose and fix the `PermissionError` on
    `.../99_SYSTEM/10_APPRENTICE/EXPERIENCE_LOG.md` (not investigated here —
    see the Apprentice archaeology report's evidence gaps).
-2. Remove the `Disabled` key (or set it `false`) in
+2. Re-enable at the launchd database level:
+   `launchctl enable gui/$(id -u)/com.gmv.apprentice`.
+3. Remove the `Disabled` key (or set it `false`) in
    `~/Library/LaunchAgents/com.gmv.apprentice.plist`.
-3. `launchctl load ~/Library/LaunchAgents/com.gmv.apprentice.plist`.
-4. Confirm a successful run before relying on its output again.
+4. `launchctl load ~/Library/LaunchAgents/com.gmv.apprentice.plist`.
+5. Confirm a successful, loaded run (e.g. via
+   `launchctl print gui/$(id -u)/com.gmv.apprentice`) before relying on its
+   output again.
 
 No code, configuration content, or historical output was deleted to reach
 this freeze.
