@@ -66,9 +66,9 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 
 - **Current Phase:** Post-REBASE 001 — targeted archaeology and freeze of previously-ungoverned automation.
 - **Current Objective:** Resolve the automation family surfaced by the System Authority Audit (`com.gmv.engine`/`gmv_decision_engine.sh` frozen; `com.gmv.fenix` archaeologized, freeze recommended; `gmv_watchdog.sh`/`gmv_orchestrator.sh` not yet archaeologized).
-- **Last Completed Task:** Post-REBASE 001 Task 6 — Forensic Archaeology of Fenix Automation (report only; no commit).
-- **Next Approved Task:** None formally approved as of this entry. Highest-priority pending item: freeze `com.gmv.fenix` (recommended by Task 6, verdict `FREEZE_UNAPPROVED_AUTOMATION`; awaiting Project Owner authorization).
-- **Last Commit:** `ab71c7e` — "docs: freeze unapproved GMV engine automation" (2026-07-13).
+- **Last Completed Task:** Meta Task — Create `SYSTEM_MAP.md`, the permanent architectural map (built from existing evidence only).
+- **Next Approved Task:** None formally approved as of this entry. Highest-priority pending item: freeze `com.gmv.fenix` (recommended by Post-REBASE 001 Task 6, verdict `FREEZE_UNAPPROVED_AUTOMATION`; awaiting Project Owner authorization).
+- **Last Commit:** this task's commit (see `git log`) — "docs: create SYSTEM_MAP.md and update operational ledger".
 - **Repository Status:** Clean — no unexplained tracked modifications as of the last System Authority Audit (Post-REBASE 001 Task 3, 2026-07-13). Untracked material remains present (see §7, Automation Review) but is inventoried, not unexplained.
 - **Runtime Status:** One native Core service (`SRV-000001` Knowledge Engine) and three compatibility services (`SRV-000002` Morning Brief, `SRV-000003` Daily Log, `SRV-000004` Market Engine) are registered and active. Four components are formally frozen (Apprentice, Constitution CLI feature, Real Estate orchestration, GMV Engine/Decision Engine automation). One component (Fenix) is archaeologized but not yet frozen and remains loaded/scheduled.
 - **Current Risks:** See §6, Open Questions and §7, Project Health.
@@ -133,6 +133,8 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 | 2026-07-13 | Post-REBASE 001 Task 5 — Freeze GMV Engine / Decision Engine automation | Complete; `com.gmv.engine` disabled at both launchd layers | `00_CONFIG/GMV_ENGINE_DECISION_AUTOMATION_FREEZE.md` | `ab71c7e` | Fenix archaeology |
 | 2026-07-13 | Post-REBASE 001 Task 6 — Forensic archaeology of Fenix automation | `FREEZE_UNAPPROVED_AUTOMATION` (recommended; not yet authorized) | Report-only | none | Freeze `com.gmv.fenix` (pending approval) |
 | 2026-07-13 | Post-REBASE 001 Meta Task — Create Project Operational Ledger | This document created | `00_CONFIG/PROJECT_STATUS.md` | none (not staged/committed per task instruction) | Per Next Approved Task above |
+| 2026-07-13 | Meta Task — Establish Permanent Project Governance | Task Completion Protocol added (Rules 6–9, "PROJECT STATUS UPDATE" block) | `00_CONFIG/PROJECT_STATUS.md` | `e29395d` | Create `SYSTEM_MAP.md` |
+| 2026-07-13 | Post-REBASE 001 Meta Task — Create `SYSTEM_MAP.md` | Permanent architectural map created from existing evidence only; no new architecture inferred | `00_CONFIG/SYSTEM_MAP.md`, `00_CONFIG/PROJECT_STATUS.md` | this commit (see `git log`) | Per Next Approved Task above |
 
 ---
 
@@ -165,6 +167,7 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 - `00_CONFIG/REBASE_001_CLOSED.md`
 - `00_CONFIG/REBASE_001_INTERIM_STATE.md`
 - `00_CONFIG/WHAT_TO_DO_NEXT.md`
+- `00_CONFIG/SYSTEM_MAP.md` (permanent architectural map, not a status document — indexed here for discoverability)
 
 Additional pre-existing governance documents (security, retention, backup, versioning, and per-domain architecture references) exist under `00_CONFIG/` outside the scope of REBASE 001 / Post-REBASE 001 and are not indexed here.
 
