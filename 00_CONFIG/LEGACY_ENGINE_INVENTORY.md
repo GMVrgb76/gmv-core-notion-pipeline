@@ -100,6 +100,15 @@ scheduled or currently executing.
   `02_IMMOBILI/02_COMPARABLES/`.
 - **Writes:** Dropbox `MARKET_REPORT.md` and `MARKET_STATUS.md` when executed,
   plus Core compatibility stdout/stderr artifacts, `engine_runs`, and `timeline`.
+- **Output rendering:** the pinned local release's rendering of the
+  Comparables section, and of Market entries with headings but no recognized
+  numbers/keywords, differs from the Dropbox source's rendering in four
+  confirmed ways (Post-REBASE 001 Task 2, corrected). Per Project Owner
+  decision (`00_CONFIG/ADR_MARKET_ENGINE_RENDERING_DIVERGENCE.md`,
+  2026-07-13, `INTENTIONAL_IMPROVEMENT`), the pinned local release's rendering
+  is the accepted runtime behaviour; the Dropbox source's rendering is
+  reclassified as `HISTORICAL_BEHAVIOUR_ONLY`, not an active compatibility
+  contract.
 - **Ownership:** no accountable owner is recorded in the available registry,
   wrapper, or source. Operational ownership is **UNAVAILABLE** pending explicit
   assignment.
