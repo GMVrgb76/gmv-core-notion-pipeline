@@ -64,15 +64,15 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 
 *Current state only. For history, see §4. For architectural reasoning, see §2 and the referenced documents.*
 
-- **Current Phase:** Post-REBASE 001 — targeted archaeology and freeze of previously-ungoverned automation.
-- **Current Objective:** Resolve the automation family surfaced by the System Authority Audit (`com.gmv.engine`/`gmv_decision_engine.sh` frozen; `com.gmv.fenix` archaeologized, freeze recommended; `gmv_watchdog.sh`/`gmv_orchestrator.sh` not yet archaeologized).
-- **Last Completed Task:** Meta Task — Define Stabilization Exit Criteria (`00_CONFIG/STABILIZATION_EXIT_CRITERIA.md`); readiness determination: `NEAR COMPLETION`.
-- **Next Approved Task:** None formally approved as of this entry. Two BLOCKER-class items must close before Stabilization can close (see `STABILIZATION_EXIT_CRITERIA.md`): (1) freeze `com.gmv.fenix`, pending Project Owner authorization; (2) archaeology and disposition of `~/GMV_CORE`'s two loaded LaunchAgents (`com.gmv.morningbrief.email`, `com.gmv.dailybrief`).
-- **Last Commit:** this task's commit (see `git log`) — "docs: define GMV Stabilization exit criteria".
+- **Current Phase:** Stabilization — `NEAR COMPLETION` (see `00_CONFIG/STABILIZATION_EXIT_CRITERIA.md`).
+- **Current Objective:** Close the remaining Stabilization blocker: forensic archaeology and disposition of `~/GMV_CORE` and its two loaded LaunchAgents (`com.gmv.morningbrief.email`, `com.gmv.dailybrief`).
+- **Last Completed Task:** Post-REBASE 001 Task 7 — Provisional Suspension of Fenix Pending Technical Review (`00_CONFIG/FENIX_PROVISIONAL_SUSPENSION.md`).
+- **Next Approved Task:** Forensic archaeology of `~/GMV_CORE`, `com.gmv.morningbrief.email`, and `com.gmv.dailybrief`.
+- **Last Commit:** this task's commit (see `git log`) — "docs: suspend Fenix pending technical review".
 - **Repository Status:** Clean — no unexplained tracked modifications as of the last System Authority Audit (Post-REBASE 001 Task 3, 2026-07-13). Untracked material remains present (see §7, Automation Review) but is inventoried, not unexplained.
-- **Runtime Status:** One native Core service (`SRV-000001` Knowledge Engine) and three compatibility services (`SRV-000002` Morning Brief, `SRV-000003` Daily Log, `SRV-000004` Market Engine) are registered and active. Four components are formally frozen (Apprentice, Constitution CLI feature, Real Estate orchestration, GMV Engine/Decision Engine automation). One component (Fenix) is archaeologized but not yet frozen and remains loaded/scheduled.
+- **Runtime Status:** One native Core service (`SRV-000001` Knowledge Engine) and three compatibility services (`SRV-000002` Morning Brief, `SRV-000003` Daily Log, `SRV-000004` Market Engine) are registered and active. Four components are formally frozen (Apprentice, Constitution CLI feature, Real Estate orchestration, GMV Engine/Decision Engine automation). Fenix is provisionally suspended pending technical review (operational suspension only — not a final architectural disposition).
 - **Current Risks:** See §6, Open Questions and §7, Project Health.
-- **Current Blockers:** None preventing continued read-only archaeology. Any further freeze action requires explicit Project Owner authorization per this project's established pattern.
+- **Current Blockers:** One BLOCKER-class item remains per `STABILIZATION_EXIT_CRITERIA.md`: archaeology and disposition of `~/GMV_CORE`'s two loaded LaunchAgents. Any further freeze/suspension action requires explicit Project Owner authorization per this project's established pattern.
 - **Development Readiness:** Ready for controlled, evidence-first work (see §7).
 - **Last Updated:** 2026-07-13.
 
@@ -100,10 +100,10 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 
 | Item | Status | Owner | Priority | Dependencies |
 |---|---|---|---|---|
-| Freeze `com.gmv.fenix` / `gmv_fenix_engine.sh` | PENDING_APPROVAL (recommended, Post-REBASE 001 Task 6) | Unassigned | High | None |
+| Fenix final disposition (`com.gmv.fenix` / `gmv_fenix_engine.sh`) | PROVISIONALLY SUSPENDED — PENDING TECHNICAL REVIEW (Post-REBASE 001 Task 7; see `00_CONFIG/FENIX_PROVISIONAL_SUSPENSION.md` for minimum requirements) | Unassigned | Medium (operational exposure removed; final disposition not urgent) | None |
+| Archaeology and disposition of `~/GMV_CORE`, `com.gmv.morningbrief.email`, `com.gmv.dailybrief` | APPROVED — sole remaining Stabilization BLOCKER | Unassigned | High | None |
 | Classify Dropbox `property_engine.py` | IDENTIFIED, unscheduled (open since REBASE 001 Task 3) | Unassigned | Medium | None |
 | Archaeology of `gmv_watchdog.sh` and `gmv_orchestrator.sh` | IDENTIFIED, unscheduled (flagged by System Authority Audit and GMV Engine/Fenix archaeology as sharing the same governance gap) | Unassigned | Medium | None |
-| Classify `~/GMV_CORE` (Local Coding Engine workspace root) | IDENTIFIED, unscheduled | Unassigned | Low–Medium | None |
 | Diagnose persistent `gmv status` CLI failure under `launchd` | IDENTIFIED, unscheduled (evidence gap in Post-REBASE 001 Tasks 4 and 6) | Unassigned | Medium | None |
 
 ---
@@ -136,6 +136,7 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 | 2026-07-13 | Meta Task — Establish Permanent Project Governance | Task Completion Protocol added (Rules 6–9, "PROJECT STATUS UPDATE" block) | `00_CONFIG/PROJECT_STATUS.md` | `e29395d` | Create `SYSTEM_MAP.md` |
 | 2026-07-13 | Post-REBASE 001 Meta Task — Create `SYSTEM_MAP.md` | Permanent architectural map created from existing evidence only; no new architecture inferred | `00_CONFIG/SYSTEM_MAP.md`, `00_CONFIG/PROJECT_STATUS.md` | `cd239fb` | Per Next Approved Task above |
 | 2026-07-13 | Meta Task — Define Stabilization Exit Criteria | `NEAR COMPLETION` — 2 BLOCKER items remain (freeze `com.gmv.fenix`; archaeology/disposition of `~/GMV_CORE`'s two loaded LaunchAgents); all other remaining work classified `POST-STABILIZATION` or `HISTORICAL` | `00_CONFIG/STABILIZATION_EXIT_CRITERIA.md`, `00_CONFIG/PROJECT_STATUS.md` | this commit (see `git log`) | Freeze `com.gmv.fenix` (pending approval); archaeology of `~/GMV_CORE`'s live LaunchAgents |
+| 2026-07-13 | Post-REBASE 001 Task 7 — Provisional Suspension of Fenix Pending Technical Review | `PROVISIONALLY SUSPENDED — PENDING TECHNICAL REVIEW` (operational suspension only; no final architectural disposition); `com.gmv.fenix` disabled at both launchd layers; blocker count reduced from 2 to 1 | `00_CONFIG/FENIX_PROVISIONAL_SUSPENSION.md`, `00_CONFIG/PROJECT_STATUS.md` | this commit (see `git log`) | Forensic archaeology of `~/GMV_CORE`, `com.gmv.morningbrief.email`, `com.gmv.dailybrief` |
 
 ---
 
@@ -151,6 +152,9 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 - `00_CONFIG/CONSTITUTION_CLI_FEATURE_FREEZE.md`
 - `00_CONFIG/REALESTATE_LEGACY_FREEZE.md`
 - `00_CONFIG/GMV_ENGINE_DECISION_AUTOMATION_FREEZE.md`
+
+**Suspension** (operational only — not a Freeze/legacy classification; final disposition pending)
+- `00_CONFIG/FENIX_PROVISIONAL_SUSPENSION.md`
 
 **Specification**
 - `00_CONFIG/SERVICE_SPECIFICATION.md`
@@ -184,7 +188,7 @@ Additional pre-existing governance documents (security, retention, backup, versi
 3. Classification of Dropbox `property_engine.py` (open since REBASE 001 Task 3; never resolved).
 4. Classification of `~/GMV_CORE` (Local Coding Engine workspace root) — Core, Repository, or a category not yet defined by this project (System Authority Audit).
 5. Disposition of `gmv_watchdog.sh` and `gmv_orchestrator.sh` — flagged as sharing the same governance-contradiction evidence as the frozen GMV Engine and archaeologized Fenix, not yet individually archaeologized.
-6. Whether `com.gmv.fenix` should be frozen — recommended by Post-REBASE 001 Task 6, pending Project Owner approval.
+6. Fenix's final architectural disposition (keep/govern, merge, or decommission) — operationally suspended pending technical review (Post-REBASE 001 Task 7); see `FENIX_PROVISIONAL_SUSPENSION.md` for the minimum requirements that must be satisfied before this question can be resolved.
 
 ---
 
@@ -195,10 +199,10 @@ Additional pre-existing governance documents (security, retention, backup, versi
 - **Architecture:** STABLE — core principles (Runtime belongs to Core; Dropbox is Repository; freeze before deletion; authority before execution; archaeology before implementation) established in REBASE 001 and consistently applied through Post-REBASE 001.
 - **Governance:** IMPROVING — REBASE 001 resolved four long-standing ungoverned components; a previously-undiscovered automation family (`scripts/gmv_*.sh`, six LaunchAgents) was surfaced by the System Authority Audit and is partially, not fully, resolved.
 - **Repository:** CLEAN — no unexplained tracked modifications as of the last audit (Post-REBASE 001 Task 3).
-- **Runtime:** PARTIALLY GOVERNED — one native service and three compatibility services are registered and documented; a discovered automation family remains partially frozen.
+- **Runtime:** PARTIALLY GOVERNED — one native service and three compatibility services are registered and documented; a discovered automation family remains partially frozen/suspended.
 - **Compatibility:** STABLE — three compatibility services registered, hash-pinned, and documented; one output-rendering divergence formally resolved by ADR.
 - **Legacy Review:** IN PROGRESS — four components frozen with documented reactivation conditions; `property_engine.py` and `~/GMV_CORE` remain unclassified.
-- **Automation Review:** IN PROGRESS — System Authority Audit found 12 untracked scripts across 6 LaunchAgents; 2 scripts (`gmv_engine.sh`, `gmv_decision_engine.sh`) are frozen, 1 (`gmv_fenix_engine.sh`) is archaeologized with a pending freeze recommendation, 3 remain unaudited (`gmv_watchdog.sh`, `gmv_orchestrator.sh`, and their further sub-scripts).
+- **Automation Review:** IN PROGRESS — System Authority Audit found 12 untracked scripts across 6 LaunchAgents; 2 scripts (`gmv_engine.sh`, `gmv_decision_engine.sh`) are frozen, 1 (`gmv_fenix_engine.sh`) is provisionally suspended pending technical review (not frozen, not legacy — final disposition open), 3 remain unaudited (`gmv_watchdog.sh`, `gmv_orchestrator.sh`, and their further sub-scripts).
 - **Development Readiness:** READY FOR CONTROLLED WORK — the evidence-first, report-then-freeze pattern is well-established, repeatable, and has produced consistent, reversible outcomes across every component examined to date; no blocking technical issue prevents continued work.
 
 ---
