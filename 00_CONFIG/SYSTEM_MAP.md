@@ -32,7 +32,7 @@ not yet classified at all.
 | **Core Runtime** | Houses all executable runtime code | Runtime belongs to Core (git-tracked) | `REBASE_001_CLOSED.md` | CANONICAL |
 | **CLI** | Operative access point (`11_CLI/gmv`) | Baseline restored to `HEAD`; unauthorized additions removed | `CONSTITUTION_CLI_FEATURE_FREEZE.md` | CANONICAL |
 | **Service Layer** | Registers, executes, and observes Services (native + compatibility) as Objects of type Service | `SERVICE_SPECIFICATION.md` (Normativo, v1.0) | `SERVICE_SPECIFICATION.md` | CANONICAL (spec); partially populated (4 registered Service OIDs) |
-| **Scheduler** | Time-based invocation of Services and compatibility wrappers | `scheduler` field per Service contract (`SERVICE_SPECIFICATION.md` §3/§10–13) | `SERVICE_SPECIFICATION.md`, `GMV_ENGINE_DECISION_AUTOMATION_FREEZE.md` | PARTIALLY GOVERNED — a separate, ungoverned scheduled-automation family exists outside this model; one of its components is FROZEN, the rest UNCLASSIFIED |
+| **Scheduler** | Time-based invocation of Services and compatibility wrappers | `scheduler` field per Service contract (`SERVICE_SPECIFICATION.md` §3/§10–13) | `SERVICE_SPECIFICATION.md`, `GMV_ENGINE_DECISION_AUTOMATION_FREEZE.md` | PARTIALLY GOVERNED — a separate, previously ungoverned scheduled-automation family exists outside this model; its live members are now FROZEN or SUSPENDED, the rest remain UNCLASSIFIED but dormant (not currently loaded) |
 | **Database** | Canonical persistent store (Objects, Timeline, `engine_runs`) | "Read the Core as the source of truth" (`SERVICE_SPECIFICATION.md` §5.1) | `SERVICE_SPECIFICATION.md` | CANONICAL |
 | **Knowledge System** | Structured knowledge layer (`SRV-000001`) | Native Core Service, `compatibility_mode: 0` | `SERVICE_SPECIFICATION.md` §10 | CANONICAL |
 | **Compatibility Layer** | Encapsulates V1 legacy components with hash-pinned, rollback-capable execution | `SERVICE_SPECIFICATION.md` §9 | `SERVICE_SPECIFICATION.md`, `LEGACY_ENGINE_INVENTORY.md` | COMPATIBILITY (3 registered: `SRV-000002/3/4`) |
@@ -70,10 +70,10 @@ Classification drawn only from the referenced documents.
 | Constitution CLI feature (`constitution_service.py`) | **FROZEN** | `CONSTITUTION_CLI_FEATURE_FREEZE.md` |
 | Real Estate orchestration (`realestate_runner.py` family) | **FROZEN** | `REALESTATE_LEGACY_FREEZE.md` |
 | GMV Engine / Decision Engine automation (`com.gmv.engine`, `gmv_engine.sh`, `gmv_decision_engine.sh`) | **FROZEN** | `GMV_ENGINE_DECISION_AUTOMATION_FREEZE.md` |
-| Fenix automation (`gmv_fenix_engine.sh`) | **UNCLASSIFIED** | `PROJECT_STATUS.md` §3/§6 — archaeologized, freeze recommended, not yet authorized; no Freeze document exists |
-| `gmv_watchdog.sh` / `gmv_orchestrator.sh` | **UNCLASSIFIED** | `PROJECT_STATUS.md` §3/§6 — not yet archaeologized |
+| Fenix automation (`gmv_fenix_engine.sh`) | **SUSPENDED** (provisional; not one of the four canonical categories — final disposition pending technical review) | `FENIX_PROVISIONAL_SUSPENSION.md` |
+| `gmv_watchdog.sh` / `gmv_orchestrator.sh` | **UNCLASSIFIED** | `PROJECT_STATUS.md` §3/§6 — not yet archaeologized; confirmed not currently loaded |
 | Dropbox `property_engine.py` | **UNCLASSIFIED** | `PROJECT_STATUS.md` §6 — open since REBASE 001, never resolved |
-| `~/GMV_CORE` (Local Coding Engine workspace root) | **UNCLASSIFIED** | `PROJECT_STATUS.md` §6 |
+| `~/GMV_CORE` root (self-identified "GMV Research Lab," a prototyping lab — no evidenced link to `LOCAL_CODING_ENGINE.md`) | **PRESERVE_PENDING_REVIEW** (root); its two live LaunchAgents are **SUSPENDED** | `GMV_RESEARCH_LAB_AUTOMATIONS_SUSPENSION.md` |
 
 ## 5. Documentation Map
 

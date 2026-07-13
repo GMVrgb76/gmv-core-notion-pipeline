@@ -64,16 +64,16 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 
 *Current state only. For history, see §4. For architectural reasoning, see §2 and the referenced documents.*
 
-- **Current Phase:** Stabilization — exit criteria operationally satisfied; Stabilization not yet formally closed.
-- **Current Objective:** Formal closure of Stabilization and opening of GMV Core Development.
-- **Last Completed Task:** Stabilization — Final Blocker Resolution: Provisional Suspension of `~/GMV_CORE` Live Automations (`00_CONFIG/GMV_RESEARCH_LAB_AUTOMATIONS_SUSPENSION.md`). Both `com.gmv.dailybrief` and `com.gmv.morningbrief.email` disabled and unloaded; `~/GMV_CORE` preserved as `PROTOTYPE_ROOT`, disposition `PRESERVE_PENDING_REVIEW`.
-- **Next Approved Task:** Formal closure of Stabilization and opening of GMV Core Development.
-- **Last Commit:** this task's commit (see `git log`) — "docs: suspend GMV Research Lab automations".
+- **Current Phase:** GMV Core Development. Stabilization is formally closed (`00_CONFIG/STABILIZATION_CLOSED.md`).
+- **Current Objective:** No GMV Core Development task has yet been opened. Deferred items from Stabilization (`PROJECT_STATUS.md` §3, `STABILIZATION_CLOSED.md` §6) are the known candidate backlog, none of them blocking.
+- **Last Completed Task:** Final Stabilization Closure — verification of all Stabilization Exit Criteria and formal closure declaration (`00_CONFIG/STABILIZATION_CLOSED.md`).
+- **Next Approved Task:** None formally approved. GMV Core Development has not been opened by any specific task in this ledger.
+- **Last Commit:** this task's commit (see `git log`) — "docs: formally close Stabilization phase".
 - **Repository Status:** Clean — no unexplained tracked modifications as of the last System Authority Audit (Post-REBASE 001 Task 3, 2026-07-13). Untracked material remains present (see §7, Automation Review) but is inventoried, not unexplained.
 - **Runtime Status:** One native Core service (`SRV-000001` Knowledge Engine) and three compatibility services (`SRV-000002` Morning Brief, `SRV-000003` Daily Log, `SRV-000004` Market Engine) are registered and active. Four components are formally frozen (Apprentice, Constitution CLI feature, Real Estate orchestration, GMV Engine/Decision Engine automation). Fenix, `com.gmv.dailybrief`, and `com.gmv.morningbrief.email` are provisionally suspended pending technical review (operational suspension only — none classified as legacy/frozen/rejected). No live, ungoverned, scheduled automation remains loaded.
 - **Current Risks:** See §6, Open Questions and §7, Project Health.
-- **Current Blockers:** None. The sole remaining Stabilization BLOCKER (live ungoverned automation) is resolved — live ungoverned automation blocker count is now zero. Stabilization exit criteria are operationally satisfied; formal closure has not yet been performed and requires a dedicated closure task.
-- **Development Readiness:** Ready for controlled, evidence-first work (see §7).
+- **Current Blockers:** None.
+- **Development Readiness:** Ready — Stabilization is closed; GMV Core Development may begin once a task is explicitly opened.
 - **Last Updated:** 2026-07-13.
 
 ---
@@ -100,7 +100,6 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 
 | Item | Status | Owner | Priority | Dependencies |
 |---|---|---|---|---|
-| Formal closure of Stabilization | APPROVED — sole remaining action; exit criteria operationally satisfied | Unassigned | High | None |
 | Fenix final disposition (`com.gmv.fenix` / `gmv_fenix_engine.sh`) | PROVISIONALLY SUSPENDED — PENDING TECHNICAL REVIEW (Post-REBASE 001 Task 7; see `00_CONFIG/FENIX_PROVISIONAL_SUSPENSION.md` for minimum requirements) | Unassigned | Medium (operational exposure removed; final disposition not urgent) | None |
 | `com.gmv.dailybrief` / `com.gmv.morningbrief.email` final disposition | PROVISIONALLY SUSPENDED — PENDING TECHNICAL REVIEW (this task; see `00_CONFIG/GMV_RESEARCH_LAB_AUTOMATIONS_SUSPENSION.md` for minimum requirements) | Unassigned | Medium (operational exposure removed; final disposition not urgent) | None |
 | `~/GMV_CORE` root — broader classification beyond its two (now suspended) live LaunchAgents | IDENTIFIED, unscheduled; root verdict `PRESERVE_PENDING_REVIEW`; ~40 further scripts and the `GMV_REDUCED` subsystem not yet audited | Unassigned | Low | None |
@@ -140,7 +139,8 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 | 2026-07-13 | Meta Task — Define Stabilization Exit Criteria | `NEAR COMPLETION` — 2 BLOCKER items remain (freeze `com.gmv.fenix`; archaeology/disposition of `~/GMV_CORE`'s two loaded LaunchAgents); all other remaining work classified `POST-STABILIZATION` or `HISTORICAL` | `00_CONFIG/STABILIZATION_EXIT_CRITERIA.md`, `00_CONFIG/PROJECT_STATUS.md` | this commit (see `git log`) | Freeze `com.gmv.fenix` (pending approval); archaeology of `~/GMV_CORE`'s live LaunchAgents |
 | 2026-07-13 | Post-REBASE 001 Task 7 — Provisional Suspension of Fenix Pending Technical Review | `PROVISIONALLY SUSPENDED — PENDING TECHNICAL REVIEW` (operational suspension only; no final architectural disposition); `com.gmv.fenix` disabled at both launchd layers; blocker count reduced from 2 to 1 | `00_CONFIG/FENIX_PROVISIONAL_SUSPENSION.md`, `00_CONFIG/PROJECT_STATUS.md` | `345ca3e` | Forensic archaeology of `~/GMV_CORE`, `com.gmv.morningbrief.email`, `com.gmv.dailybrief` |
 | 2026-07-13 | Stabilization — Final Blocker Task: Forensic Archaeology of `~/GMV_CORE` and its two live automations | Report-only. Root: `PROTOTYPE_ROOT` (relationship classification), `PRESERVE_PENDING_REVIEW` (disposition). `morning_os.py`: `PROVISIONALLY_SUSPEND` (7/7 runs failed, exit 1; live external-email capability sharing governed SMTP infrastructure). `dropbox_daily_brief.py`: `PROVISIONALLY_SUSPEND` (6/6 runs failed, `EX_CONFIG` 78, from a confirmed unescaped-`&&` plist XML defect, independently reproduced from the 2026-07-10 archaeology pass). No operational modification performed. | Report-only (no new document created) | not staged/committed, per task instruction | Provisional suspension of `com.gmv.morningbrief.email` and `com.gmv.dailybrief`, pending Project Owner authorization |
-| 2026-07-13 | Stabilization — Final Blocker Resolution: Provisional Suspension of `~/GMV_CORE` Live Automations | `PROVISIONALLY SUSPENDED` for both `com.gmv.dailybrief` and `com.gmv.morningbrief.email` (operational suspension only; `~/GMV_CORE` preserved as `PROTOTYPE_ROOT`, `PRESERVE_PENDING_REVIEW`, not classified as legacy). `com.gmv.morningbrief.email` disabled at both plist and launchd-database layers; `com.gmv.dailybrief` disabled at the launchd-database layer only — its plist could not be safely edited due to its pre-existing, unrepaired XML defect (recorded as a limitation, not fixed). Live ungoverned automation blocker count reduced to zero; Stabilization exit criteria operationally satisfied, but Stabilization not yet formally closed. | `00_CONFIG/GMV_RESEARCH_LAB_AUTOMATIONS_SUSPENSION.md`, `00_CONFIG/PROJECT_STATUS.md` | this commit (see `git log`) | Formal closure of Stabilization and opening of GMV Core Development |
+| 2026-07-13 | Stabilization — Final Blocker Resolution: Provisional Suspension of `~/GMV_CORE` Live Automations | `PROVISIONALLY SUSPENDED` for both `com.gmv.dailybrief` and `com.gmv.morningbrief.email` (operational suspension only; `~/GMV_CORE` preserved as `PROTOTYPE_ROOT`, `PRESERVE_PENDING_REVIEW`, not classified as legacy). `com.gmv.morningbrief.email` disabled at both plist and launchd-database layers; `com.gmv.dailybrief` disabled at the launchd-database layer only — its plist could not be safely edited due to its pre-existing, unrepaired XML defect (recorded as a limitation, not fixed). Live ungoverned automation blocker count reduced to zero; Stabilization exit criteria operationally satisfied, but Stabilization not yet formally closed. | `00_CONFIG/GMV_RESEARCH_LAB_AUTOMATIONS_SUSPENSION.md`, `00_CONFIG/PROJECT_STATUS.md` | `fecfb22` | Formal closure of Stabilization and opening of GMV Core Development |
+| 2026-07-13 | Post-REBASE 001 — Final Stabilization Closure | All 8 Stabilization Exit Criteria verified: 6 `PASS`, 2 `PARTIAL` (both explicitly pre-approved as non-blocking by `STABILIZATION_EXIT_CRITERIA.md`). No `BLOCKER` remains. One `DOCUMENTATION_ONLY` inconsistency found and corrected (`SYSTEM_MAP.md` §4's stale Fenix/`~/GMV_CORE` entries). Stabilization formally declared **CLOSED**; future work belongs to GMV Core Development. | `00_CONFIG/STABILIZATION_CLOSED.md`, `00_CONFIG/SYSTEM_MAP.md`, `00_CONFIG/PROJECT_STATUS.md` | this commit (see `git log`) | None — GMV Core Development not yet opened by any specific task |
 
 ---
 
@@ -179,6 +179,7 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 - `00_CONFIG/WHAT_TO_DO_NEXT.md`
 - `00_CONFIG/SYSTEM_MAP.md` (permanent architectural map, not a status document — indexed here for discoverability)
 - `00_CONFIG/STABILIZATION_EXIT_CRITERIA.md` (governance document — exit conditions for the Stabilization phase)
+- `00_CONFIG/STABILIZATION_CLOSED.md` (closure record — Stabilization phase formally closed)
 
 Additional pre-existing governance documents (security, retention, backup, versioning, and per-domain architecture references) exist under `00_CONFIG/` outside the scope of REBASE 001 / Post-REBASE 001 and are not indexed here.
 
