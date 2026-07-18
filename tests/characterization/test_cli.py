@@ -16,6 +16,7 @@ SERVICE_SERVICE = ROOT / "10_API" / "service_service.py"
 SEARCH_SERVICE = ROOT / "10_API" / "search_service.py"
 RESOURCE_SERVICE = ROOT / "10_API" / "resource_service.py"
 RELATION_SERVICE = ROOT / "10_API" / "relation_service.py"
+QUEUE_SERVICE = ROOT / "10_API" / "queue_service.py"
 
 
 def _run_cli(cli_environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -92,6 +93,20 @@ def _run_relation_service(
     # script directly instead of via 11_CLI/gmv's `relation` subcommand.
     return subprocess.run(
         [sys.executable, str(RELATION_SERVICE), *arguments],
+        env=cli_environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_queue_service(
+    cli_environment: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    # Same pre-existing $HOME CLI defect as _run_object_service; invoke the
+    # script directly instead of via 11_CLI/gmv's `queue` subcommand.
+    return subprocess.run(
+        [sys.executable, str(QUEUE_SERVICE), *arguments],
         env=cli_environment,
         check=False,
         capture_output=True,
@@ -393,4 +408,53 @@ def test_relation_show_missing_oid_is_characterized(cli_environment: dict[str, s
 
     assert result.returncode == 1
     assert result.stdout == "No relations found\n"
+    assert result.stderr == ""
+
+
+def test_queue_list_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_queue_service(cli_environment, "list")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "1|RES-000001|fixture.txt|pending|pending_review||1.0||"
+        "2026-01-01T00:00:00|2026-01-01T00:00:00\n"
+    )
+
+
+def test_queue_pending_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_queue_service(cli_environment, "pending")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "1|RES-000001|fixture.txt|pending|pending_review||1.0||"
+        "2026-01-01T00:00:00|2026-01-01T00:00:00\n"
+    )
+
+
+def test_queue_show_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_queue_service(cli_environment, "show", "1")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "Import ID: 1\n"
+        "Resource OID: RES-000001\n"
+        "Filename: fixture.txt\n"
+        "Status: pending\n"
+        "Review Status: pending_review\n"
+        "Proposed Destination: \n"
+        "Confidence: 1.0\n"
+        "Error: \n"
+        "Created: 2026-01-01T00:00:00\n"
+        "Updated: 2026-01-01T00:00:00\n"
+    )
+
+
+def test_queue_show_missing_id_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_queue_service(cli_environment, "show", "99")
+
+    assert result.returncode == 1
+    assert result.stdout == "Queue entry not found\n"
     assert result.stderr == ""

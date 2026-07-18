@@ -1,44 +1,27 @@
 #!/usr/bin/env python3
 import importlib
-import sqlite3
 import sys
 from pathlib import Path
 
-DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 CORE_ROOT = Path(__file__).resolve().parents[1]
 if str(CORE_ROOT) not in sys.path:
     sys.path.insert(0, str(CORE_ROOT))
 
 CLIInputError = importlib.import_module("gmv_core.errors").CLIInputError
 validate_positive_id = importlib.import_module("gmv_core.validation").validate_positive_id
-
-QUEUE_COLUMNS = """
-import_id,resource_oid,filename,status,review_status,proposed_destination,
-confidence,error,created_at,updated_at
-"""
-
-
-def connect():
-    return sqlite3.connect(DB)
+queue_repository = importlib.import_module("gmv_core.repositories.queue")
+database = importlib.import_module("gmv_core.database")
 
 
 def list_queue(pending_only=False):
-    query = f"SELECT {QUEUE_COLUMNS} FROM import_queue_view"
-    if pending_only:
-        query += " WHERE status='pending' OR review_status='pending_review'"
-    query += " ORDER BY created_at DESC,import_id DESC"
-
-    with connect() as conn:
-        return conn.execute(query).fetchall()
+    with database.connect() as conn:
+        return queue_repository.list_queue(conn, pending_only=pending_only)
 
 
 def show_queue_entry(import_id):
     import_id = validate_positive_id(import_id, argument="import_id")
-    with connect() as conn:
-        return conn.execute(
-            f"SELECT {QUEUE_COLUMNS} FROM import_queue_view WHERE import_id=?",
-            (import_id,),
-        ).fetchone()
+    with database.connect() as conn:
+        return queue_repository.get_queue_entry(conn, import_id)
 
 
 def print_row(row):
