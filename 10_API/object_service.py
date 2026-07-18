@@ -11,41 +11,23 @@ if str(CORE_ROOT) not in sys.path:
 
 CLIInputError = importlib.import_module("gmv_core.errors").CLIInputError
 validate_cli_oid = importlib.import_module("gmv_core.validation").validate_cli_oid
+objects_repository = importlib.import_module("gmv_core.repositories.objects")
 
 def connect():
     return sqlite3.connect(DB)
 
 def list_objects():
     with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT oid,type,name,status
-        FROM objects
-        ORDER BY type, oid
-        """)
-        return cur.fetchall()
+        return objects_repository.list_objects(conn)
 
 def count_objects():
     with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT type, COUNT(*)
-        FROM objects
-        GROUP BY type
-        ORDER BY type
-        """)
-        return cur.fetchall()
+        return objects_repository.count_objects(conn)
 
 def show_object(oid):
     oid = validate_cli_oid(oid).value
     with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT oid,type,name,status,created_at,updated_at
-        FROM objects
-        WHERE oid=?
-        """, (oid,))
-        return cur.fetchone()
+        return objects_repository.get_object(conn, oid)
 
 def main():
     if len(sys.argv) < 2:
