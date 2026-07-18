@@ -1,44 +1,26 @@
 #!/usr/bin/env python3
-import sqlite3
+import importlib
 import sys
 from pathlib import Path
 
-DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
 
-def connect():
-    return sqlite3.connect(DB)
+relations_repository = importlib.import_module("gmv_core.repositories.relations")
+database = importlib.import_module("gmv_core.database")
 
 def list_relations():
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT source_oid, source_name, relation_type, target_oid, target_name
-        FROM relation_view
-        ORDER BY source_oid, relation_type, target_oid
-        """)
-        return cur.fetchall()
+    with database.connect() as conn:
+        return relations_repository.list_relations(conn)
 
 def count_relations():
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT relation_type, COUNT(*)
-        FROM relations
-        GROUP BY relation_type
-        ORDER BY relation_type
-        """)
-        return cur.fetchall()
+    with database.connect() as conn:
+        return relations_repository.count_relations(conn)
 
 def show_relations(oid):
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT source_oid, source_name, relation_type, target_oid, target_name
-        FROM relation_view
-        WHERE source_oid=? OR target_oid=?
-        ORDER BY id
-        """, (oid, oid))
-        return cur.fetchall()
+    with database.connect() as conn:
+        return relations_repository.get_relations(conn, oid)
 
 def main():
     if len(sys.argv) < 2:

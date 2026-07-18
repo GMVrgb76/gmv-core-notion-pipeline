@@ -15,6 +15,7 @@ OBJECT_SERVICE = ROOT / "10_API" / "object_service.py"
 SERVICE_SERVICE = ROOT / "10_API" / "service_service.py"
 SEARCH_SERVICE = ROOT / "10_API" / "search_service.py"
 RESOURCE_SERVICE = ROOT / "10_API" / "resource_service.py"
+RELATION_SERVICE = ROOT / "10_API" / "relation_service.py"
 
 
 def _run_cli(cli_environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -77,6 +78,20 @@ def _run_resource_service(
     # script directly instead of via 11_CLI/gmv's `resource` subcommand.
     return subprocess.run(
         [sys.executable, str(RESOURCE_SERVICE), *arguments],
+        env=cli_environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_relation_service(
+    cli_environment: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    # Same pre-existing $HOME CLI defect as _run_object_service; invoke the
+    # script directly instead of via 11_CLI/gmv's `relation` subcommand.
+    return subprocess.run(
+        [sys.executable, str(RELATION_SERVICE), *arguments],
         env=cli_environment,
         check=False,
         capture_output=True,
@@ -346,4 +361,36 @@ def test_resource_show_missing_oid_is_characterized(cli_environment: dict[str, s
 
     assert result.returncode == 1
     assert result.stdout == "Resource not found\n"
+    assert result.stderr == ""
+
+
+def test_relation_list_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_relation_service(cli_environment, "list")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "SYS-000001|Fixture System|uses|RES-000001|fixture.txt\n"
+
+
+def test_relation_count_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_relation_service(cli_environment, "count")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "uses|1\n"
+
+
+def test_relation_show_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_relation_service(cli_environment, "show", "SYS-000001")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "SYS-000001|Fixture System|uses|RES-000001|fixture.txt\n"
+
+
+def test_relation_show_missing_oid_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_relation_service(cli_environment, "show", "ZZZ-000001")
+
+    assert result.returncode == 1
+    assert result.stdout == "No relations found\n"
     assert result.stderr == ""
