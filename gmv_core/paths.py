@@ -50,3 +50,19 @@ class GMVPaths:
     @property
     def database(self) -> Path:
         return self.database_directory / "GMV.db"
+
+    @property
+    def state(self) -> Path:
+        return self.home / "03_STATE"
+
+    @property
+    def state_objects(self) -> Path:
+        return self.state / "objects"
+
+    @property
+    def indexes(self) -> Path:
+        return self.home / "02_INDEXES"
+
+    @property
+    def object_index(self) -> Path:
+        return self.indexes / "OBJECT_INDEX.json"

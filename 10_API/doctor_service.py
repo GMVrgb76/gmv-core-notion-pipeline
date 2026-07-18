@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Evidence-based strict health diagnostics for GMV Core."""
+"""Evidence-based strict health diagnostics for GMV Core.
+
+`identity.json_conformance` is diagnostic enforcement only: it detects and
+reports non-conformant or duplicate JSON-sourced Object identities after
+the fact (see `gmv_core/json_identity_audit.py`). It does not lock, freeze,
+or otherwise physically prevent a write to `03_STATE/objects/*.json` or
+`02_INDEXES/OBJECT_INDEX.json` — that would be a separate, unauthorized
+enforcement mechanism (`MAIN-011`'s "reject new parallel state writes",
+still open).
+"""
 
 from __future__ import annotations
 
@@ -7,11 +16,19 @@ import argparse
 import json
 import sqlite3
 import stat
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
 from artifact_audit import audit_artifacts
+
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+from gmv_core.json_identity_audit import audit_json_identities  # noqa: E402
+from gmv_core.paths import GMVPaths  # noqa: E402
 
 SCHEMA_VERSION = 1
 REQUIRED_SCHEMA = {
@@ -50,7 +67,8 @@ def _with_database(
     return CheckResult(name, "PASS", message)
 
 
-def run_checks(database: Path) -> list[CheckResult]:
+def run_checks(database: Path, home: Path | None = None) -> list[CheckResult]:
+    paths = GMVPaths.from_home(home or Path.home() / ".gmv_core")
     results = []
     if database.is_file():
         results.append(CheckResult("database.exists", "PASS", str(database)))
@@ -132,6 +150,14 @@ def run_checks(database: Path) -> list[CheckResult]:
             results.append(CheckResult("database.permissions", "PASS", f"mode {mode:04o}"))
     except OSError as error:
         results.append(CheckResult("database.permissions", "FAIL", str(error)))
+
+    def json_identities(connection: sqlite3.Connection) -> str:
+        audit = audit_json_identities(paths, connection)
+        if audit.status == "FAIL":
+            raise ValueError(audit.message)
+        return audit.message
+
+    results.append(_with_database(database, "identity.json_conformance", json_identities))
     return results
 
 
@@ -143,8 +169,13 @@ def main(arguments: list[str] | None = None) -> int:
         type=Path,
         default=Path.home() / ".gmv_core" / "09_DATABASE" / "GMV.db",
     )
+    parser.add_argument(
+        "--home",
+        type=Path,
+        default=Path.home() / ".gmv_core",
+    )
     options = parser.parse_args(arguments)
-    checks = run_checks(options.database)
+    checks = run_checks(options.database, options.home)
     failed = any(check.status == "FAIL" for check in checks)
     if options.json:
         print(

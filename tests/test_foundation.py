@@ -22,6 +22,8 @@ def test_injected_home_derives_paths_without_creating_them(tmp_path: Path) -> No
 
     assert config.home == home
     assert paths.database == home / "09_DATABASE" / "GMV.db"
+    assert paths.state_objects == home / "03_STATE" / "objects"
+    assert paths.object_index == home / "02_INDEXES" / "OBJECT_INDEX.json"
     assert not home.exists()
 
 

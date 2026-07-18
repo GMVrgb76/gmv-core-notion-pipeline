@@ -53,7 +53,11 @@ def test_clean_database_is_ready_in_human_and_json_output(tmp_path: Path) -> Non
         "database.queries",
         "artifacts.references",
         "database.permissions",
+        "identity.json_conformance",
     ]
+    identity = next(c for c in payload["checks"] if c["name"] == "identity.json_conformance")
+    assert identity["status"] == "PASS"
+    assert identity["message"] == "no JSON-sourced Object identity runtime files present"
 
 
 def test_missing_artifact_is_required_failure(tmp_path: Path) -> None:
