@@ -12,6 +12,7 @@ from tests.characterization.conftest import CLI
 
 ROOT = Path(__file__).resolve().parents[2]
 OBJECT_SERVICE = ROOT / "10_API" / "object_service.py"
+SERVICE_SERVICE = ROOT / "10_API" / "service_service.py"
 
 
 def _run_cli(cli_environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -32,6 +33,20 @@ def _run_object_service(
     # (pre-existing CLI defect, out of scope for this slice).
     return subprocess.run(
         [sys.executable, str(OBJECT_SERVICE), *arguments],
+        env=cli_environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_service_service(
+    cli_environment: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    # Same pre-existing $HOME CLI defect as _run_object_service; invoke the
+    # script directly instead of via 11_CLI/gmv's `service` subcommand.
+    return subprocess.run(
+        [sys.executable, str(SERVICE_SERVICE), *arguments],
         env=cli_environment,
         check=False,
         capture_output=True,
@@ -163,4 +178,47 @@ def test_object_show_missing_oid_is_characterized(cli_environment: dict[str, str
 
     assert result.returncode == 1
     assert result.stdout == "Object not found\n"
+    assert result.stderr == ""
+
+
+def test_service_list_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_service_service(cli_environment, "list")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "SRV-000001|Fixture Service|active|2026-01-01T00:00:00|2026-01-01T00:00:00\n"
+    )
+
+
+def test_service_runs_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_service_service(cli_environment, "runs")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "engine|1||fixture_engine|2026-01-01T01:00:00|OK|1.0\n"
+        "service|1|SRV-000001|Fixture Service|2026-01-01T01:00:00|OK|1.0\n"
+    )
+
+
+def test_service_show_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_service_service(cli_environment, "show", "SRV-000001")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "OID: SRV-000001\n"
+        "Name: Fixture Service\n"
+        "Status: active\n"
+        "Created: 2026-01-01T00:00:00\n"
+        "Updated: 2026-01-01T00:00:00\n"
+    )
+
+
+def test_service_show_missing_oid_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_service_service(cli_environment, "show", "SRV-000099")
+
+    assert result.returncode == 1
+    assert result.stdout == "Service not found\n"
     assert result.stderr == ""

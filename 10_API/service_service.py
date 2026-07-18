@@ -1,59 +1,29 @@
 #!/usr/bin/env python3
-import sqlite3
+import importlib
 import sys
 from pathlib import Path
 
-DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
 
-
-def connect():
-    return sqlite3.connect(DB)
+services_repository = importlib.import_module("gmv_core.repositories.services")
+database = importlib.import_module("gmv_core.database")
 
 
 def list_services():
-    with connect() as conn:
-        return conn.execute("""
-        SELECT service_oid,service_name,status,created_at,updated_at
-        FROM service_registry_view
-        ORDER BY service_oid
-        """).fetchall()
+    with database.connect() as conn:
+        return services_repository.list_services(conn)
 
 
 def list_runs():
-    with connect() as conn:
-        return conn.execute("""
-        SELECT source,run_id,service_oid,service_name,run_at,status,duration_seconds
-        FROM (
-            SELECT 'service' AS source,id AS run_id,service_oid,service_name,
-                   run_at,status,duration_seconds
-            FROM service_runs
-
-            UNION ALL
-
-            SELECT 'engine' AS source,er.id AS run_id,srv.service_oid,
-                   COALESCE(srv.service_name,er.engine) AS service_name,
-                   er.run_at,er.status,er.duration_seconds
-            FROM engine_runs er
-            LEFT JOIN service_registry_view srv
-              ON lower(replace(srv.service_name,' ','_'))=lower(er.engine)
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM service_runs sr
-                WHERE sr.run_at=er.run_at
-                  AND lower(replace(sr.service_name,' ','_'))=lower(er.engine)
-            )
-        )
-        ORDER BY run_at DESC,source,run_id DESC
-        """).fetchall()
+    with database.connect() as conn:
+        return services_repository.list_runs(conn)
 
 
 def show_service(service_oid):
-    with connect() as conn:
-        return conn.execute("""
-        SELECT service_oid,service_name,status,created_at,updated_at
-        FROM service_registry_view
-        WHERE service_oid=?
-        """, (service_oid,)).fetchone()
+    with database.connect() as conn:
+        return services_repository.get_service(conn, service_oid)
 
 
 def print_row(row):
