@@ -12,6 +12,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any, Callable
 
+import backup_service
 from doctor_service import run_checks
 from operational_records import read_records, validate_record
 
@@ -153,12 +154,26 @@ def _service_results(
     return results
 
 
+def _backup_result(backup_root: Path, *, now: datetime) -> HealthResult:
+    try:
+        evidence = backup_service.check_freshness(backup_root, now=now)
+    except (OSError, ValueError) as error:
+        return HealthResult(
+            "backup.freshness",
+            "FAIL",
+            "required",
+            f"backup freshness evaluation failed: {error}",
+        )
+    return HealthResult("backup.freshness", str(evidence["status"]), "required", str(evidence["message"]))
+
+
 def collect_health(
     database: Path,
     records_path: Path,
     *,
     now: datetime,
     stale_after_seconds: int,
+    backup_root: Path | None = None,
 ) -> list[HealthResult]:
     results = [
         HealthResult(check.name, check.status, "required", check.message)
@@ -171,22 +186,15 @@ def collect_health(
             stale_after_seconds=stale_after_seconds,
         )
     )
-    results.extend(
-        (
-            HealthResult(
-                "database.foreign_key_enforcement",
-                "UNAVAILABLE",
-                "unavailable",
-                "requires DB-002",
-            ),
-            HealthResult(
-                "backup.freshness",
-                "UNAVAILABLE",
-                "unavailable",
-                "requires S002-20",
-            ),
+    results.append(
+        HealthResult(
+            "database.foreign_key_enforcement",
+            "UNAVAILABLE",
+            "unavailable",
+            "requires DB-002",
         )
     )
+    results.append(_backup_result(backup_root or Path.home() / ".gmv_backups", now=now))
     return results
 
 
@@ -236,6 +244,11 @@ def main(arguments: list[str] | None = None) -> int:
         type=Path,
         default=Path.home() / ".gmv_core" / "04_LOGS" / "operations.jsonl",
     )
+    parser.add_argument(
+        "--backup-root",
+        type=Path,
+        default=Path.home() / ".gmv_backups",
+    )
     parser.add_argument("--now", type=datetime.fromisoformat)
     parser.add_argument("--stale-after-seconds", type=int, default=86400)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
@@ -248,6 +261,7 @@ def main(arguments: list[str] | None = None) -> int:
                 options.records,
                 now=observed_at,
                 stale_after_seconds=options.stale_after_seconds,
+                backup_root=options.backup_root,
             ),
             options.timeout_seconds,
         )

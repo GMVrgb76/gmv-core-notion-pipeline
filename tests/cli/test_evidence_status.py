@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "10_API"))
 import status_service as STATUS  # noqa: E402
 from health_service import HealthResult  # noqa: E402
+import backup_service  # noqa: E402
 
 
 def _database(tmp_path: Path, *, pending: bool = False) -> Path:
@@ -30,6 +31,16 @@ def _database(tmp_path: Path, *, pending: bool = False) -> Path:
             connection.execute("DELETE FROM import_queue")
     database.chmod(0o600)
     return database
+
+
+def _seed_fresh_backup(tmp_path: Path, now: datetime) -> None:
+    home = tmp_path / ".gmv_core"
+    subprocess.run(["/usr/bin/git", "init", "-q"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "config", "user.email", "test@example.invalid"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "config", "user.name", "Test"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "add", "-A"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "commit", "-qm", "fixture"], cwd=home, check=True)
+    backup_service.create_backup(home, tmp_path / ".gmv_backups", now=now)
 
 
 def _run(tmp_path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -94,6 +105,7 @@ def test_query_failure_is_failed_and_returns_nonzero(tmp_path: Path) -> None:
 def test_cli_output_is_stable_and_never_unconditionally_ready(tmp_path: Path) -> None:
     _database(tmp_path)
     now = datetime(2026, 7, 6, 12, tzinfo=UTC)
+    _seed_fresh_backup(tmp_path, now)
     records = tmp_path / "missing-records.jsonl"
     arguments = (
         "--now",
@@ -108,12 +120,14 @@ def test_cli_output_is_stable_and_never_unconditionally_ready(tmp_path: Path) ->
     assert first.stdout == second.stdout
     assert "SYSTEM READY" not in first.stdout
     assert first.stdout.endswith("STATE|DEGRADED\n")
-    assert "UNAVAILABLE|unavailable|backup.freshness|requires S002-20" in first.stdout
+    assert "DEGRADED|required|backup.freshness|" in first.stdout
+    assert "monthly restore cadence overdue" in first.stdout
 
 
 def test_stale_operational_record_is_visible_in_cli(tmp_path: Path) -> None:
     _database(tmp_path)
     now = datetime(2026, 7, 6, 12, tzinfo=UTC)
+    _seed_fresh_backup(tmp_path, now)
     ended_at = now - timedelta(days=2)
     records = tmp_path / "operations.jsonl"
     record = {

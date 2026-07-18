@@ -54,12 +54,14 @@ def collect_status(
     *,
     now: datetime,
     stale_after_seconds: int,
+    backup_root: Path | None = None,
 ) -> list[HealthResult]:
     results = collect_health(
         database,
         records,
         now=now,
         stale_after_seconds=stale_after_seconds,
+        backup_root=backup_root,
     )
     results.append(_queue_result(database))
     return results
@@ -87,6 +89,11 @@ def main(arguments: list[str] | None = None) -> int:
         type=Path,
         default=Path.home() / ".gmv_core" / "04_LOGS" / "operations.jsonl",
     )
+    parser.add_argument(
+        "--backup-root",
+        type=Path,
+        default=Path.home() / ".gmv_backups",
+    )
     parser.add_argument("--now", type=datetime.fromisoformat)
     parser.add_argument("--stale-after-seconds", type=int, default=86400)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
@@ -99,6 +106,7 @@ def main(arguments: list[str] | None = None) -> int:
                 options.records,
                 now=observed_at,
                 stale_after_seconds=options.stale_after_seconds,
+                backup_root=options.backup_root,
             ),
             options.timeout_seconds,
         )

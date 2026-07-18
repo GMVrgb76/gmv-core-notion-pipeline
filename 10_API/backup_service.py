@@ -20,6 +20,7 @@ from typing import Any
 
 from secure_storage import atomic_write_text, require_private, secure_directory
 from audit_integrity import append as append_audit
+from audit_integrity import validate as validate_audit
 
 UTC = timezone.utc
 
@@ -27,6 +28,11 @@ SCHEMA_VERSION = 1
 POLICY_VERSION = "GMV Recovery Policy v1"
 ROLLING_DAYS = 90
 BACKUP_ID = re.compile(r"^BKP-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
+OID = re.compile(r"^(?P<prefix>[A-Z]{3})-(?P<sequence>[0-9]{6})$")
+
+# Recovery Policy v1 (00_CONFIG/RECOVERY_OBJECTIVES.md), approved 2026-07-06.
+RPO_SECONDS = 900
+RESTORE_CADENCE_DAYS = 30
 
 
 def _sha256(path: Path) -> str:
@@ -86,6 +92,43 @@ def _resource_evidence(database: Path) -> list[dict[str, object]]:
     return evidence
 
 
+def _oid_continuity(database: Path) -> dict[str, Any]:
+    uri = f"{database.resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(uri, uri=True) as connection:
+        oids = [str(row[0]) for row in connection.execute("SELECT oid FROM objects ORDER BY oid")]
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    malformed: list[str] = []
+    sequences_by_prefix: dict[str, list[int]] = {}
+    for oid in oids:
+        if oid in seen:
+            duplicates.append(oid)
+        seen.add(oid)
+        match = OID.fullmatch(oid)
+        if match is None:
+            malformed.append(oid)
+            continue
+        sequences_by_prefix.setdefault(match.group("prefix"), []).append(int(match.group("sequence")))
+    by_prefix: dict[str, dict[str, Any]] = {}
+    for prefix, sequences in sorted(sequences_by_prefix.items()):
+        sequences.sort()
+        low, high = sequences[0], sequences[-1]
+        gaps = sorted(set(range(low, high + 1)) - set(sequences))
+        by_prefix[prefix] = {"count": len(sequences), "min": low, "max": high, "gaps": gaps}
+    return {
+        "total": len(oids),
+        "duplicates": sorted(set(duplicates)),
+        "malformed": sorted(malformed),
+        "by_prefix": by_prefix,
+    }
+
+
+def _oid_set(database: Path) -> set[str]:
+    uri = f"{database.resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(uri, uri=True) as connection:
+        return {str(row[0]) for row in connection.execute("SELECT oid FROM objects")}
+
+
 def verify_backup(backup: Path) -> dict[str, Any]:
     require_private(backup, 0o700)
     manifest_path = backup / "manifest.json"
@@ -111,6 +154,9 @@ def verify_backup(backup: Path) -> dict[str, Any]:
         event_count = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
     if integrity != "ok" or foreign_keys:
         raise ValueError("restored database integrity verification failed")
+    continuity = _oid_continuity(database)
+    if continuity["duplicates"] or continuity["malformed"]:
+        raise ValueError(f"OID continuity verification failed: {continuity}")
     return {
         "backup_id": manifest["backup_id"],
         "integrity": integrity,
@@ -118,6 +164,7 @@ def verify_backup(backup: Path) -> dict[str, Any]:
         "user_version": user_version,
         "object_count": object_count,
         "event_count": event_count,
+        "oid_continuity": continuity,
     }
 
 
@@ -232,18 +279,146 @@ def apply_retention(root: Path, *, now: datetime | None = None) -> list[str]:
     return removed
 
 
-def restore_check(backup: Path, target: Path) -> dict[str, Any]:
+def restore_check(
+    backup: Path,
+    target: Path,
+    *,
+    core: Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     if target.exists():
         raise FileExistsError("restore-check target already exists")
-    evidence = verify_backup(backup)
-    target.mkdir(mode=0o700)
-    database_dir = target / "09_DATABASE"
-    database_dir.mkdir(mode=0o700)
-    shutil.copyfile(backup / "database" / "GMV.db", database_dir / "GMV.db")
-    os.chmod(database_dir / "GMV.db", 0o600)
-    evidence["target"] = str(target)
-    evidence["canonical_overwrite"] = False
-    return evidence
+    root = backup.parent.parent
+    backup_id = backup.name
+    started = (now or datetime.now(UTC)).astimezone(UTC)
+    try:
+        evidence = verify_backup(backup)
+        target.mkdir(mode=0o700)
+        database_dir = target / "09_DATABASE"
+        database_dir.mkdir(mode=0o700)
+        restored_database = database_dir / "GMV.db"
+        shutil.copyfile(backup / "database" / "GMV.db", restored_database)
+        os.chmod(restored_database, 0o600)
+        restored_continuity = _oid_continuity(restored_database)
+        if restored_continuity["duplicates"] or restored_continuity["malformed"]:
+            raise ValueError(f"restored database OID continuity verification failed: {restored_continuity}")
+        evidence["restored_oid_continuity"] = restored_continuity
+        if core is not None:
+            source_database = core / "09_DATABASE" / "GMV.db"
+            missing_from_source = sorted(_oid_set(restored_database) - _oid_set(source_database))
+            evidence["source_comparison"] = {"missing_from_source": missing_from_source}
+            if missing_from_source:
+                raise ValueError(
+                    f"OID continuity mismatch: restored OIDs absent from source: {missing_from_source}"
+                )
+        evidence["target"] = str(target)
+        evidence["canonical_overwrite"] = False
+        _audit(
+            root,
+            {
+                "action": "restore.check",
+                "backup_id": backup_id,
+                "at": started.isoformat(),
+                "target": str(target),
+                "outcome": "verified",
+            },
+        )
+        return evidence
+    except BaseException as error:
+        _audit(
+            root,
+            {
+                "action": "restore.check",
+                "backup_id": backup_id,
+                "at": started.isoformat(),
+                "target": str(target),
+                "outcome": "failed",
+                "error": type(error).__name__,
+            },
+        )
+        raise
+
+
+def _parse_at(value: object) -> datetime:
+    parsed = datetime.fromisoformat(str(value))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def check_freshness(
+    root: Path,
+    *,
+    now: datetime,
+    rpo_seconds: int = RPO_SECONDS,
+    restore_cadence_days: int = RESTORE_CADENCE_DAYS,
+) -> dict[str, Any]:
+    """Governed backup.freshness diagnostic. Fails closed on any unverifiable evidence."""
+    audit_path = root / "audit" / "backup_events.v2.jsonl"
+    try:
+        records = validate_audit(audit_path)
+    except (OSError, ValueError) as error:
+        return {"status": "FAIL", "message": f"backup audit chain invalid: {error}"}
+    if not records:
+        return {"status": "FAIL", "message": "no backup audit evidence recorded"}
+
+    backups = [
+        record
+        for record in records
+        if record.get("action") == "backup.create" and record.get("outcome") == "verified"
+    ]
+    if not backups:
+        return {"status": "FAIL", "message": "no verified backup recorded in audit trail"}
+    latest_backup = max(backups, key=lambda record: str(record["at"]))
+    age_seconds = (now - _parse_at(latest_backup["at"])).total_seconds()
+    if age_seconds > rpo_seconds:
+        return {
+            "status": "FAIL",
+            "message": (
+                f"latest verified backup {latest_backup['backup_id']} is "
+                f"{int(age_seconds)}s old, exceeds the {rpo_seconds}s approved RPO"
+            ),
+        }
+
+    backup_path = root / "sets" / str(latest_backup["backup_id"])
+    try:
+        verify_backup(backup_path)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        return {
+            "status": "FAIL",
+            "message": f"latest backup {latest_backup['backup_id']} failed re-verification: {error}",
+        }
+
+    restores = [
+        record
+        for record in records
+        if record.get("action") == "restore.check" and record.get("outcome") == "verified"
+    ]
+    if not restores:
+        return {
+            "status": "DEGRADED",
+            "message": (
+                f"backup fresh ({int(age_seconds)}s old); no verified isolated restore test "
+                f"on record; monthly restore cadence overdue"
+            ),
+        }
+    latest_restore = max(restores, key=lambda record: str(record["at"]))
+    restore_age_days = (now - _parse_at(latest_restore["at"])).total_seconds() / 86400
+    if restore_age_days > restore_cadence_days:
+        return {
+            "status": "DEGRADED",
+            "message": (
+                f"backup fresh ({int(age_seconds)}s old); last verified restore test "
+                f"{restore_age_days:.1f}d ago exceeds the {restore_cadence_days}d cadence (overdue)"
+            ),
+        }
+    return {
+        "status": "PASS",
+        "message": (
+            f"backup fresh ({int(age_seconds)}s old); last verified restore test "
+            f"{restore_age_days:.1f}d ago, within the {restore_cadence_days}d cadence"
+        ),
+    }
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -262,6 +437,7 @@ def main(arguments: list[str] | None = None) -> int:
     restore = subparsers.add_parser("restore-check")
     restore.add_argument("backup", type=Path)
     restore.add_argument("target", type=Path)
+    restore.add_argument("--core", type=Path, default=None)
     retention = subparsers.add_parser("retention")
     retention.add_argument("--root", type=Path, default=Path.home() / ".gmv_backups")
     retention.add_argument("--apply", action="store_true")
@@ -283,7 +459,8 @@ def main(arguments: list[str] | None = None) -> int:
             manifest = json.loads((options.backup / "manifest.json").read_text())
             print(json.dumps(manifest, sort_keys=True))
         elif options.command == "restore-check":
-            print(json.dumps(restore_check(options.backup, options.target), sort_keys=True))
+            result = restore_check(options.backup, options.target, core=options.core)
+            print(json.dumps(result, sort_keys=True))
         else:
             candidates = retention_candidates(options.root)
             result = apply_retention(options.root) if options.apply else [path.name for path in candidates]

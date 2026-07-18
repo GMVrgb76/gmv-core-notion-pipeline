@@ -14,8 +14,9 @@
       "dependency": "DB-002"
     },
     "backup.freshness": {
-      "classification": "unavailable",
-      "dependency": "S002-20"
+      "classification": "required",
+      "rpo_seconds": 900,
+      "restore_cadence_days": 30
     }
   }
 }

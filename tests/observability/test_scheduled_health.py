@@ -29,6 +29,27 @@ def _database(tmp_path: Path) -> Path:
     return database
 
 
+def _seed_fresh_backup(backup_root: Path, now: datetime) -> None:
+    """Give a test a real, currently-fresh backup so backup.freshness stays
+    out of the way of the service-freshness behavior under test."""
+    core = backup_root.parent / "backup_core"
+    core.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["/usr/bin/git", "init", "-q"], cwd=core, check=True)
+    subprocess.run(["/usr/bin/git", "config", "user.email", "test@example.invalid"], cwd=core, check=True)
+    subprocess.run(["/usr/bin/git", "config", "user.name", "Test"], cwd=core, check=True)
+    (core / "source.txt").write_text("source")
+    subprocess.run(["/usr/bin/git", "add", "source.txt"], cwd=core, check=True)
+    subprocess.run(["/usr/bin/git", "commit", "-qm", "fixture"], cwd=core, check=True)
+    database = core / "09_DATABASE" / "GMV.db"
+    database.parent.mkdir(parents=True)
+    with sqlite3.connect(database) as connection:
+        connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
+    sys.path.insert(0, str(ROOT / "10_API"))
+    import backup_service
+
+    backup_service.create_backup(core, backup_root, now=now)
+
+
 def _record(service: str, ended_at: datetime, *, status: str = "OK") -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -52,6 +73,8 @@ def _run(
     database: Path,
     records: Path,
     now: datetime,
+    *,
+    backup_root: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
@@ -61,6 +84,8 @@ def _run(
             str(database),
             "--records",
             str(records),
+            "--backup-root",
+            str(backup_root or records.parent / "backups"),
             "--now",
             now.isoformat(),
             "--timeout-seconds",
@@ -81,11 +106,12 @@ def test_scheduler_safe_structured_output_and_unavailable_semantics(tmp_path: Pa
 
     payload = json.loads(result.stdout)
     checks = {check["name"]: check for check in payload["checks"]}
-    assert result.returncode == 0
+    assert result.returncode == 1
     assert payload["schema_version"] == 1
-    assert payload["overall"] == "degraded"
+    assert payload["overall"] == "failed"
     assert checks["database.foreign_key_enforcement"]["status"] == "UNAVAILABLE"
-    assert checks["backup.freshness"]["message"] == "requires S002-20"
+    assert checks["backup.freshness"]["status"] == "FAIL"
+    assert checks["backup.freshness"]["message"] == "no backup audit evidence recorded"
     assert result.stderr == ""
 
 
@@ -97,8 +123,10 @@ def test_stale_service_is_degraded_without_failed_exit(tmp_path: Path) -> None:
         json.dumps(_record("research", now - timedelta(days=2))) + "\n",
         encoding="utf-8",
     )
+    backup_root = tmp_path / "backups"
+    _seed_fresh_backup(backup_root, now)
 
-    result = _run(database, records, now)
+    result = _run(database, records, now, backup_root=backup_root)
 
     payload = json.loads(result.stdout)
     service = next(
@@ -133,8 +161,10 @@ def test_malformed_historical_record_does_not_block_current_freshness(
         + "\n",
         encoding="utf-8",
     )
+    backup_root = tmp_path / "backups"
+    _seed_fresh_backup(backup_root, now)
 
-    result = _run(database, records, now)
+    result = _run(database, records, now, backup_root=backup_root)
 
     payload = json.loads(result.stdout)
     research = next(
@@ -168,4 +198,4 @@ def test_policy_defines_classifications_and_thresholds() -> None:
     assert policy["service_stale_after_seconds"] == 86400
     assert policy["checks"]["strict_doctor"]["classification"] == "required"
     assert policy["checks"]["service_freshness"]["classification"] == "degraded"
-    assert policy["checks"]["backup.freshness"]["classification"] == "unavailable"
+    assert policy["checks"]["backup.freshness"]["classification"] == "required"

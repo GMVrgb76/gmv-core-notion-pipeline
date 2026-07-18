@@ -362,11 +362,16 @@ fi
 restore-check)
 BACKUP="${3:-}"
 TARGET="${4:-}"
+CORE="${5:-}"
 if [ -z "$BACKUP" ] || [ -z "$TARGET" ]; then
-  echo "Usage: gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET>"
+  echo "Usage: gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET> [CORE_PATH]"
   exit 2
 fi
-"$HOME/.gmv_core/10_API/backup_service.py" restore-check "$BACKUP" "$TARGET"
+if [ -n "$CORE" ]; then
+  "$HOME/.gmv_core/10_API/backup_service.py" restore-check "$BACKUP" "$TARGET" --core "$CORE"
+else
+  "$HOME/.gmv_core/10_API/backup_service.py" restore-check "$BACKUP" "$TARGET"
+fi
 ;;
 
 *)
@@ -377,7 +382,7 @@ echo "  gmv snapshot create"
 echo "  gmv snapshot list"
 echo "  gmv snapshot inspect <BACKUP_PATH>"
 echo "  gmv snapshot verify <BACKUP_PATH>"
-echo "  gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET>"
+echo "  gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET> [CORE_PATH]"
 ;;
 esac
 ;;

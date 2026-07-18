@@ -5,12 +5,18 @@ from __future__ import annotations
 import os
 import sqlite3
 import subprocess
+import sys
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from tests.characterization.conftest import CLI, SCHEMA_FIXTURE
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "10_API"))
+import backup_service  # noqa: E402
 
 
 @pytest.fixture
@@ -18,12 +24,20 @@ def strict_cli_environment(
     isolated_gmv: object,
     tmp_path: Path,
 ) -> Iterator[dict[str, str]]:
+    home = Path(getattr(isolated_gmv, "home"))
     database = Path(getattr(isolated_gmv, "database"))
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE test_sentinel")
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
         connection.execute("DELETE FROM engine_runs")
     database.chmod(0o600)
+
+    subprocess.run(["/usr/bin/git", "init", "-q"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "config", "user.email", "test@example.invalid"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "config", "user.name", "Test"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "add", "-A"], cwd=home, check=True)
+    subprocess.run(["/usr/bin/git", "commit", "-qm", "fixture"], cwd=home, check=True)
+    backup_service.create_backup(home, tmp_path / ".gmv_backups", now=datetime.now(UTC))
 
     executable_directory = tmp_path / "test-bin"
     executable_directory.mkdir()
