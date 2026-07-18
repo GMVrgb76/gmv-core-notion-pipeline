@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
-import sqlite3
+import importlib
 import sys
 from pathlib import Path
 
-DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
 
-
-def connect():
-    return sqlite3.connect(DB)
+resources_repository = importlib.import_module("gmv_core.repositories.resources")
+database = importlib.import_module("gmv_core.database")
 
 
 def list_resources():
-    with connect() as conn:
-        return conn.execute("""
-        SELECT resource_oid,resource_name,path,filename,status
-        FROM resource_view
-        ORDER BY resource_oid
-        """).fetchall()
+    with database.connect() as conn:
+        return resources_repository.list_resources(conn)
 
 
 def count_resources():
-    with connect() as conn:
-        return conn.execute("""
-        SELECT status,COUNT(*)
-        FROM resources
-        GROUP BY status
-        ORDER BY status
-        """).fetchall()
+    with database.connect() as conn:
+        return resources_repository.count_resources(conn)
 
 
 def show_resource(resource_oid):
-    with connect() as conn:
-        return conn.execute("""
-        SELECT resource_oid,resource_name,object_status,path,filename,extension,
-               size_bytes,sha256,imported_at,status
-        FROM resource_view
-        WHERE resource_oid=?
-        """, (resource_oid,)).fetchone()
+    with database.connect() as conn:
+        return resources_repository.get_resource(conn, resource_oid)
 
 
 def print_row(row):

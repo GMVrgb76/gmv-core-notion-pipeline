@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OBJECT_SERVICE = ROOT / "10_API" / "object_service.py"
 SERVICE_SERVICE = ROOT / "10_API" / "service_service.py"
 SEARCH_SERVICE = ROOT / "10_API" / "search_service.py"
+RESOURCE_SERVICE = ROOT / "10_API" / "resource_service.py"
 
 
 def _run_cli(cli_environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -62,6 +63,20 @@ def _run_search_service(
     # script directly instead of via 11_CLI/gmv's `search` subcommand.
     return subprocess.run(
         [sys.executable, str(SEARCH_SERVICE), *arguments],
+        env=cli_environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_resource_service(
+    cli_environment: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    # Same pre-existing $HOME CLI defect as _run_object_service; invoke the
+    # script directly instead of via 11_CLI/gmv's `resource` subcommand.
+    return subprocess.run(
+        [sys.executable, str(RESOURCE_SERVICE), *arguments],
         env=cli_environment,
         check=False,
         capture_output=True,
@@ -288,4 +303,47 @@ def test_search_missing_query_is_characterized(cli_environment: dict[str, str]) 
 
     assert result.returncode == 2
     assert result.stdout == "Usage: search_service.py <query>\n"
+    assert result.stderr == ""
+
+
+def test_resource_list_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_resource_service(cli_environment, "list")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "RES-000001|fixture.txt|/fixtures/fixture.txt|fixture.txt|active\n"
+
+
+def test_resource_count_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_resource_service(cli_environment, "count")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "active|1\n"
+
+
+def test_resource_show_output_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_resource_service(cli_environment, "show", "RES-000001")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "OID: RES-000001\n"
+        "Name: fixture.txt\n"
+        "Object Status: active\n"
+        "Path: /fixtures/fixture.txt\n"
+        "Filename: fixture.txt\n"
+        "Extension: .txt\n"
+        "Size: 7\n"
+        "SHA256: 0000000000000000000000000000000000000000000000000000000000000000\n"
+        "Imported: 2026-01-01T00:00:00\n"
+        "Resource Status: active\n"
+    )
+
+
+def test_resource_show_missing_oid_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_resource_service(cli_environment, "show", "RES-000099")
+
+    assert result.returncode == 1
+    assert result.stdout == "Resource not found\n"
     assert result.stderr == ""
