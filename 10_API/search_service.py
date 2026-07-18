@@ -1,58 +1,19 @@
 #!/usr/bin/env python3
-import sqlite3
+import importlib
 import sys
 from pathlib import Path
 
-DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
 
-
-def connect():
-    return sqlite3.connect(DB)
+search_repository = importlib.import_module("gmv_core.repositories.search")
+database = importlib.import_module("gmv_core.database")
 
 
 def search(query):
-    match = query.lower()
-    rows = []
-
-    with connect() as conn:
-        rows.extend(conn.execute("""
-        SELECT 'object',oid,name,
-               CASE
-                   WHEN instr(lower(name),?) > 0 THEN 'name:' || name
-                   ELSE 'type:' || type
-               END
-        FROM objects
-        WHERE instr(lower(name),?) > 0 OR instr(lower(type),?) > 0
-        ORDER BY oid
-        """, (match, match, match)).fetchall())
-
-        rows.extend(conn.execute("""
-        SELECT 'resource',resource_oid,filename,
-               CASE
-                   WHEN instr(lower(filename),?) > 0 THEN 'filename:' || filename
-                   ELSE 'path:' || path
-               END
-        FROM resources
-        WHERE instr(lower(filename),?) > 0 OR instr(lower(path),?) > 0
-        ORDER BY resource_oid
-        """, (match, match, match)).fetchall())
-
-        rows.extend(conn.execute("""
-        SELECT 'event',CAST(id AS TEXT),event_type,'description:' || description
-        FROM events
-        WHERE instr(lower(COALESCE(description,'')),?) > 0
-        ORDER BY id DESC
-        """, (match,)).fetchall())
-
-        rows.extend(conn.execute("""
-        SELECT 'relation',CAST(id AS TEXT),source_oid || '->' || target_oid,
-               'relation_type:' || relation_type
-        FROM relations
-        WHERE instr(lower(relation_type),?) > 0
-        ORDER BY id
-        """, (match,)).fetchall())
-
-    return rows
+    with database.connect() as conn:
+        return search_repository.search(conn, query)
 
 
 def main():

@@ -13,6 +13,7 @@ from tests.characterization.conftest import CLI
 ROOT = Path(__file__).resolve().parents[2]
 OBJECT_SERVICE = ROOT / "10_API" / "object_service.py"
 SERVICE_SERVICE = ROOT / "10_API" / "service_service.py"
+SEARCH_SERVICE = ROOT / "10_API" / "search_service.py"
 
 
 def _run_cli(cli_environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -47,6 +48,20 @@ def _run_service_service(
     # script directly instead of via 11_CLI/gmv's `service` subcommand.
     return subprocess.run(
         [sys.executable, str(SERVICE_SERVICE), *arguments],
+        env=cli_environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_search_service(
+    cli_environment: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    # Same pre-existing $HOME CLI defect as _run_object_service; invoke the
+    # script directly instead of via 11_CLI/gmv's `search` subcommand.
+    return subprocess.run(
+        [sys.executable, str(SEARCH_SERVICE), *arguments],
         env=cli_environment,
         check=False,
         capture_output=True,
@@ -221,4 +236,56 @@ def test_service_show_missing_oid_is_characterized(cli_environment: dict[str, st
 
     assert result.returncode == 1
     assert result.stdout == "Service not found\n"
+    assert result.stderr == ""
+
+
+def test_search_matches_across_object_and_resource_is_characterized(
+    cli_environment: dict[str, str],
+) -> None:
+    result = _run_search_service(cli_environment, "fixture")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "object|PLG-000001|Fixture Plugin|name:Fixture Plugin\n"
+        "object|RES-000001|fixture.txt|name:fixture.txt\n"
+        "object|SRV-000001|Fixture Service|name:Fixture Service\n"
+        "object|SYS-000001|Fixture System|name:Fixture System\n"
+        "resource|RES-000001|fixture.txt|filename:fixture.txt\n"
+    )
+
+
+def test_search_matches_event_description_is_characterized(
+    cli_environment: dict[str, str],
+) -> None:
+    result = _run_search_service(cli_environment, "synthetic")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "event|1|fixture_event|description:Synthetic event\n"
+
+
+def test_search_matches_relation_type_is_characterized(
+    cli_environment: dict[str, str],
+) -> None:
+    result = _run_search_service(cli_environment, "uses")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == "relation|1|SYS-000001->RES-000001|relation_type:uses\n"
+
+
+def test_search_no_match_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_search_service(cli_environment, "nomatchxyz")
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_search_missing_query_is_characterized(cli_environment: dict[str, str]) -> None:
+    result = _run_search_service(cli_environment)
+
+    assert result.returncode == 2
+    assert result.stdout == "Usage: search_service.py <query>\n"
     assert result.stderr == ""
