@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 import importlib
-import sqlite3
 import sys
 from pathlib import Path
 
-DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 CORE_ROOT = Path(__file__).resolve().parents[1]
 if str(CORE_ROOT) not in sys.path:
     sys.path.insert(0, str(CORE_ROOT))
@@ -12,21 +10,19 @@ if str(CORE_ROOT) not in sys.path:
 CLIInputError = importlib.import_module("gmv_core.errors").CLIInputError
 validate_cli_oid = importlib.import_module("gmv_core.validation").validate_cli_oid
 objects_repository = importlib.import_module("gmv_core.repositories.objects")
-
-def connect():
-    return sqlite3.connect(DB)
+database = importlib.import_module("gmv_core.database")
 
 def list_objects():
-    with connect() as conn:
+    with database.connect() as conn:
         return objects_repository.list_objects(conn)
 
 def count_objects():
-    with connect() as conn:
+    with database.connect() as conn:
         return objects_repository.count_objects(conn)
 
 def show_object(oid):
     oid = validate_cli_oid(oid).value
-    with connect() as conn:
+    with database.connect() as conn:
         return objects_repository.get_object(conn, oid)
 
 def main():
