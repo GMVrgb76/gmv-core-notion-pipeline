@@ -17,7 +17,7 @@ TIMELINE_VIEW_VERSION = 3
 TIMELINE_VIEW_RESOURCE = "migration_sql/003_timeline_view.sql"
 APPEND_ONLY_EVENTS_VERSION = 4
 APPEND_ONLY_EVENTS_RESOURCE = "migration_sql/004_append_only_events.sql"
-CURRENT_SCHEMA_VERSION = TIMELINE_VIEW_VERSION
+CURRENT_SCHEMA_VERSION = APPEND_ONLY_EVENTS_VERSION
 
 
 def _quoted_identifier(identifier: str) -> str:

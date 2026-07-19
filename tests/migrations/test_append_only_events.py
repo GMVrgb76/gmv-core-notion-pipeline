@@ -22,7 +22,12 @@ EVENT = (
 
 def _version_three_database(tmp_path: Path) -> Path:
     database = tmp_path / "version-three.db"
-    assert migrations.migrate(database) == migrations.TIMELINE_VIEW_VERSION
+    assert (
+        migrations.migrate(
+            database, target_version=migrations.TIMELINE_VIEW_VERSION
+        )
+        == migrations.TIMELINE_VIEW_VERSION
+    )
     return database
 
 
@@ -53,28 +58,19 @@ def _trigger_names(connection: sqlite3.Connection) -> set[str]:
     }
 
 
-def test_migration_four_is_explicit_and_byte_stable_before_live_cutover(
+def test_migration_four_is_current_and_byte_stable_after_live_cutover(
     tmp_path: Path,
 ) -> None:
-    database = _version_three_database(tmp_path)
+    database = tmp_path / "current-version.db"
+
+    assert migrations.migrate(database) == migrations.CURRENT_SCHEMA_VERSION
+    assert migrations.CURRENT_SCHEMA_VERSION == migrations.APPEND_ONLY_EVENTS_VERSION
     with sqlite3.connect(database) as connection:
         columns = [row[1] for row in connection.execute("PRAGMA table_info(events)")]
-        assert "supersedes_event_id" not in columns
-
-    assert (
-        migrations.migrate(
-            database, target_version=migrations.APPEND_ONLY_EVENTS_VERSION
-        )
-        == migrations.APPEND_ONLY_EVENTS_VERSION
-    )
+        assert "supersedes_event_id" in columns
     migrated_digest = hashlib.sha256(database.read_bytes()).hexdigest()
 
-    assert (
-        migrations.migrate(
-            database, target_version=migrations.APPEND_ONLY_EVENTS_VERSION
-        )
-        == migrations.APPEND_ONLY_EVENTS_VERSION
-    )
+    assert migrations.migrate(database) == migrations.CURRENT_SCHEMA_VERSION
     assert hashlib.sha256(database.read_bytes()).hexdigest() == migrated_digest
 
     with sqlite3.connect(database) as connection:

@@ -53,19 +53,28 @@ def _timeline_object_type(connection: sqlite3.Connection) -> str:
     return str(row[0])
 
 
-def test_migration_three_is_current_and_byte_stable_after_live_cutover(
+def test_migration_three_target_is_byte_stable(
     tmp_path: Path,
 ) -> None:
-    database = tmp_path / "current-version.db"
+    database = tmp_path / "version-three.db"
 
-    assert migrations.migrate(database) == migrations.CURRENT_SCHEMA_VERSION
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.TIMELINE_VIEW_VERSION
+    assert (
+        migrations.migrate(
+            database, target_version=migrations.TIMELINE_VIEW_VERSION
+        )
+        == migrations.TIMELINE_VIEW_VERSION
+    )
     with sqlite3.connect(database) as connection:
         assert _timeline_object_type(connection) == "view"
 
     migrated_digest = hashlib.sha256(database.read_bytes()).hexdigest()
 
-    assert migrations.migrate(database) == migrations.CURRENT_SCHEMA_VERSION
+    assert (
+        migrations.migrate(
+            database, target_version=migrations.TIMELINE_VIEW_VERSION
+        )
+        == migrations.TIMELINE_VIEW_VERSION
+    )
     assert hashlib.sha256(database.read_bytes()).hexdigest() == migrated_digest
 
 
