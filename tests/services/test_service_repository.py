@@ -101,10 +101,9 @@ def test_get_service_returns_none_when_missing(tmp_path: Path) -> None:
     assert row is None
 
 
-def test_list_runs_unions_service_and_unmatched_engine_runs(tmp_path: Path) -> None:
+def test_list_runs_uses_only_canonical_service_runs(tmp_path: Path) -> None:
     with sqlite3.connect(_database(tmp_path)) as connection:
         rows = list_runs(connection)
     assert rows == [
-        ("engine", 1, None, "fixture_engine", RUN_AT, "OK", 1.0),
         ("service", 1, "SRV-000001", "Fixture Service", RUN_AT, "OK", 1.0),
     ]

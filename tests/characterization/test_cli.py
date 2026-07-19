@@ -257,7 +257,6 @@ def test_service_runs_output_is_characterized(cli_environment: dict[str, str]) -
     assert result.returncode == 0
     assert result.stderr == ""
     assert result.stdout == (
-        "engine|1||fixture_engine|2026-01-01T01:00:00|OK|1.0\n"
         "service|1|SRV-000001|Fixture Service|2026-01-01T01:00:00|OK|1.0\n"
     )
 
