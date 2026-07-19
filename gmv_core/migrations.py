@@ -13,6 +13,11 @@ BASELINE_VERSION = 1
 BASELINE_RESOURCE = "migration_sql/001_baseline.sql"
 OID_SEQUENCE_VERSION = 2
 OID_SEQUENCE_RESOURCE = "migration_sql/002_oid_sequences.sql"
+TIMELINE_VIEW_VERSION = 3
+TIMELINE_VIEW_RESOURCE = "migration_sql/003_timeline_view.sql"
+# Version accepted by live write paths. Promote this to v3 only in the
+# separately authorized live migration slice, so code remains compatible
+# with the production database while migration 003 is reviewed in isolation.
 CURRENT_SCHEMA_VERSION = OID_SEQUENCE_VERSION
 
 
@@ -155,7 +160,12 @@ def migrate(
     target = Path(database)
     if not target.parent.exists():
         raise MigrationStateError(f"migration target directory does not exist: {target.parent}")
-    if target_version not in {BASELINE_VERSION, OID_SEQUENCE_VERSION}:
+    supported_versions = {
+        BASELINE_VERSION,
+        OID_SEQUENCE_VERSION,
+        TIMELINE_VIEW_VERSION,
+    }
+    if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
 
     try:
@@ -176,7 +186,7 @@ def migrate(
                         resource=BASELINE_RESOURCE,
                     )
                     current_version = BASELINE_VERSION
-            if target_version == OID_SEQUENCE_VERSION and current_version == BASELINE_VERSION:
+            if target_version >= OID_SEQUENCE_VERSION and current_version == BASELINE_VERSION:
                 _apply_migration(
                     connection,
                     target=target,
@@ -184,6 +194,14 @@ def migrate(
                     resource=OID_SEQUENCE_RESOURCE,
                 )
                 current_version = OID_SEQUENCE_VERSION
+            if target_version >= TIMELINE_VIEW_VERSION and current_version == OID_SEQUENCE_VERSION:
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=TIMELINE_VIEW_VERSION,
+                    resource=TIMELINE_VIEW_RESOURCE,
+                )
+                current_version = TIMELINE_VIEW_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -195,7 +213,7 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument(
         "--target-version",
         type=int,
-        choices=(BASELINE_VERSION, OID_SEQUENCE_VERSION),
+        choices=(BASELINE_VERSION, OID_SEQUENCE_VERSION, TIMELINE_VIEW_VERSION),
         default=CURRENT_SCHEMA_VERSION,
     )
     options = parser.parse_args(arguments)
