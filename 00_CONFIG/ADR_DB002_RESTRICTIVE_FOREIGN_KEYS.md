@@ -59,13 +59,16 @@ production connection through `gmv_core.database.connect_path()`, including:
 also rejects any unapproved `PRAGMA foreign_keys=OFF` or `=0` in tracked
 production Python/SQL.
 
-The sole exception is the first statement of migration 006. SQLite requires
-foreign-key enforcement to be disabled while its seven constrained tables are
-rebuilt. This exception is confined to that migration resource: the runner
-opens with enforcement verified on, migration 006 turns it off before
-`BEGIN IMMEDIATE`, performs the orphan and post-copy integrity guards in the
-same transaction, commits, then restores enforcement. Tests verify ordering,
-rollback, restoration to `foreign_keys=1`, and the exact one-file allow-list.
+The initial sole exception was the first statement of migration 006. SQLite
+requires foreign-key enforcement to be disabled while its seven constrained
+tables are rebuilt. The isolated DB-003 migration 007 adds one second, equally
+confined exception because it atomically rebuilds the referenced `objects`
+table plus `service_runs`, `engines`, and `relations`. Each resource turns
+enforcement off before `BEGIN IMMEDIATE`, performs its preflight and post-copy
+integrity guards in the same transaction, commits, then restores enforcement.
+The runner also restores and verifies enforcement after a failed script.
+Static and injected-failure tests prove ordering, rollback, restoration to
+`foreign_keys=1`, and the exact two-file allow-list; no other exception exists.
 
 ## Consequences
 

@@ -10,7 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = ("01_RUNTIME/", "10_API/", "gmv_core/")
 RAW_CONNECT_OWNER = "gmv_core/database.py"
-FOREIGN_KEYS_OFF_OWNER = "gmv_core/migration_sql/006_foreign_keys.sql"
+FOREIGN_KEYS_OFF_OWNERS = (
+    "gmv_core/migration_sql/006_foreign_keys.sql",
+    "gmv_core/migration_sql/007_domain_constraints.sql",
+)
 DISABLED_FOREIGN_KEYS = re.compile(
     r"PRAGMA\s+foreign_keys\s*=\s*(?:OFF|0)",
     flags=re.IGNORECASE,
@@ -82,11 +85,12 @@ def test_foreign_key_disable_is_confined_to_atomic_table_rebuild() -> None:
         if matches:
             hits[relative] = len(matches)
 
-    assert hits == {FOREIGN_KEYS_OFF_OWNER: 1}
+    assert hits == {owner: 1 for owner in FOREIGN_KEYS_OFF_OWNERS}
 
-    migration = (ROOT / FOREIGN_KEYS_OFF_OWNER).read_text(encoding="utf-8")
-    disable = migration.index("PRAGMA foreign_keys = OFF;")
-    begin = migration.index("BEGIN IMMEDIATE;")
-    commit = migration.rindex("COMMIT;")
-    enable = migration.rindex("PRAGMA foreign_keys = ON;")
-    assert disable < begin < commit < enable
+    for owner in FOREIGN_KEYS_OFF_OWNERS:
+        migration = (ROOT / owner).read_text(encoding="utf-8")
+        disable = migration.index("PRAGMA foreign_keys = OFF;")
+        begin = migration.index("BEGIN IMMEDIATE;")
+        commit = migration.rindex("COMMIT;")
+        enable = migration.rindex("PRAGMA foreign_keys = ON;")
+        assert disable < begin < commit < enable

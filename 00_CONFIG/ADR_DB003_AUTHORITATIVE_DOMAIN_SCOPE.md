@@ -99,8 +99,16 @@ implemented later under DB-010.
 
 ## Enforcement sequencing
 
-- A future, separately authorized DB-003 migration may enforce lexical OID
-  grammar, Service Run outcomes, compatibility mode, and non-self Relations.
+- Migration 007 is the explicit, opt-in DB-003 enforcement target for lexical
+  OID grammar, Service Run outcomes, compatibility mode, and non-self
+  Relations. It preflights all four domains before DDL, atomically rebuilds
+  only `objects`, `service_runs`, `engines`, and `relations`, preserves their
+  data, restrictive foreign keys, dependent views, Event triggers, indexes,
+  and autoincrement sequences, and advances `user_version` only after a clean
+  `foreign_key_check`. Injected failures must restore the complete v6 state and
+  per-connection foreign-key enforcement.
+- `CURRENT_SCHEMA_VERSION` remains 6. Migration 007 requires an explicit
+  `target_version=7` and is not authorized for the live database by this slice.
 - DB-010 will enforce confidence while implementing the accepted queue state
   contract.
 - DB-008 will enforce supported OID prefix/type consistency.

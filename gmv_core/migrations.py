@@ -9,8 +9,8 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
+from gmv_core.database import connect_path, enable_foreign_keys
 from gmv_core.errors import MigrationError, MigrationStateError
-from gmv_core.database import connect_path
 
 BASELINE_VERSION = 1
 BASELINE_RESOURCE = "migration_sql/001_baseline.sql"
@@ -24,6 +24,9 @@ ENGINE_RUNS_RETIRED_VERSION = 5
 ENGINE_RUNS_RETIRED_RESOURCE = "migration_sql/005_retire_engine_runs.sql"
 FOREIGN_KEYS_VERSION = 6
 FOREIGN_KEYS_RESOURCE = "migration_sql/006_foreign_keys.sql"
+DOMAIN_CONSTRAINTS_VERSION = 7
+DOMAIN_CONSTRAINTS_RESOURCE = "migration_sql/007_domain_constraints.sql"
+# Version 7 remains opt-in until its separately approved live cutover.
 CURRENT_SCHEMA_VERSION = FOREIGN_KEYS_VERSION
 
 
@@ -149,6 +152,7 @@ def _apply_migration(
         connection.executescript(_migration_sql(resource))
     except sqlite3.Error as error:
         connection.rollback()
+        enable_foreign_keys(connection)
         raise MigrationError(
             f"migration {version} failed for {target}: {error}"
         ) from error
@@ -186,6 +190,7 @@ def migrate(
         APPEND_ONLY_EVENTS_VERSION,
         ENGINE_RUNS_RETIRED_VERSION,
         FOREIGN_KEYS_VERSION,
+        DOMAIN_CONSTRAINTS_VERSION,
     }
     if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
@@ -258,6 +263,17 @@ def migrate(
                     resource=FOREIGN_KEYS_RESOURCE,
                 )
                 current_version = FOREIGN_KEYS_VERSION
+            if (
+                target_version >= DOMAIN_CONSTRAINTS_VERSION
+                and current_version == FOREIGN_KEYS_VERSION
+            ):
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=DOMAIN_CONSTRAINTS_VERSION,
+                    resource=DOMAIN_CONSTRAINTS_RESOURCE,
+                )
+                current_version = DOMAIN_CONSTRAINTS_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -276,6 +292,7 @@ def main(arguments: list[str] | None = None) -> int:
             APPEND_ONLY_EVENTS_VERSION,
             ENGINE_RUNS_RETIRED_VERSION,
             FOREIGN_KEYS_VERSION,
+            DOMAIN_CONSTRAINTS_VERSION,
         ),
         default=CURRENT_SCHEMA_VERSION,
     )
