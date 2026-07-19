@@ -6,8 +6,9 @@ production writers before the separately authorized DB-010 implementation.
 
 from __future__ import annotations
 
-import math
 from enum import StrEnum
+
+from gmv_core.domain_constraints import validate_confidence
 
 
 class ImportQueueState(StrEnum):
@@ -104,14 +105,7 @@ def validate_state_payload(
     elif error is not None:
         raise ValueError(f"{parsed} requires error to be null")
 
-    if confidence is not None:
-        if (
-            isinstance(confidence, bool)
-            or not isinstance(confidence, (int, float))
-            or not math.isfinite(confidence)
-            or not 0 <= confidence <= 1
-        ):
-            raise ValueError("confidence must be null or a finite number between 0 and 1")
+    validate_confidence(confidence)
 
     if parsed in DESTINATION_REQUIRED_STATES and (
         not isinstance(proposed_destination, str) or not proposed_destination.strip()

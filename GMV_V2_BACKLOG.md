@@ -150,15 +150,22 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 
 ### DB-003 — Add domain check constraints
 
-- **Description:** Statuses, OID formats, confidence ranges, compatibility flags, queue states, and non-self Relation rules are not constrained.
+- **Description:** Lexical OID format, Service Run outcomes, confidence range,
+  compatibility flags, and non-self Relation rules are not constrained. Import
+  Queue state/persistence is implemented by DB-010. Duplicated lifecycle status
+  policy and checks are explicitly deferred to DB-013.
 - **Severity:** High
 - **Effort:** M
 - **Dependencies:** DB-001, ARC-004. The accepted DB-003 decision contract
   defines the Import Queue state machine before DB-010 implementation; queue
-  persistence enforcement remains owned by DB-010.
+  persistence enforcement remains owned by DB-010. Status normalization is not
+  a DB-003 dependency because it is owned end-to-end by DB-013.
 - **Expected benefit:** Rejects malformed state at the persistence boundary.
 - **Can be automated:** Yes
-- **Recommended next action:** Enumerate allowed domains and encode them in migrations with negative tests.
+- **Recommended next action:** Stage isolated enforcement for lexical OID
+  grammar, Service Run outcomes, compatibility mode, and non-self Relations;
+  DB-010 adds the accepted confidence check during its Queue rebuild. Do not add
+  lifecycle-status checks under DB-003.
 
 ### DB-004 — Enforce append-only Events
 
@@ -226,8 +233,9 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 - **Severity:** High
 - **Effort:** M
 - **Dependencies:** Accepted DB-003 Import Queue state decision contract
-  (`00_CONFIG/ADR_DB003_IMPORT_QUEUE_STATE_MACHINE.md`), not completion of
-  every non-queue DB-003 constraint.
+  (`00_CONFIG/ADR_DB003_IMPORT_QUEUE_STATE_MACHINE.md`) and DB-003 confidence
+  domain (`00_CONFIG/ADR_DB003_AUTHORITATIVE_DOMAIN_SCOPE.md`), not completion
+  of every non-queue DB-003 constraint.
 - **Expected benefit:** Prevents contradictory states and supports reliable automation/review.
 - **Can be automated:** Partially
 - **Recommended next action:** Implement the accepted single-field state
@@ -256,13 +264,19 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 
 ### DB-013 — Remove duplicated current-status fields
 
-- **Description:** Object status is duplicated in Resources and Plugin metadata, allowing state drift and contradicting the claim that status is derived.
+- **Description:** Object status is duplicated in Resources and Plugin metadata,
+  allowing state drift and contradicting the claim that status is derived.
+  DB-013 exclusively owns lifecycle-status authority, normalization, and future
+  checks for these duplicated fields; DB-003 must not constrain them first.
 - **Severity:** Medium
 - **Effort:** M
-- **Dependencies:** DB-005, ARC-009
+- **Dependencies:** DB-005, ARC-009, and the accepted DB-003 scope decision
+  (`00_CONFIG/ADR_DB003_AUTHORITATIVE_DOMAIN_SCOPE.md`).
 - **Expected benefit:** Produces one authoritative current-state model.
 - **Can be automated:** Partially
-- **Recommended next action:** Decide whether status is stored or derived per entity and migrate redundant fields/views.
+- **Recommended next action:** Decide whether status is stored or derived per
+  entity, reconcile values, migrate redundant fields/views, and only then add
+  lifecycle-status domain checks.
 
 ### DB-014 — Remove duplicated Service names from run records
 

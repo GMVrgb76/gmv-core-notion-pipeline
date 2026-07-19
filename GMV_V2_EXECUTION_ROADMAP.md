@@ -235,8 +235,8 @@ Create one authoritative identity, Event history, Service-run history, and const
 3. Migrate Timeline into Events under `DB-005` and `AUTO-003`; update all writers before table removal.
 4. Enforce append-only canonical Events under `DB-004`.
 5. Migrate Engine Runs to Service Runs and unify Engine/Service identity under `DB-006`, `ARC-006`, and `MAIN-014`.
-6. Add foreign keys and domain constraints under `DB-002`, `DB-003`, `DB-008`, and `SEC-006`; establish the Import Queue state decision contract needed by `DB-003`, while leaving its `DB-010` implementation in Sprint 004.
-7. Normalize status, names, and timestamps under `DB-013`, `DB-014`, `DB-015`, and `MAIN-012`.
+6. Add foreign keys and authoritative non-status domain constraints under `DB-002`, `DB-003`, `DB-008`, and `SEC-006`; establish the Import Queue state/confidence decision contract while leaving its `DB-010` implementation in Sprint 004.
+7. Decide and normalize duplicated lifecycle status, names, and timestamps under `DB-013`, `DB-014`, `DB-015`, and `MAIN-012`; DB-013 owns future status checks rather than DB-003.
 8. Define the minimum Attributes/Documents/Sources/metadata schema under `DB-020`; avoid speculative generic tables.
 9. Extend Relation assertions and evidence under `ARC-010` and `DB-021`.
 10. Add measured indexes and concurrency settings under `DB-016`, `DB-019`, and `PERF-002` through `PERF-005`.

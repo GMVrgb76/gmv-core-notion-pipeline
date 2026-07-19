@@ -72,6 +72,8 @@ write; it must not manufacture a self-transition or change `updated_at`.
 
 - `confidence` is nullable; when present it is a finite number in the inclusive
   range 0 through 1. No threshold or automatic approval policy is implied.
+  This scalar domain is owned by DB-003 and persisted by DB-010 during the
+  atomic Queue rebuild; see `ADR_DB003_AUTHORITATIVE_DOMAIN_SCOPE.md`.
 - `retryable_error` and `failed` require a non-empty `error`. Every other state
   requires `error` to be null.
 - `approved` and `archived` require a non-empty `proposed_destination`.
@@ -117,6 +119,8 @@ reconciliation; the migration fails closed rather than guessing.
   not on completion of every other `DB-003` constraint.
 - Non-queue `DB-003` constraints may be staged separately. Queue persistence and
   transition enforcement remain owned by `DB-010`.
+- Duplicated lifecycle-status policy and future checks belong to `DB-013`, not
+  to DB-003 or this Queue state contract.
 
 This ordering removes the cycle without moving `DB-010` implementation out of
 its documented Sprint 004 position.
@@ -138,4 +142,5 @@ its documented Sprint 004 position.
   and `AUTO-007`.
 - `00_CONFIG/GMV_CORE_ARCHITECTURE.md` — Import lifecycle vocabulary.
 - `00_CONFIG/ADR_CORE_PERSISTENCE_BOUNDARY.md`.
+- `00_CONFIG/ADR_DB003_AUTHORITATIVE_DOMAIN_SCOPE.md`.
 - Project Owner approval recorded on 2026-07-19.
