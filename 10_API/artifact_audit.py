@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sqlite3
 import sys
@@ -11,12 +12,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+database_module = importlib.import_module("gmv_core.database")
+
 UTC = timezone.utc
 
 
 def connect_read_only(database: Path) -> sqlite3.Connection:
     uri = f"{database.resolve().as_uri()}?mode=ro"
-    return sqlite3.connect(uri, uri=True)
+    return database_module.connect_path(uri, uri=True)
 
 
 def audit_artifacts(database: Path) -> list[dict[str, Any]]:

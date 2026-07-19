@@ -2,7 +2,6 @@
 import hashlib
 import importlib
 import mimetypes
-import sqlite3
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -17,9 +16,7 @@ FOREIGN_KEYS_VERSION = migrations.FOREIGN_KEYS_VERSION
 allocate_and_create_object = importlib.import_module(
     "gmv_core.repositories.identity"
 ).allocate_and_create_object
-enable_foreign_keys = importlib.import_module(
-    "gmv_core.database"
-).enable_foreign_keys
+connect_path = importlib.import_module("gmv_core.database").connect_path
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 
@@ -70,7 +67,7 @@ def list_import_queue(pending_only=False):
         query += " WHERE status='pending' OR review_status='pending_review'"
     query += " ORDER BY created_at DESC, import_id DESC"
 
-    with enable_foreign_keys(sqlite3.connect(DB)) as conn:
+    with connect_path(DB) as conn:
         return conn.execute(query).fetchall()
 
 def print_import_queue(rows):
@@ -83,7 +80,7 @@ def import_file(file_path):
         print(f"File not found: {p}")
         sys.exit(1)
 
-    conn = enable_foreign_keys(sqlite3.connect(DB))
+    conn = connect_path(DB)
     try:
         require_current_schema(conn)
     except RuntimeError as error:

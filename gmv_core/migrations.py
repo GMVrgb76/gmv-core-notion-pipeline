@@ -10,6 +10,7 @@ from importlib import resources
 from pathlib import Path
 
 from gmv_core.errors import MigrationError, MigrationStateError
+from gmv_core.database import connect_path
 
 BASELINE_VERSION = 1
 BASELINE_RESOURCE = "migration_sql/001_baseline.sql"
@@ -111,7 +112,7 @@ def _baseline_sql() -> str:
 
 
 def _baseline_signature() -> tuple[object, ...]:
-    with sqlite3.connect(":memory:") as connection:
+    with connect_path(":memory:") as connection:
         connection.executescript(_baseline_sql())
         return _schema_signature(connection)
 
@@ -190,7 +191,7 @@ def migrate(
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
 
     try:
-        with sqlite3.connect(target) as connection:
+        with connect_path(target) as connection:
             current_version = _version(connection)
             if current_version > target_version:
                 raise MigrationStateError(

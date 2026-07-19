@@ -44,16 +44,39 @@ and Compatibility writers must require their pre-existing Object identities
 and fail before execution/writes when authority is absent or mistyped; they
 must never synthesize System or Service Objects.
 
+The subsequent connection-completion slice routes every remaining tracked
+production connection through `gmv_core.database.connect_path()`, including:
+
+- read-only Event, Timeline, Plugin, artifact, Doctor, and Status queries;
+- the dormant `BaseService` and `plugin_manager` paths;
+- Snapshot export;
+- backup source, destination, verification, Resource evidence, and OID checks;
+- DB-005/DB-006 historical plan, apply, and reconciliation tools; and
+- the schema migration runner itself, including its in-memory baseline check.
+
+`gmv_core.database.py` is the only tracked production file permitted to call
+`sqlite3.connect()` directly. A static AST test enforces that ownership and
+also rejects any unapproved `PRAGMA foreign_keys=OFF` or `=0` in tracked
+production Python/SQL.
+
+The sole exception is the first statement of migration 006. SQLite requires
+foreign-key enforcement to be disabled while its seven constrained tables are
+rebuilt. This exception is confined to that migration resource: the runner
+opens with enforcement verified on, migration 006 turns it off before
+`BEGIN IMMEDIATE`, performs the orphan and post-copy integrity guards in the
+same transaction, commits, then restores enforcement. Tests verify ordering,
+rollback, restoration to `foreign_keys=1`, and the exact one-file allow-list.
+
 ## Consequences
 
 - Referenced parents cannot be updated or deleted until references are handled
   explicitly under a future approved domain workflow.
 - Object subtype correctness remains a separate DB-003 concern; ordinary
   foreign keys prove existence, not that an Object has the expected domain type.
-- Raw SQLite connections still default to enforcement off. Remaining read-only,
-  diagnostic, backup, and historical migration call sites must be classified
-  and covered before DB-002 can satisfy the roadmap's every-connection exit
-  criterion.
+- Raw SQLite connections still default to enforcement off, so the static
+  boundary permanently confines them to the fail-closed Core factory. All
+  currently tracked production connection classes are covered; there is no
+  residual application exception.
 - A failed pre-commit migration rolls back transactionally to v5. After a live
   commit, rollback is restore from a verified milestone backup, never reverse
   destructive DDL; that operation requires separate Project Owner approval.

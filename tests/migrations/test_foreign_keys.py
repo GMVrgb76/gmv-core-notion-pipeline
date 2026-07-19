@@ -253,3 +253,18 @@ def test_version_six_is_explicit_and_default_remains_five(tmp_path: Path) -> Non
     assert migrations.migrate(database) == 5
     assert migrations.migrate(database, target_version=migrations.FOREIGN_KEYS_VERSION) == 6
     assert migrations.migrate(database, target_version=migrations.FOREIGN_KEYS_VERSION) == 6
+
+
+def test_rebuild_exception_restores_connection_enforcement(tmp_path: Path) -> None:
+    database = _version_five_database(tmp_path)
+
+    with core_database.connect_path(database) as connection:
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
+        migrations._apply_migration(
+            connection,
+            target=database,
+            version=migrations.FOREIGN_KEYS_VERSION,
+            resource=migrations.FOREIGN_KEYS_RESOURCE,
+        )
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
+        assert tuple(connection.execute("PRAGMA foreign_key_check")) == ()

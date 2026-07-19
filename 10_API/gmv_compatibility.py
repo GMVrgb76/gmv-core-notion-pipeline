@@ -6,7 +6,6 @@ import hashlib
 import shlex
 import shutil
 import signal
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -170,7 +169,7 @@ def run_bounded_process(
     return return_code, stdout.text(), stderr.text(), outcome
 
 def init_db(service_oid: str):
-    conn = database.enable_foreign_keys(sqlite3.connect(DB))
+    conn = database.connect_path(DB)
     try:
         database.require_object_identities(
             conn,

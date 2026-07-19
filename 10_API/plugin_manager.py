@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-import sqlite3, sys
+import importlib, sys
 from pathlib import Path
+
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+database_module = importlib.import_module("gmv_core.database")
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 
 def q(sql, params=()):
-    conn = sqlite3.connect(DB)
+    conn = database_module.connect_path(DB)
     cur = conn.cursor()
     cur.execute(sql, params)
     rows = cur.fetchall()

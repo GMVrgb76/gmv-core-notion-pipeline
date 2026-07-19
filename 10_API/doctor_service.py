@@ -13,6 +13,7 @@ still open).
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sqlite3
 import stat
@@ -29,6 +30,8 @@ if str(CORE_ROOT) not in sys.path:
 
 from gmv_core.json_identity_audit import audit_json_identities  # noqa: E402
 from gmv_core.paths import GMVPaths  # noqa: E402
+
+database_module = importlib.import_module("gmv_core.database")
 
 SCHEMA_VERSION = 1
 REQUIRED_SCHEMA = {
@@ -59,7 +62,9 @@ def _with_database(
     check: Callable[[sqlite3.Connection], str],
 ) -> CheckResult:
     try:
-        with sqlite3.connect(_database_uri(database), uri=True) as connection:
+        with database_module.connect_path(
+            _database_uri(database), uri=True
+        ) as connection:
             message = check(connection)
     except (OSError, sqlite3.Error, ValueError) as error:
         return CheckResult(name, "FAIL", str(error))

@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 
+import importlib
 import sqlite3
+import sys
 from pathlib import Path
+
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+database_module = importlib.import_module("gmv_core.database")
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 
 class BaseService:
 
     def __init__(self):
-        self.conn = sqlite3.connect(DB)
+        self.conn = database_module.connect_path(DB)
         self.conn.row_factory = sqlite3.Row
 
     def query(self, sql, params=()):

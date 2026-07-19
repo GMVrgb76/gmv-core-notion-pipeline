@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -21,6 +22,12 @@ from typing import Any
 from secure_storage import atomic_write_text, require_private, secure_directory
 from audit_integrity import append as append_audit
 from audit_integrity import validate as validate_audit
+
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+database_module = importlib.import_module("gmv_core.database")
 
 UTC = timezone.utc
 
@@ -64,15 +71,15 @@ def _git(root: Path, *arguments: str) -> str:
 
 def _sqlite_backup(source: Path, target: Path) -> None:
     source_uri = f"{source.resolve().as_uri()}?mode=ro"
-    with sqlite3.connect(source_uri, uri=True) as source_connection:
-        with sqlite3.connect(target) as target_connection:
+    with database_module.connect_path(source_uri, uri=True) as source_connection:
+        with database_module.connect_path(target) as target_connection:
             source_connection.backup(target_connection)
     os.chmod(target, 0o600)
 
 
 def _resource_evidence(database: Path) -> list[dict[str, object]]:
     uri = f"{database.resolve().as_uri()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with database_module.connect_path(uri, uri=True) as connection:
         rows = connection.execute("SELECT oid,path,sha256 FROM resources ORDER BY oid")
         evidence = []
         for oid, raw_path, expected_hash in rows:
@@ -94,7 +101,7 @@ def _resource_evidence(database: Path) -> list[dict[str, object]]:
 
 def _oid_continuity(database: Path) -> dict[str, Any]:
     uri = f"{database.resolve().as_uri()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with database_module.connect_path(uri, uri=True) as connection:
         oids = [str(row[0]) for row in connection.execute("SELECT oid FROM objects ORDER BY oid")]
     seen: set[str] = set()
     duplicates: list[str] = []
@@ -125,7 +132,7 @@ def _oid_continuity(database: Path) -> dict[str, Any]:
 
 def _oid_set(database: Path) -> set[str]:
     uri = f"{database.resolve().as_uri()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with database_module.connect_path(uri, uri=True) as connection:
         return {str(row[0]) for row in connection.execute("SELECT oid FROM objects")}
 
 
@@ -146,7 +153,7 @@ def verify_backup(backup: Path) -> dict[str, Any]:
             raise ValueError(f"backup entry verification failed: {entry['path']}")
     database = backup / "database" / "GMV.db"
     uri = f"{database.resolve().as_uri()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with database_module.connect_path(uri, uri=True) as connection:
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         foreign_keys = list(connection.execute("PRAGMA foreign_key_check"))
         user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])

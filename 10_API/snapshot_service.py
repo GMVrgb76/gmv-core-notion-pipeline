@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
+import importlib
 import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
+
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+database_module = importlib.import_module("gmv_core.database")
 
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE/GMV.db"
@@ -26,7 +33,7 @@ def create_snapshot():
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     path = next_snapshot_path()
 
-    with sqlite3.connect(DB) as conn, path.open("x", encoding="utf-8") as dump:
+    with database_module.connect_path(DB) as conn, path.open("x", encoding="utf-8") as dump:
         for statement in conn.iterdump():
             dump.write(f"{statement}\n")
 

@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sqlite3
+import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +20,12 @@ from health_service import (
     run_with_timeout,
 )
 
+CORE_ROOT = Path(__file__).resolve().parents[1]
+if str(CORE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_ROOT))
+
+database_module = importlib.import_module("gmv_core.database")
+
 SCHEMA_VERSION = 1
 UTC = timezone.utc
 
@@ -25,7 +33,7 @@ UTC = timezone.utc
 def _queue_result(database: Path) -> HealthResult:
     uri = f"{database.resolve().as_uri()}?mode=ro"
     try:
-        with sqlite3.connect(uri, uri=True) as connection:
+        with database_module.connect_path(uri, uri=True) as connection:
             count = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM import_queue_view "

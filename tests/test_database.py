@@ -52,6 +52,18 @@ def test_connect_enables_foreign_keys(tmp_path: Path) -> None:
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
 
 
+def test_explicit_read_only_connection_enables_foreign_keys(tmp_path: Path) -> None:
+    database_path = tmp_path / "read-only.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE sentinel(id INTEGER PRIMARY KEY)")
+    uri = f"{database_path.resolve().as_uri()}?mode=ro"
+
+    with database.connect_path(uri, uri=True) as connection:
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("INSERT INTO sentinel DEFAULT VALUES")
+
+
 def test_enforcement_fails_closed_inside_an_active_transaction() -> None:
     with sqlite3.connect(":memory:") as connection:
         connection.execute("BEGIN")
@@ -60,6 +72,32 @@ def test_enforcement_fails_closed_inside_an_active_transaction() -> None:
             match="foreign-key enforcement could not be enabled",
         ):
             database.enable_foreign_keys(connection)
+
+
+def test_explicit_factory_closes_connection_when_enforcement_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DisabledConnection:
+        closed = False
+
+        def execute(self, _statement: str) -> DisabledConnection:
+            return self
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+        def close(self) -> None:
+            self.closed = True
+
+    disabled = DisabledConnection()
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: disabled)
+
+    with pytest.raises(
+        DatabaseConfigurationError,
+        match="foreign-key enforcement could not be enabled",
+    ):
+        database.connect_path(":memory:")
+    assert disabled.closed is True
 
 
 def test_required_object_identity_rejects_wrong_type() -> None:

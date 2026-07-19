@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from datetime import datetime
 from pathlib import Path
-import importlib, json, sqlite3, sys
+import importlib, json, sys
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 if str(SOURCE_ROOT) not in sys.path:
@@ -19,7 +19,7 @@ LOG = CORE / "04_LOGS" / "knowledge_engine.log"
 
 now = datetime.now().isoformat(timespec="seconds")
 
-conn = database.enable_foreign_keys(sqlite3.connect(DB))
+conn = database.connect_path(DB)
 cur = conn.cursor()
 
 try:

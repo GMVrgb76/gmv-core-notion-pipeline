@@ -34,6 +34,21 @@ def enable_foreign_keys(connection: sqlite3.Connection) -> sqlite3.Connection:
     return connection
 
 
+def connect_path(
+    database: str | os.PathLike[str],
+    *,
+    uri: bool = False,
+    timeout: float = 5.0,
+) -> sqlite3.Connection:
+    """Open an explicit SQLite target with verified FK enforcement."""
+    connection = sqlite3.connect(database, uri=uri, timeout=timeout)
+    try:
+        return enable_foreign_keys(connection)
+    except Exception:
+        connection.close()
+        raise
+
+
 def require_object_identities(
     connection: sqlite3.Connection,
     required: Mapping[str, str],
@@ -75,9 +90,4 @@ def connect(home: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     lifecycle exactly as sqlite3.connect() callers always have.
     """
     paths = GMVPaths.from_config(load_config(home))
-    connection = sqlite3.connect(paths.database)
-    try:
-        return enable_foreign_keys(connection)
-    except Exception:
-        connection.close()
-        raise
+    return connect_path(paths.database)

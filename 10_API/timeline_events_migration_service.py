@@ -31,6 +31,7 @@ from gmv_core.timeline_events_migration import (  # noqa: E402
     plan_migration,
     reconcile_evidence,
 )
+from gmv_core.database import connect_path  # noqa: E402
 
 from audit_integrity import append as append_audit  # noqa: E402
 from audit_integrity import validate as validate_audit  # noqa: E402
@@ -59,7 +60,7 @@ def _row_dict(row: MatchedRow | tuple) -> dict[str, object]:
 
 
 def _cmd_plan(options: argparse.Namespace) -> int:
-    with sqlite3.connect(_database_uri(options.database), uri=True) as connection:
+    with connect_path(_database_uri(options.database), uri=True) as connection:
         pending = plan_migration(connection)
     payload = [_row_dict(row) for row in pending]
     if options.json:
@@ -99,7 +100,7 @@ def _cmd_apply(options: argparse.Namespace) -> int:
         print(f"error: backup reference failed verification: {error}", file=sys.stderr)
         return 2
 
-    with sqlite3.connect(options.database) as connection:
+    with connect_path(options.database) as connection:
         connection.execute("BEGIN IMMEDIATE")
         migrated = apply_migration(connection)
         # `with` commits here on normal exit, or rolls back on exception --
@@ -136,7 +137,7 @@ def _cmd_reconcile(options: argparse.Namespace) -> int:
         if record.get("action") in LOGGED_ACTIONS
     }
 
-    with sqlite3.connect(_database_uri(options.database), uri=True) as connection:
+    with connect_path(_database_uri(options.database), uri=True) as connection:
         full_mapping = reconcile_evidence(connection)
 
     gap = [row for row in full_mapping if (row.timeline_id, row.events_id) not in already_logged]

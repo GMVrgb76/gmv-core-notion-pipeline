@@ -23,6 +23,7 @@ from gmv_core.engine_service_runs_migration import (  # noqa: E402
     plan_migration,
     reconcile_evidence,
 )
+from gmv_core.database import connect_path  # noqa: E402
 
 from audit_integrity import append as append_audit  # noqa: E402
 from audit_integrity import validate as validate_audit  # noqa: E402
@@ -48,7 +49,7 @@ def _validate_milestone_backup(backup_path: Path) -> dict[str, object]:
 
 
 def _cmd_plan(options: argparse.Namespace) -> int:
-    with sqlite3.connect(_database_uri(options.database), uri=True) as connection:
+    with connect_path(_database_uri(options.database), uri=True) as connection:
         plan = plan_migration(connection)
     payload = {
         "counts": {
@@ -146,7 +147,7 @@ def _cmd_apply(options: argparse.Namespace) -> int:
         print(f"error: apply precondition failed: {error}", file=sys.stderr)
         return 2
 
-    with sqlite3.connect(options.database) as connection:
+    with connect_path(options.database) as connection:
         connection.execute("BEGIN IMMEDIATE")
         result = apply_migration(
             connection,
@@ -182,7 +183,7 @@ def _cmd_apply(options: argparse.Namespace) -> int:
 def _cmd_reconcile(options: argparse.Namespace) -> int:
     evidence_path = options.home / EVIDENCE_RELATIVE_PATH
     mapped_logged, excluded_logged = _existing_evidence(evidence_path)
-    with sqlite3.connect(_database_uri(options.database), uri=True) as connection:
+    with connect_path(_database_uri(options.database), uri=True) as connection:
         plan = reconcile_evidence(connection)
 
     mapped_gap = [
