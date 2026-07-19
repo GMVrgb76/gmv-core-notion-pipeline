@@ -72,6 +72,17 @@ package") would break all of them at once if enforced immediately.
 - This ADR does not authorize a schema change, a second service migration,
   or the `ARC-002` enforcement check. Each requires its own task.
 
+## Amendment — DB-003 / DB-010 dependency resolution
+
+Accepted 2026-07-19 by the Project Owner. `DB-003` now owns the decision
+contract for the canonical Import Queue state machine; `DB-010` owns its later
+persistence/API implementation. The decision slice depends on `DB-001` and
+`ARC-004`, while `DB-010` depends on the accepted contract rather than on full
+completion of every `DB-003` constraint. This breaks the former circular
+dependency without authorizing a schema migration or moving `DB-010`
+implementation out of Sprint 004. The authoritative transition contract is
+`ADR_DB003_IMPORT_QUEUE_STATE_MACHINE.md`.
+
 ## References
 
 - `GMV_V2_EXECUTION_ROADMAP.md` — Sprint 003, "Small-step execution

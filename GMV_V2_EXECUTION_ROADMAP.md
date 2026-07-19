@@ -235,7 +235,7 @@ Create one authoritative identity, Event history, Service-run history, and const
 3. Migrate Timeline into Events under `DB-005` and `AUTO-003`; update all writers before table removal.
 4. Enforce append-only canonical Events under `DB-004`.
 5. Migrate Engine Runs to Service Runs and unify Engine/Service identity under `DB-006`, `ARC-006`, and `MAIN-014`.
-6. Add foreign keys and domain constraints under `DB-002`, `DB-003`, `DB-008`, and `SEC-006`.
+6. Add foreign keys and domain constraints under `DB-002`, `DB-003`, `DB-008`, and `SEC-006`; establish the Import Queue state decision contract needed by `DB-003`, while leaving its `DB-010` implementation in Sprint 004.
 7. Normalize status, names, and timestamps under `DB-013`, `DB-014`, `DB-015`, and `MAIN-012`.
 8. Define the minimum Attributes/Documents/Sources/metadata schema under `DB-020`; avoid speculative generic tables.
 9. Extend Relation assertions and evidence under `ARC-010` and `DB-021`.
@@ -294,7 +294,7 @@ Complete a safe, observable, human-reviewable ingestion pipeline from approved f
 
 ### Small-step execution sequence
 
-1. Finalize the Queue state machine and unique source identity under `DB-009` and `DB-010`.
+1. Implement the already accepted Queue state machine and finalize unique source identity under `DB-009` and `DB-010`.
 2. Add claims, leases, attempts, retries, worker identity, and transition history under `DB-011`.
 3. Implement content/location separation and managed custody under `DB-012`, `ROAD-012`, and `CLI-007`.
 4. Harden single-file import against root/type/size and TOCTOU risks under `SEC-002` and `SEC-003`.

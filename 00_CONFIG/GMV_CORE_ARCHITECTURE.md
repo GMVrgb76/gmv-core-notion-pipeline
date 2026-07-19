@@ -225,13 +225,20 @@ Directory:
 ~/.gmv_core/07_IMPORT/
 ```
 
-Stati:
+La state machine canonica è definita da
+`ADR_DB003_IMPORT_QUEUE_STATE_MACHINE.md`. Gli stati esatti sono:
 
 -   new
 -   processing
 -   classified
+-   approved
+-   retryable_error
 -   rejected
+-   failed
 -   archived
+
+`status` e `review_status` sono campi legacy; `DB-010` implementerà un unico
+campo `state` in una futura migrazione separatamente autorizzata.
 
 ------------------------------------------------------------------------
 

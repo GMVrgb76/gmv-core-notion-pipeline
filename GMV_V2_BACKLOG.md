@@ -153,7 +153,9 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 - **Description:** Statuses, OID formats, confidence ranges, compatibility flags, queue states, and non-self Relation rules are not constrained.
 - **Severity:** High
 - **Effort:** M
-- **Dependencies:** DB-001, ARC-004, DB-010
+- **Dependencies:** DB-001, ARC-004. The accepted DB-003 decision contract
+  defines the Import Queue state machine before DB-010 implementation; queue
+  persistence enforcement remains owned by DB-010.
 - **Expected benefit:** Rejects malformed state at the persistence boundary.
 - **Can be automated:** Yes
 - **Recommended next action:** Enumerate allowed domains and encode them in migrations with negative tests.
@@ -223,10 +225,14 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 - **Description:** `status` and `review_status` overlap without legal transitions or a single definition of “pending.”
 - **Severity:** High
 - **Effort:** M
-- **Dependencies:** DB-003
+- **Dependencies:** Accepted DB-003 Import Queue state decision contract
+  (`00_CONFIG/ADR_DB003_IMPORT_QUEUE_STATE_MACHINE.md`), not completion of
+  every non-queue DB-003 constraint.
 - **Expected benefit:** Prevents contradictory states and supports reliable automation/review.
 - **Can be automated:** Partially
-- **Recommended next action:** Model states and transitions explicitly, including terminal, retryable, and review outcomes.
+- **Recommended next action:** Implement the accepted single-field state
+  contract, legal-transition enforcement, Core transition API, Event emission,
+  and atomic reader/writer cutover; do not infer authority from test fixtures.
 
 ### DB-011 — Add queue execution metadata
 
