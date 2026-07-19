@@ -152,7 +152,7 @@ def test_importer_fails_closed_before_migration(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "Import requires schema version 6; found 0" in result.stderr
+    assert "Import requires schema version 6 or 7; found 0" in result.stderr
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
 
 

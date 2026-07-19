@@ -252,11 +252,10 @@ def test_failure_after_drop_rolls_back_schema_data_and_version(
     assert _dump(database) == before
 
 
-def test_version_six_is_the_default_after_live_cutover(tmp_path: Path) -> None:
+def test_version_six_remains_an_explicit_supported_target(tmp_path: Path) -> None:
     database = _version_five_database(tmp_path)
 
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.FOREIGN_KEYS_VERSION == 6
-    assert migrations.migrate(database) == 6
+    assert migrations.FOREIGN_KEYS_VERSION == 6
     assert migrations.migrate(database, target_version=migrations.FOREIGN_KEYS_VERSION) == 6
 
 

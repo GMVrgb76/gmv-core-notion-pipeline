@@ -422,34 +422,33 @@ def test_injected_errors_roll_back_schema_data_version_and_enforcement(
         assert _dump(connection) == before
 
 
-def test_version_seven_is_explicit_while_default_remains_v6(tmp_path: Path) -> None:
-    database = tmp_path / "explicit-version-seven.db"
+def test_version_seven_is_the_default_after_live_cutover(tmp_path: Path) -> None:
+    database = tmp_path / "default-version-seven.db"
 
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.FOREIGN_KEYS_VERSION == 6
-    assert migrations.DOMAIN_CONSTRAINTS_VERSION == 7
-    assert migrations.migrate(database) == 6
-    assert migrations.migrate(database) == 6
+    assert migrations.FOREIGN_KEYS_VERSION == 6
+    assert migrations.CURRENT_SCHEMA_VERSION == migrations.DOMAIN_CONSTRAINTS_VERSION == 7
+    assert migrations.migrate(database) == 7
+    assert migrations.migrate(database) == 7
     assert migrations.migrate(database, target_version=7) == 7
-    assert migrations.migrate(database, target_version=7) == 7
 
 
-def test_default_version_seven_promotion_rehearsal_is_disposable(
+def test_runtime_default_resolution_is_disposable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database = tmp_path / "promoted-default-v7.db"
-    assert migrations.CURRENT_SCHEMA_VERSION == 6
+    database = tmp_path / "runtime-default-v6.db"
+    assert migrations.CURRENT_SCHEMA_VERSION == 7
 
     monkeypatch.setattr(
         migrations,
         "CURRENT_SCHEMA_VERSION",
-        migrations.DOMAIN_CONSTRAINTS_VERSION,
+        migrations.FOREIGN_KEYS_VERSION,
     )
 
-    assert migrations.migrate(database) == 7
-    assert migrations.migrate(database) == 7
+    assert migrations.migrate(database) == 6
+    assert migrations.migrate(database) == 6
     with connect_path(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (7,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (6,)
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
         assert tuple(connection.execute("PRAGMA foreign_key_check")) == ()

@@ -64,7 +64,7 @@ def test_current_migration_is_byte_stable_and_includes_append_only_events(
     database = tmp_path / "current-version.db"
 
     assert migrations.migrate(database) == migrations.CURRENT_SCHEMA_VERSION
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.FOREIGN_KEYS_VERSION
+    assert migrations.CURRENT_SCHEMA_VERSION == migrations.DOMAIN_CONSTRAINTS_VERSION
     with sqlite3.connect(database) as connection:
         columns = [row[1] for row in connection.execute("PRAGMA table_info(events)")]
         assert "supersedes_event_id" in columns
@@ -74,7 +74,7 @@ def test_current_migration_is_byte_stable_and_includes_append_only_events(
     assert hashlib.sha256(database.read_bytes()).hexdigest() == migrated_digest
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (6,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (7,)
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE name='engine_runs'"
         ).fetchone() == (0,)

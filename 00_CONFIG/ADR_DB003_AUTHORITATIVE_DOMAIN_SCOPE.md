@@ -107,15 +107,19 @@ implemented later under DB-010.
   and autoincrement sequences, and advances `user_version` only after a clean
   `foreign_key_check`. Injected failures must restore the complete v6 state and
   per-connection foreign-key enforcement.
-- `CURRENT_SCHEMA_VERSION` remains 6. Migration 007 requires an explicit
-  `target_version=7` and is not authorized for the live database by this slice.
+- Migration 007 was applied to the live database in a separately authorized,
+  controlled cutover on 2026-07-19. The live database and
+  `CURRENT_SCHEMA_VERSION` are now 7; DB-003 enforcement of the four non-queue
+  domains is complete.
 - DB-010 will enforce confidence while implementing the accepted queue state
   contract.
 - DB-008 will enforce supported OID prefix/type consistency.
 - DB-013 will decide, normalize, and constrain duplicated lifecycle statuses.
 
-No migration, backup, live data change, writer cutover, or scheduler operation
-is authorized by this decision.
+The original decision slice authorized no migration, backup, live data change,
+writer cutover, or scheduler operation. Those operational permissions were
+granted separately for the later controlled cutover; no scheduler intervention
+was performed.
 
 ## Consequences
 

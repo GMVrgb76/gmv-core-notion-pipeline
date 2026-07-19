@@ -26,8 +26,7 @@ FOREIGN_KEYS_VERSION = 6
 FOREIGN_KEYS_RESOURCE = "migration_sql/006_foreign_keys.sql"
 DOMAIN_CONSTRAINTS_VERSION = 7
 DOMAIN_CONSTRAINTS_RESOURCE = "migration_sql/007_domain_constraints.sql"
-# Version 7 remains opt-in until its separately approved live cutover.
-CURRENT_SCHEMA_VERSION = FOREIGN_KEYS_VERSION
+CURRENT_SCHEMA_VERSION = DOMAIN_CONSTRAINTS_VERSION
 
 
 def _quoted_identifier(identifier: str) -> str:
