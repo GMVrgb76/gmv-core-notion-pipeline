@@ -17,7 +17,14 @@ REBUILT_TABLES = {"objects", "service_runs", "engines", "relations"}
 
 def _version_six_database(tmp_path: Path, name: str = "domain-constraints.db") -> Path:
     database = tmp_path / name
-    assert migrations.migrate(database) == migrations.FOREIGN_KEYS_VERSION == 6
+    assert (
+        migrations.migrate(
+            database,
+            target_version=migrations.FOREIGN_KEYS_VERSION,
+        )
+        == migrations.FOREIGN_KEYS_VERSION
+        == 6
+    )
     return database
 
 
@@ -424,3 +431,25 @@ def test_version_seven_is_explicit_while_default_remains_v6(tmp_path: Path) -> N
     assert migrations.migrate(database) == 6
     assert migrations.migrate(database, target_version=7) == 7
     assert migrations.migrate(database, target_version=7) == 7
+
+
+def test_default_version_seven_promotion_rehearsal_is_disposable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "promoted-default-v7.db"
+    assert migrations.CURRENT_SCHEMA_VERSION == 6
+
+    monkeypatch.setattr(
+        migrations,
+        "CURRENT_SCHEMA_VERSION",
+        migrations.DOMAIN_CONSTRAINTS_VERSION,
+    )
+
+    assert migrations.migrate(database) == 7
+    assert migrations.migrate(database) == 7
+    with connect_path(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (7,)
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
+        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert tuple(connection.execute("PRAGMA foreign_key_check")) == ()

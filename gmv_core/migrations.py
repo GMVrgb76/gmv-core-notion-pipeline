@@ -177,9 +177,11 @@ def _register_engine_run_content_hash(connection: sqlite3.Connection) -> None:
 def migrate(
     database: str | Path,
     *,
-    target_version: int = CURRENT_SCHEMA_VERSION,
+    target_version: int | None = None,
 ) -> int:
     """Migrate an explicit SQLite target and return its resulting version."""
+    if target_version is None:
+        target_version = CURRENT_SCHEMA_VERSION
     target = Path(database)
     if not target.parent.exists():
         raise MigrationStateError(f"migration target directory does not exist: {target.parent}")
