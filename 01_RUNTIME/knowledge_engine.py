@@ -59,7 +59,7 @@ VALUES (?, ?, ?, ?, ?, ?)
 ))
 
 cur.execute("""
-INSERT INTO timeline
+INSERT INTO events
 (oid, event_at, event_type, description, source)
 VALUES (?, ?, ?, ?, ?)
 """, (
