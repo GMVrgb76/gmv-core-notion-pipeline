@@ -15,10 +15,7 @@ OID_SEQUENCE_VERSION = 2
 OID_SEQUENCE_RESOURCE = "migration_sql/002_oid_sequences.sql"
 TIMELINE_VIEW_VERSION = 3
 TIMELINE_VIEW_RESOURCE = "migration_sql/003_timeline_view.sql"
-# Version accepted by live write paths. Promote this to v3 only in the
-# separately authorized live migration slice, so code remains compatible
-# with the production database while migration 003 is reviewed in isolation.
-CURRENT_SCHEMA_VERSION = OID_SEQUENCE_VERSION
+CURRENT_SCHEMA_VERSION = TIMELINE_VIEW_VERSION
 
 
 def _quoted_identifier(identifier: str) -> str:
