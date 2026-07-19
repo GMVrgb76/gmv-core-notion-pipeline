@@ -209,13 +209,21 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 
 ### DB-008 — Enforce OID prefix/type consistency
 
-- **Description:** Current prefixes are convention only. Nothing prevents a Resource row from receiving a Service OID or duplicate identities across JSON and SQLite.
+- **Description:** Schema v7 enforces lexical OID grammar, but persistence does
+  not yet bind each recognized prefix to the exact `objects.type` or prove the
+  domain type of extension references. The accepted DB-008 decision fixes the
+  closed six-pair map and classifies historical non-OID identifiers.
 - **Severity:** High
 - **Effort:** M
 - **Dependencies:** ARC-004, DB-003
 - **Expected benefit:** Detects identity corruption at creation time.
 - **Can be automated:** Yes
-- **Recommended next action:** Add a canonical validator plus migration checks for every existing Object and extension row.
+- **Recommended next action:** After explicit approval, implement an isolated
+  migration 008 prototype and tests on temporary databases: enforce the closed
+  Object prefix/type map and six typed-reference classes, remediate the sole
+  direct production Object seed to fail closed, add a static writer guard, and
+  prove atomic preflight, rollback, idempotence, and full parity. Keep live and
+  the application default at v7.
 
 ### DB-009 — Make queue source identity deterministic
 
