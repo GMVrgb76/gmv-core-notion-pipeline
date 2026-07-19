@@ -26,6 +26,8 @@ FOREIGN_KEYS_VERSION = 6
 FOREIGN_KEYS_RESOURCE = "migration_sql/006_foreign_keys.sql"
 DOMAIN_CONSTRAINTS_VERSION = 7
 DOMAIN_CONSTRAINTS_RESOURCE = "migration_sql/007_domain_constraints.sql"
+OID_TYPE_CONSISTENCY_VERSION = 8
+OID_TYPE_CONSISTENCY_RESOURCE = "migration_sql/008_oid_type_consistency.sql"
 CURRENT_SCHEMA_VERSION = DOMAIN_CONSTRAINTS_VERSION
 
 
@@ -192,6 +194,7 @@ def migrate(
         ENGINE_RUNS_RETIRED_VERSION,
         FOREIGN_KEYS_VERSION,
         DOMAIN_CONSTRAINTS_VERSION,
+        OID_TYPE_CONSISTENCY_VERSION,
     }
     if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
@@ -275,6 +278,17 @@ def migrate(
                     resource=DOMAIN_CONSTRAINTS_RESOURCE,
                 )
                 current_version = DOMAIN_CONSTRAINTS_VERSION
+            if (
+                target_version >= OID_TYPE_CONSISTENCY_VERSION
+                and current_version == DOMAIN_CONSTRAINTS_VERSION
+            ):
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=OID_TYPE_CONSISTENCY_VERSION,
+                    resource=OID_TYPE_CONSISTENCY_RESOURCE,
+                )
+                current_version = OID_TYPE_CONSISTENCY_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -294,6 +308,7 @@ def main(arguments: list[str] | None = None) -> int:
             ENGINE_RUNS_RETIRED_VERSION,
             FOREIGN_KEYS_VERSION,
             DOMAIN_CONSTRAINTS_VERSION,
+            OID_TYPE_CONSISTENCY_VERSION,
         ),
         default=CURRENT_SCHEMA_VERSION,
     )

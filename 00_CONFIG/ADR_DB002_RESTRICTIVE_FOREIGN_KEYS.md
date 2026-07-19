@@ -61,21 +61,26 @@ production Python/SQL.
 
 The initial sole exception was the first statement of migration 006. SQLite
 requires foreign-key enforcement to be disabled while its seven constrained
-tables are rebuilt. The isolated DB-003 migration 007 adds one second, equally
-confined exception because it atomically rebuilds the referenced `objects`
-table plus `service_runs`, `engines`, and `relations`. Each resource turns
-enforcement off before `BEGIN IMMEDIATE`, performs its preflight and post-copy
-integrity guards in the same transaction, commits, then restores enforcement.
-The runner also restores and verifies enforcement after a failed script.
-Static and injected-failure tests prove ordering, rollback, restoration to
-`foreign_keys=1`, and the exact two-file allow-list; no other exception exists.
+tables are rebuilt. The isolated DB-003 migration 007 adds a second confined
+exception because it atomically rebuilds the referenced `objects` table plus
+`service_runs`, `engines`, and `relations`. The isolated DB-008 migration 008
+adds a third because it rebuilds `objects` and `oid_sequences` while preserving
+the ten restrictive foreign keys and adding typed-reference triggers. Each
+resource verifies enforcement before disabling it, acquires `BEGIN IMMEDIATE`,
+performs its data and post-copy guards in the same transaction, commits, then
+restores enforcement. The runner also restores and verifies enforcement after
+a failed script. Static and injected-failure tests prove ordering, rollback,
+restoration to `foreign_keys=1`, and the exact three-file allow-list; no other
+exception exists.
 
 ## Consequences
 
 - Referenced parents cannot be updated or deleted until references are handled
   explicitly under a future approved domain workflow.
-- Object subtype correctness remains a separate DB-003 concern; ordinary
-  foreign keys prove existence, not that an Object has the expected domain type.
+- Object subtype correctness remains a separate DB-008 concern; ordinary
+  foreign keys prove existence, not that an Object has the expected domain
+  type. Explicit migration 008 implements that additional enforcement but is
+  not yet the live/default schema.
 - Raw SQLite connections still default to enforcement off, so the static
   boundary permanently confines them to the fail-closed Core factory. All
   currently tracked production connection classes are covered; there is no

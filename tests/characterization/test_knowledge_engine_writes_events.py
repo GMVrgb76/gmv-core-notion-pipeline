@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from gmv_core.migrations import FOREIGN_KEYS_VERSION, migrate
 from tests.conftest import IsolatedGMV
 
@@ -47,9 +49,21 @@ def _counts(database: Path) -> dict[str, int]:
         }
 
 
+def _seed_required_person(database: Path, *, object_type: str = "Person") -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO objects(oid,type,name,status)
+            VALUES ('PER-000001',?,'Giacomo Marco Valerio','active')
+            """,
+            (object_type,),
+        )
+
+
 def test_knowledge_engine_writes_events_not_timeline(
     cli_environment: dict[str, str], characterized_database: Path
 ) -> None:
+    _seed_required_person(characterized_database)
     before = _counts(characterized_database)
 
     result = _run_knowledge_engine(cli_environment)
@@ -75,6 +89,7 @@ def test_knowledge_engine_writes_events_not_timeline(
 def test_knowledge_engine_writes_canonical_service_run(
     cli_environment: dict[str, str], characterized_database: Path
 ) -> None:
+    _seed_required_person(characterized_database)
     before = _counts(characterized_database)
 
     result = _run_knowledge_engine(cli_environment)
@@ -82,9 +97,7 @@ def test_knowledge_engine_writes_canonical_service_run(
     assert result.returncode == 0, result.stderr
     after = _counts(characterized_database)
 
-    # PER-000001 does not exist in the fixture baseline (only SYS/SRV/PLG/RES
-    # do), so INSERT OR IGNORE inserts exactly one new object row.
-    assert after["objects"] == before["objects"] + 1
+    assert after["objects"] == before["objects"]
     assert after["engine_runs"] == before["engine_runs"]
     assert after["service_runs"] == before["service_runs"] + 1
 
@@ -109,6 +122,7 @@ def test_knowledge_engine_writes_canonical_service_run(
 def test_knowledge_engine_second_run_does_not_duplicate_the_object(
     cli_environment: dict[str, str], characterized_database: Path
 ) -> None:
+    _seed_required_person(characterized_database)
     first = _run_knowledge_engine(cli_environment)
     assert first.returncode == 0, first.stderr
     after_first = _counts(characterized_database)
@@ -117,7 +131,6 @@ def test_knowledge_engine_second_run_does_not_duplicate_the_object(
     assert second.returncode == 0, second.stderr
     after_second = _counts(characterized_database)
 
-    # objects: INSERT OR IGNORE keeps PER-000001 unique across runs.
     assert after_second["objects"] == after_first["objects"]
     # Events and Service Runs append once per execution; the legacy Engine
     # ledger is no longer a Knowledge Engine writer.
@@ -131,6 +144,7 @@ def test_knowledge_engine_second_run_does_not_duplicate_the_object(
 def test_knowledge_engine_event_and_service_run_share_one_transaction(
     cli_environment: dict[str, str], characterized_database: Path
 ) -> None:
+    _seed_required_person(characterized_database)
     before = _counts(characterized_database)
     with sqlite3.connect(characterized_database) as connection:
         connection.execute(
@@ -160,6 +174,7 @@ def test_knowledge_engine_missing_service_identity_fails_without_creating_author
         migrate(isolated_gmv.database, target_version=FOREIGN_KEYS_VERSION)
         == FOREIGN_KEYS_VERSION
     )
+    _seed_required_person(isolated_gmv.database)
     environment = os.environ.copy()
 
     result = _run_knowledge_engine(environment)
@@ -175,7 +190,36 @@ def test_knowledge_engine_missing_service_identity_fails_without_creating_author
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT COUNT(*) FROM objects WHERE oid='PER-000001'"
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM service_runs").fetchone() == (0,)
+
+
+@pytest.mark.parametrize("person_type", (None, "System"), ids=("missing", "mistyped"))
+def test_knowledge_engine_person_identity_fails_closed_without_writes(
+    isolated_gmv: IsolatedGMV,
+    person_type: str | None,
+) -> None:
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        connection.execute("DROP TABLE test_sentinel")
+    migrate(isolated_gmv.database, target_version=FOREIGN_KEYS_VERSION)
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        connection.execute(
+            """
+            INSERT INTO objects(oid,type,name,status)
+            VALUES ('SRV-000001','Service','Knowledge Engine','active')
+            """
+        )
+    if person_type is not None:
+        _seed_required_person(isolated_gmv.database, object_type=person_type)
+
+    result = _run_knowledge_engine(os.environ.copy())
+
+    assert result.returncode == 2
+    assert result.stderr == (
+        "error: required Object identities are unavailable: PER-000001 (Person)\n"
+    )
+    with sqlite3.connect(isolated_gmv.database) as connection:
         assert connection.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)
         assert connection.execute("SELECT COUNT(*) FROM service_runs").fetchone() == (0,)
 
@@ -193,6 +237,7 @@ def test_knowledge_engine_writes_valid_references_on_version_six(
             VALUES ('SRV-000001','Service','Knowledge Engine','active')
             """
         )
+    _seed_required_person(isolated_gmv.database)
 
     result = _run_knowledge_engine(os.environ.copy())
 

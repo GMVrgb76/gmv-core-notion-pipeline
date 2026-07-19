@@ -13,6 +13,7 @@ RAW_CONNECT_OWNER = "gmv_core/database.py"
 FOREIGN_KEYS_OFF_OWNERS = (
     "gmv_core/migration_sql/006_foreign_keys.sql",
     "gmv_core/migration_sql/007_domain_constraints.sql",
+    "gmv_core/migration_sql/008_oid_type_consistency.sql",
 )
 DISABLED_FOREIGN_KEYS = re.compile(
     r"PRAGMA\s+foreign_keys\s*=\s*(?:OFF|0)",

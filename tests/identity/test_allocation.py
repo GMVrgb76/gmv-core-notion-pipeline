@@ -17,6 +17,7 @@ from gmv_core.migrations import (
     BASELINE_VERSION,
     CURRENT_SCHEMA_VERSION,
     FOREIGN_KEYS_VERSION,
+    OID_TYPE_CONSISTENCY_VERSION,
     migrate,
 )
 from gmv_core.repositories.identity import allocate_and_create_object
@@ -152,7 +153,7 @@ def test_importer_fails_closed_before_migration(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "Import requires schema version 6 or 7; found 0" in result.stderr
+    assert "Import requires schema version 6 or 7 or 8; found 0" in result.stderr
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
 
 
@@ -178,6 +179,50 @@ def test_migrated_importer_uses_sequence_transaction(
     assert result.returncode == 0
     assert "Imported resource: RES-000001" in result.stdout
     assert result.stderr == ""
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT oid,type FROM objects WHERE oid='RES-000001'"
+        ).fetchone() == ("RES-000001", "Resource")
+        assert connection.execute(
+            "SELECT last_value FROM oid_sequences WHERE object_type='Resource'"
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT resource_oid FROM resources"
+        ).fetchone() == ("RES-000001",)
+        assert connection.execute(
+            "SELECT resource_oid FROM import_queue"
+        ).fetchone() == ("RES-000001",)
+
+
+def test_importer_accepts_explicit_version_eight_database(
+    isolated_gmv: object,
+    tmp_path: Path,
+) -> None:
+    database = Path(getattr(isolated_gmv, "database"))
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE test_sentinel")
+    assert (
+        migrate(database, target_version=OID_TYPE_CONSISTENCY_VERSION)
+        == OID_TYPE_CONSISTENCY_VERSION
+    )
+    source = tmp_path / "version-eight.txt"
+    source.write_text("fixture-v8", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(IMPORT_SERVICE), "file", str(source)],
+        env=os.environ.copy(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Imported resource: RES-000001" in result.stdout
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (8,)
+        assert connection.execute(
+            "SELECT type FROM objects WHERE oid='RES-000001'"
+        ).fetchone() == ("Resource",)
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT oid,type FROM objects WHERE oid='RES-000001'"

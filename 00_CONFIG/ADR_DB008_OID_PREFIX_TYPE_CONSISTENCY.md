@@ -101,7 +101,7 @@ No live prefix/type exception is accepted.
 6. The frozen JSON Object artifacts remain derived and non-authoritative. Any
    future writer requires separate approval and must use the Core Identity API.
 
-## Required preflight for future enforcement
+## Required preflight for enforcement
 
 A future migration/enforcement slice must fail before DDL unless all of the
 following are true:
@@ -122,12 +122,39 @@ following are true:
    keys, and dependent schema have been snapshotted for parity verification.
 
 The data checks must run again inside the same write transaction that performs
-future DDL so that verification and enforcement have no time-of-check/time-of-use
-gap. Isolated tests must cover each valid pair, unknown prefixes and types,
+DDL so that verification and enforcement have no time-of-check/time-of-use gap.
+Isolated tests must cover each valid pair, unknown prefixes and types,
 every prefix/type mismatch, all six typed-reference mismatches, sequence
 divergence, injected-error rollback, idempotence, and complete parity. Live
 cutover, milestone backup, restore authority, and default-version promotion
 remain separate Project Owner gates.
+
+## Isolated implementation sequencing
+
+- Migration 008 is an explicit opt-in target. It requires source schema v7 and
+  verified connection enforcement, then checks integrity, foreign keys, the
+  closed Object map, all six typed-reference classes, the exact sequence map,
+  and sequence positions before permanent DDL.
+- One `BEGIN IMMEDIATE` rebuilds only `objects` and `oid_sequences`, preserving
+  their rows and the schema-v7 lexical constraint while adding closed-map
+  checks. Six dependent views are restored byte-for-definition, and twelve
+  insert/update triggers enforce the six typed-reference contracts. The ten
+  restrictive foreign keys, all unrelated tables, Event triggers, indexes,
+  data, views/results, and both sequence families are preserved.
+- A post-copy `foreign_key_check` and `user_version=8` occur before commit.
+  Injected failures after table removal and immediately before version advance
+  restore the complete v7 schema/data state and connection enforcement.
+- The Knowledge Engine no longer inserts `PER-000001`. It now requires both the
+  pre-existing Person and Service Objects and exits before any write when either
+  identity is missing or mistyped.
+- Static coverage permits direct `objects` insertion and runtime
+  `oid_sequences` advancement only in the transaction-bound Identity
+  repository. The Importer explicitly supports schemas v6, v7, and v8 while
+  the application default remains v7.
+
+Migration 008, the writer remediation, and all tests were exercised only on
+temporary databases. No backup, live cutover, restore, default promotion, or
+scheduler action is authorized by this isolated implementation slice.
 
 ## Compatibility evidence at this decision gate
 
@@ -147,8 +174,8 @@ required future in-transaction preflight or persistence enforcement.
   an Object vocabulary.
 - Existing live data requires no identity repair before isolated migration
   design.
-- The Knowledge Engine fixed Person seed must be made fail-closed in the next
-  implementation slice; it receives no historical exemption.
+- The Knowledge Engine fixed Person seed is fail-closed and receives no
+  historical exemption.
 - OID immutability, lifecycle status, Queue state, and richer Relation
   semantics remain outside this decision except where already required by
   their own authoritative contracts.

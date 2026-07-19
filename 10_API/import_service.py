@@ -11,8 +11,9 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 migrations = importlib.import_module("gmv_core.migrations")
-CURRENT_SCHEMA_VERSION = migrations.CURRENT_SCHEMA_VERSION
 FOREIGN_KEYS_VERSION = migrations.FOREIGN_KEYS_VERSION
+DOMAIN_CONSTRAINTS_VERSION = migrations.DOMAIN_CONSTRAINTS_VERSION
+OID_TYPE_CONSISTENCY_VERSION = migrations.OID_TYPE_CONSISTENCY_VERSION
 allocate_and_create_object = importlib.import_module(
     "gmv_core.repositories.identity"
 ).allocate_and_create_object
@@ -34,7 +35,13 @@ def sha256_file(path):
 
 def require_current_schema(conn):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    supported_versions = sorted({CURRENT_SCHEMA_VERSION, FOREIGN_KEYS_VERSION})
+    supported_versions = sorted(
+        {
+            FOREIGN_KEYS_VERSION,
+            DOMAIN_CONSTRAINTS_VERSION,
+            OID_TYPE_CONSISTENCY_VERSION,
+        }
+    )
     if version not in supported_versions:
         expected = " or ".join(str(item) for item in supported_versions)
         raise RuntimeError(

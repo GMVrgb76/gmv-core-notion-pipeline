@@ -218,12 +218,12 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 - **Dependencies:** ARC-004, DB-003
 - **Expected benefit:** Detects identity corruption at creation time.
 - **Can be automated:** Yes
-- **Recommended next action:** After explicit approval, implement an isolated
-  migration 008 prototype and tests on temporary databases: enforce the closed
-  Object prefix/type map and six typed-reference classes, remediate the sole
-  direct production Object seed to fail closed, add a static writer guard, and
-  prove atomic preflight, rollback, idempotence, and full parity. Keep live and
-  the application default at v7.
+- **Recommended next action:** After explicit approval, run the controlled
+  operational gate: prove no active writes, repeat the complete preflight,
+  create and verify a fresh restorable milestone, then conditionally apply
+  migration 008 live and promote the default only after full post-cutover
+  parity, Doctor, artifact, static, migration, and suite checks. Restore
+  authority remains limited to failure of a post-commit gate.
 
 ### DB-009 — Make queue source identity deterministic
 

@@ -23,7 +23,13 @@ conn = database.connect_path(DB)
 cur = conn.cursor()
 
 try:
-    database.require_object_identities(conn, {"SRV-000001": "Service"})
+    database.require_object_identities(
+        conn,
+        {
+            "SRV-000001": "Service",
+            "PER-000001": "Person",
+        },
+    )
 except DatabaseConfigurationError as error:
     conn.close()
     print(f"error: {error}", file=sys.stderr)
@@ -65,19 +71,6 @@ CREATE TABLE IF NOT EXISTS timeline (
     source TEXT
 )
 """)
-
-cur.execute("""
-INSERT OR IGNORE INTO objects
-(oid, type, name, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
-""", (
-    "PER-000001",
-    "Person",
-    "Giacomo Marco Valerio",
-    "active",
-    now,
-    now
-))
 
 cur.execute("""
 INSERT INTO events
