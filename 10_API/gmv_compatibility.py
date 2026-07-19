@@ -10,12 +10,22 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import importlib
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
 from typing import BinaryIO
 
 from operational_records import append_record, build_record
+
+CORE_SOURCE = Path(__file__).resolve().parents[1]
+if str(CORE_SOURCE) not in sys.path:
+    sys.path.insert(0, str(CORE_SOURCE))
+
+database = importlib.import_module("gmv_core.database")
+DatabaseConfigurationError = importlib.import_module(
+    "gmv_core.errors"
+).DatabaseConfigurationError
 
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE" / "GMV.db"
@@ -159,8 +169,16 @@ def run_bounded_process(
 
     return return_code, stdout.text(), stderr.text(), outcome
 
-def init_db():
-    conn = sqlite3.connect(DB)
+def init_db(service_oid: str):
+    conn = database.enable_foreign_keys(sqlite3.connect(DB))
+    try:
+        database.require_object_identities(
+            conn,
+            {"SYS-000001": "System", service_oid: "Service"},
+        )
+    except Exception:
+        conn.close()
+        raise
     cur = conn.cursor()
     cur.execute("""
     CREATE TABLE IF NOT EXISTS service_runs (
@@ -235,6 +253,7 @@ def validate_release_pin(command: list[str]) -> None:
 
 def run_engine(engine: str, command: list[str]) -> int:
     service_oid, service_name = SERVICE_IDENTITIES[engine]
+    conn = init_db(service_oid)
     LOGDIR.mkdir(parents=True, exist_ok=True)
     OUTDIR.mkdir(parents=True, exist_ok=True)
     DB.parent.mkdir(parents=True, exist_ok=True)
@@ -293,7 +312,6 @@ def run_engine(engine: str, command: list[str]) -> int:
     )
     append_record(LOGDIR / "operations.jsonl", record)
 
-    conn = init_db()
     cur = conn.cursor()
 
     cur.execute("""
@@ -329,8 +347,9 @@ if __name__ == "__main__":
     try:
         engine_name, command_argv = validate_invocation(sys.argv)
         validate_release_pin(command_argv)
-    except ValueError as error:
+        return_code = run_engine(engine_name, command_argv)
+    except (ValueError, DatabaseConfigurationError) as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(2)
 
-    sys.exit(run_engine(engine_name, command_argv))
+    sys.exit(return_code)

@@ -16,6 +16,7 @@ from gmv_core.errors import OIDAllocationError
 from gmv_core.migrations import (
     BASELINE_VERSION,
     CURRENT_SCHEMA_VERSION,
+    FOREIGN_KEYS_VERSION,
     migrate,
 )
 from gmv_core.repositories.identity import allocate_and_create_object
@@ -151,7 +152,7 @@ def test_importer_fails_closed_before_migration(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "Import requires schema version 5; found 0" in result.stderr
+    assert "Import requires schema version 5 or 6; found 0" in result.stderr
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
 
 
@@ -190,3 +191,35 @@ def test_migrated_importer_uses_sequence_transaction(
         assert connection.execute(
             "SELECT resource_oid FROM import_queue"
         ).fetchone() == ("RES-000001",)
+
+
+def test_foreign_key_schema_importer_preserves_transaction_order(
+    isolated_gmv: object,
+    tmp_path: Path,
+) -> None:
+    database = Path(getattr(isolated_gmv, "database"))
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE test_sentinel")
+    migrate(database, target_version=FOREIGN_KEYS_VERSION)
+    source = tmp_path / "v6-source.txt"
+    source.write_text("fixture-v6", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(IMPORT_SERVICE), "file", str(source)],
+        env=os.environ.copy(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(database) as connection:
+        assert tuple(connection.execute("PRAGMA foreign_key_check")) == ()
+        resource_oid = connection.execute(
+            "SELECT resource_oid FROM resources"
+        ).fetchone()
+        assert resource_oid == ("RES-000001",)
+        assert connection.execute("SELECT oid FROM events").fetchone() == resource_oid
+        assert connection.execute(
+            "SELECT resource_oid FROM import_queue"
+        ).fetchone() == resource_oid

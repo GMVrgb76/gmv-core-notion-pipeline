@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-from pathlib import Path
 from datetime import datetime
-import sqlite3, json
+from pathlib import Path
+import importlib, json, sqlite3, sys
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+database = importlib.import_module("gmv_core.database")
+DatabaseConfigurationError = importlib.import_module(
+    "gmv_core.errors"
+).DatabaseConfigurationError
 
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE" / "GMV.db"
@@ -10,8 +19,15 @@ LOG = CORE / "04_LOGS" / "knowledge_engine.log"
 
 now = datetime.now().isoformat(timespec="seconds")
 
-conn = sqlite3.connect(DB)
+conn = database.enable_foreign_keys(sqlite3.connect(DB))
 cur = conn.cursor()
+
+try:
+    database.require_object_identities(conn, {"SRV-000001": "Service"})
+except DatabaseConfigurationError as error:
+    conn.close()
+    print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(2) from None
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS objects (

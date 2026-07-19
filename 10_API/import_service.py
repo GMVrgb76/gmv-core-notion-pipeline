@@ -11,12 +11,15 @@ CORE = Path(__file__).resolve().parents[1]
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-CURRENT_SCHEMA_VERSION = importlib.import_module(
-    "gmv_core.migrations"
-).CURRENT_SCHEMA_VERSION
+migrations = importlib.import_module("gmv_core.migrations")
+CURRENT_SCHEMA_VERSION = migrations.CURRENT_SCHEMA_VERSION
+FOREIGN_KEYS_VERSION = migrations.FOREIGN_KEYS_VERSION
 allocate_and_create_object = importlib.import_module(
     "gmv_core.repositories.identity"
 ).allocate_and_create_object
+enable_foreign_keys = importlib.import_module(
+    "gmv_core.database"
+).enable_foreign_keys
 
 DB = Path.home() / ".gmv_core/09_DATABASE/GMV.db"
 
@@ -34,9 +37,11 @@ def sha256_file(path):
 
 def require_current_schema(conn):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version != CURRENT_SCHEMA_VERSION:
+    supported_versions = sorted({CURRENT_SCHEMA_VERSION, FOREIGN_KEYS_VERSION})
+    if version not in supported_versions:
+        expected = " or ".join(str(item) for item in supported_versions)
         raise RuntimeError(
-            f"Import requires schema version {CURRENT_SCHEMA_VERSION}; found {version}. "
+            f"Import requires schema version {expected}; found {version}. "
             "Run the approved migration before importing."
         )
 
@@ -65,7 +70,7 @@ def list_import_queue(pending_only=False):
         query += " WHERE status='pending' OR review_status='pending_review'"
     query += " ORDER BY created_at DESC, import_id DESC"
 
-    with sqlite3.connect(DB) as conn:
+    with enable_foreign_keys(sqlite3.connect(DB)) as conn:
         return conn.execute(query).fetchall()
 
 def print_import_queue(rows):
@@ -78,7 +83,7 @@ def import_file(file_path):
         print(f"File not found: {p}")
         sys.exit(1)
 
-    conn = sqlite3.connect(DB)
+    conn = enable_foreign_keys(sqlite3.connect(DB))
     try:
         require_current_schema(conn)
     except RuntimeError as error:

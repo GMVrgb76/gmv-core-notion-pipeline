@@ -21,6 +21,8 @@ APPEND_ONLY_EVENTS_VERSION = 4
 APPEND_ONLY_EVENTS_RESOURCE = "migration_sql/004_append_only_events.sql"
 ENGINE_RUNS_RETIRED_VERSION = 5
 ENGINE_RUNS_RETIRED_RESOURCE = "migration_sql/005_retire_engine_runs.sql"
+FOREIGN_KEYS_VERSION = 6
+FOREIGN_KEYS_RESOURCE = "migration_sql/006_foreign_keys.sql"
 CURRENT_SCHEMA_VERSION = ENGINE_RUNS_RETIRED_VERSION
 
 
@@ -182,6 +184,7 @@ def migrate(
         TIMELINE_VIEW_VERSION,
         APPEND_ONLY_EVENTS_VERSION,
         ENGINE_RUNS_RETIRED_VERSION,
+        FOREIGN_KEYS_VERSION,
     }
     if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
@@ -243,6 +246,17 @@ def migrate(
                     resource=ENGINE_RUNS_RETIRED_RESOURCE,
                 )
                 current_version = ENGINE_RUNS_RETIRED_VERSION
+            if (
+                target_version >= FOREIGN_KEYS_VERSION
+                and current_version == ENGINE_RUNS_RETIRED_VERSION
+            ):
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=FOREIGN_KEYS_VERSION,
+                    resource=FOREIGN_KEYS_RESOURCE,
+                )
+                current_version = FOREIGN_KEYS_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -260,6 +274,7 @@ def main(arguments: list[str] | None = None) -> int:
             TIMELINE_VIEW_VERSION,
             APPEND_ONLY_EVENTS_VERSION,
             ENGINE_RUNS_RETIRED_VERSION,
+            FOREIGN_KEYS_VERSION,
         ),
         default=CURRENT_SCHEMA_VERSION,
     )

@@ -1,11 +1,10 @@
 """Compatibility Layer writes canonical Events and Service Runs.
 
-Isolated only: runs the real script as a subprocess against a fresh,
-disposable .gmv_core home (never a pre-loaded fixture, mirroring the other
-compatibility tests), confirming the Timeline write and its bootstrap were
-fully replaced by an equivalent Events write. Never touches the live
-database. DB-006 additionally replaces the legacy Engine Run writer with the
-approved, closed Engine-to-Service identity mapping.
+Isolated only: runs the real script as a subprocess against a disposable v6
+database with explicit System/Service Object authority. Never touches the live
+database. DB-006 replaces the legacy Engine Run writer with the approved,
+closed Engine-to-Service identity mapping; DB-002 proves missing authority
+fails before process execution.
 """
 
 from __future__ import annotations
@@ -81,6 +80,31 @@ def test_run_does_not_create_or_write_timeline_on_a_fresh_database(tmp_path: Pat
     assert "events" in tables
     assert "service_runs" in tables
     assert "engine_runs" not in tables
+
+
+def test_missing_object_identity_fails_before_process_or_database_writes(
+    tmp_path: Path,
+    compatibility_database: Path,
+) -> None:
+    helper = tmp_path / "must-not-run.py"
+    marker = tmp_path / "ran"
+    _write_program(helper, f"from pathlib import Path; Path({str(marker)!r}).touch()")
+    with sqlite3.connect(compatibility_database) as connection:
+        connection.execute("DELETE FROM objects WHERE oid='SRV-000003'")
+
+    result = _run_compatibility(tmp_path, "daily_log", helper)
+
+    assert result.returncode == 2
+    assert result.stderr == (
+        "error: required Object identities are unavailable: "
+        "SRV-000003 (Service)\n"
+    )
+    assert not marker.exists()
+    assert not (tmp_path / ".gmv_core" / "04_LOGS").exists()
+    assert not (tmp_path / ".gmv_core" / "05_OUTPUT").exists()
+    with sqlite3.connect(compatibility_database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM service_runs").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)
 
 
 @pytest.mark.parametrize(

@@ -9,6 +9,10 @@ class ConfigurationError(GMVError):
     """Raised when runtime configuration is absent or invalid."""
 
 
+class DatabaseConfigurationError(GMVError):
+    """Raised when a SQLite connection cannot enforce Core invariants."""
+
+
 class PathValidationError(GMVError):
     """Raised when a path violates an explicit path contract."""
 

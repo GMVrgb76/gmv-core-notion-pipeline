@@ -7,10 +7,14 @@ and the DB-006 Service-run writer. Never invoked against 09_DATABASE/GMV.db.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+
+from gmv_core.migrations import FOREIGN_KEYS_VERSION, migrate
+from tests.conftest import IsolatedGMV
 
 ROOT = Path(__file__).resolve().parents[2]
 KNOWLEDGE_ENGINE = ROOT / "01_RUNTIME" / "knowledge_engine.py"
@@ -145,3 +149,59 @@ def test_knowledge_engine_event_and_service_run_share_one_transaction(
     assert result.returncode != 0
     assert "synthetic service-run failure" in result.stderr
     assert _counts(characterized_database) == before
+
+
+def test_knowledge_engine_missing_service_identity_fails_without_creating_authority(
+    isolated_gmv: IsolatedGMV,
+) -> None:
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        connection.execute("DROP TABLE test_sentinel")
+    assert (
+        migrate(isolated_gmv.database, target_version=FOREIGN_KEYS_VERSION)
+        == FOREIGN_KEYS_VERSION
+    )
+    environment = os.environ.copy()
+
+    result = _run_knowledge_engine(environment)
+
+    assert result.returncode == 2
+    assert result.stderr == (
+        "error: required Object identities are unavailable: "
+        "SRV-000001 (Service)\n"
+    )
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM objects WHERE oid='SRV-000001'"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM objects WHERE oid='PER-000001'"
+        ).fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM service_runs").fetchone() == (0,)
+
+
+def test_knowledge_engine_writes_valid_references_on_version_six(
+    isolated_gmv: IsolatedGMV,
+) -> None:
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        connection.execute("DROP TABLE test_sentinel")
+    migrate(isolated_gmv.database, target_version=FOREIGN_KEYS_VERSION)
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        connection.execute(
+            """
+            INSERT INTO objects(oid,type,name,status)
+            VALUES ('SRV-000001','Service','Knowledge Engine','active')
+            """
+        )
+
+    result = _run_knowledge_engine(os.environ.copy())
+
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        assert tuple(connection.execute("PRAGMA foreign_key_check")) == ()
+        assert connection.execute(
+            "SELECT oid FROM events ORDER BY id DESC LIMIT 1"
+        ).fetchone() == ("PER-000001",)
+        assert connection.execute(
+            "SELECT service_oid FROM service_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone() == ("SRV-000001",)
