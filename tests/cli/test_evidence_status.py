@@ -26,7 +26,7 @@ def _database(tmp_path: Path, *, pending: bool = False) -> Path:
     database.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database) as connection:
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
-        connection.execute("DELETE FROM engine_runs")
+        connection.execute("DELETE FROM service_runs")
         if not pending:
             connection.execute("DELETE FROM import_queue")
     database.chmod(0o600)

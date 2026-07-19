@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sqlite3
 from importlib import resources
 from pathlib import Path
@@ -17,6 +19,8 @@ TIMELINE_VIEW_VERSION = 3
 TIMELINE_VIEW_RESOURCE = "migration_sql/003_timeline_view.sql"
 APPEND_ONLY_EVENTS_VERSION = 4
 APPEND_ONLY_EVENTS_RESOURCE = "migration_sql/004_append_only_events.sql"
+ENGINE_RUNS_RETIRED_VERSION = 5
+ENGINE_RUNS_RETIRED_RESOURCE = "migration_sql/005_retire_engine_runs.sql"
 CURRENT_SCHEMA_VERSION = APPEND_ONLY_EVENTS_VERSION
 
 
@@ -150,6 +154,19 @@ def _apply_migration(
         raise MigrationError(f"migration {version} did not set expected version: {result}")
 
 
+def _register_engine_run_content_hash(connection: sqlite3.Connection) -> None:
+    def content_hash(*values: object) -> str:
+        payload = json.dumps(values, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    connection.create_function(
+        "gmv_engine_run_content_sha256",
+        8,
+        content_hash,
+        deterministic=True,
+    )
+
+
 def migrate(
     database: str | Path,
     *,
@@ -164,6 +181,7 @@ def migrate(
         OID_SEQUENCE_VERSION,
         TIMELINE_VIEW_VERSION,
         APPEND_ONLY_EVENTS_VERSION,
+        ENGINE_RUNS_RETIRED_VERSION,
     }
     if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
@@ -213,6 +231,18 @@ def migrate(
                     resource=APPEND_ONLY_EVENTS_RESOURCE,
                 )
                 current_version = APPEND_ONLY_EVENTS_VERSION
+            if (
+                target_version >= ENGINE_RUNS_RETIRED_VERSION
+                and current_version == APPEND_ONLY_EVENTS_VERSION
+            ):
+                _register_engine_run_content_hash(connection)
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=ENGINE_RUNS_RETIRED_VERSION,
+                    resource=ENGINE_RUNS_RETIRED_RESOURCE,
+                )
+                current_version = ENGINE_RUNS_RETIRED_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -229,6 +259,7 @@ def main(arguments: list[str] | None = None) -> int:
             OID_SEQUENCE_VERSION,
             TIMELINE_VIEW_VERSION,
             APPEND_ONLY_EVENTS_VERSION,
+            ENGINE_RUNS_RETIRED_VERSION,
         ),
         default=CURRENT_SCHEMA_VERSION,
     )

@@ -16,7 +16,7 @@ def _database(tmp_path: Path) -> Path:
     database.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database) as connection:
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
-        connection.execute("DELETE FROM engine_runs")
+        connection.execute("DELETE FROM service_runs")
     database.chmod(0o600)
     return database
 
@@ -65,8 +65,9 @@ def test_missing_artifact_is_required_failure(tmp_path: Path) -> None:
     missing = tmp_path / "missing.log"
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "INSERT INTO engine_runs "
-            "(engine,run_at,status,stdout_path) VALUES ('fixture','now','OK',?)",
+            "INSERT INTO service_runs "
+            "(service_oid,service_name,run_at,status,stdout_path) "
+            "VALUES ('SRV-000001','Fixture Service','now','OK',?)",
             (str(missing),),
         )
 

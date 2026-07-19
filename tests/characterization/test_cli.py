@@ -164,8 +164,8 @@ def test_doctor_output_is_characterized(cli_environment: dict[str, str]) -> None
         service_registry_view
         timeline_view
 
-        [6] LAST ENGINE RUNS
-        fixture_engine|2026-01-01T01:00:00|OK
+        [6] LAST SERVICE RUNS
+        SRV-000001|Fixture Service|2026-01-01T01:00:00|OK
 
         [7] LAUNCHAGENTS
 

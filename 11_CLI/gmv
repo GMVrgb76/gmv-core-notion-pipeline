@@ -75,8 +75,8 @@ echo "[5] DATABASE VIEWS"
 sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='view' ORDER BY name;"
 
 echo
-echo "[6] LAST ENGINE RUNS"
-sqlite3 "$DB" "SELECT engine,run_at,status FROM engine_runs ORDER BY id DESC LIMIT 10;"
+echo "[6] LAST SERVICE RUNS"
+sqlite3 "$DB" "SELECT service_oid,service_name,run_at,status FROM service_runs ORDER BY id DESC LIMIT 10;"
 
 echo
 echo "[7] LAUNCHAGENTS"

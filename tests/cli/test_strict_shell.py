@@ -29,7 +29,7 @@ def strict_cli_environment(
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE test_sentinel")
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
-        connection.execute("DELETE FROM engine_runs")
+        connection.execute("DELETE FROM service_runs")
     database.chmod(0o600)
 
     subprocess.run(["/usr/bin/git", "init", "-q"], cwd=home, check=True)

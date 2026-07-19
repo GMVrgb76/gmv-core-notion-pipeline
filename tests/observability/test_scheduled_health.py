@@ -24,7 +24,7 @@ def _database(tmp_path: Path) -> Path:
     database = tmp_path / "GMV.db"
     with sqlite3.connect(database) as connection:
         connection.executescript(SCHEMA_FIXTURE.read_text(encoding="utf-8"))
-        connection.execute("DELETE FROM engine_runs")
+        connection.execute("DELETE FROM service_runs")
     database.chmod(0o600)
     return database
 

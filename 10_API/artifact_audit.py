@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only availability audit for historical Engine run artifacts."""
+"""Read-only availability audit for canonical Service Run artifacts."""
 
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ def audit_artifacts(database: Path) -> list[dict[str, Any]]:
     records = []
     with connect_read_only(database) as connection:
         rows = connection.execute(
-            "SELECT id,engine,run_at,stdout_path,stderr_path "
-            "FROM engine_runs ORDER BY id"
+            "SELECT id,service_oid,service_name,run_at,stdout_path,stderr_path "
+            "FROM service_runs ORDER BY id"
         )
-        for run_id, engine, run_at, stdout_path, stderr_path in rows:
+        for run_id, service_oid, service_name, run_at, stdout_path, stderr_path in rows:
             for stream, raw_path in (
                 ("stdout", stdout_path),
                 ("stderr", stderr_path),
@@ -43,7 +43,8 @@ def audit_artifacts(database: Path) -> list[dict[str, Any]]:
                 records.append(
                     {
                         "run_id": int(run_id),
-                        "engine": str(engine),
+                        "service_oid": str(service_oid),
+                        "service_name": str(service_name),
                         "run_at": str(run_at),
                         "stream": stream,
                         "path": str(path) if path is not None else None,
@@ -77,7 +78,8 @@ def main(arguments: list[str] | None = None) -> int:
                 "|".join(
                     (
                         str(record["run_id"]),
-                        str(record["engine"]),
+                        str(record["service_oid"]),
+                        str(record["service_name"]),
                         str(record["stream"]),
                         str(record["availability"]),
                         str(record["path"] or ""),

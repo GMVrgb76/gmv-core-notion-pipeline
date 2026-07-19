@@ -1,4 +1,4 @@
-"""Missing Engine artifacts remain explicit and are never fabricated."""
+"""Missing Service Run artifacts remain explicit and are never fabricated."""
 
 from __future__ import annotations
 
@@ -21,12 +21,13 @@ def _database(path: Path, stdout_path: Path | None, stderr_path: Path | None) ->
     database = path / "audit.db"
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "CREATE TABLE engine_runs ("
-            "id INTEGER PRIMARY KEY, engine TEXT, run_at TEXT, "
+            "CREATE TABLE service_runs ("
+            "id INTEGER PRIMARY KEY, service_oid TEXT, service_name TEXT, run_at TEXT, "
             "stdout_path TEXT, stderr_path TEXT)"
         )
         connection.execute(
-            "INSERT INTO engine_runs VALUES (1,'fixture','2026-01-01T00:00:00',?,?)",
+            "INSERT INTO service_runs VALUES "
+            "(1,'SRV-000001','Fixture Service','2026-01-01T00:00:00',?,?)",
             (
                 str(stdout_path) if stdout_path is not None else None,
                 str(stderr_path) if stderr_path is not None else None,
@@ -52,9 +53,11 @@ def test_audit_distinguishes_available_unavailable_and_unrecorded(
     assert not missing.exists()
 
     with sqlite3.connect(database) as connection:
-        connection.execute("UPDATE engine_runs SET stderr_path=NULL WHERE id=1")
+        connection.execute("UPDATE service_runs SET stderr_path=NULL WHERE id=1")
     records = AUDIT.audit_artifacts(database)
     assert records[1]["availability"] == "not_recorded"
+    assert records[0]["service_oid"] == "SRV-000001"
+    assert records[0]["service_name"] == "Fixture Service"
 
 
 def test_json_command_is_machine_stable_and_nonzero_for_missing(

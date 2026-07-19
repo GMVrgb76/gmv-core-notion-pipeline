@@ -32,7 +32,6 @@ from gmv_core.paths import GMVPaths  # noqa: E402
 
 SCHEMA_VERSION = 1
 REQUIRED_SCHEMA = {
-    "engine_runs",
     "events",
     "import_queue",
     "objects",
