@@ -71,3 +71,42 @@ circular dependencies above, and are not addressed by this ADR.
 - Project Owner decision (2026-07-18): `PER-000001` canonical,
   `OBJECT-0000001` a documented legacy alias, migration of the two mapped
   artifacts authorized independently of `MAIN-011`'s closing dependencies.
+
+## Addendum (2026-07-19) — Governed Freeze, Diagnostic Enforcement, No Filesystem Immutability
+
+An exhaustive search of `~/.gmv_core` (tracked, untracked, and gitignored
+files) and of every `com.gmv.*` LaunchAgent's target script found **no
+writer, present or authorized, to `03_STATE/objects/*.json` or
+`02_INDEXES/OBJECT_INDEX.json`**. `~/GMV_CORE` and any other root external
+to `~/.gmv_core` were explicitly **not** part of this verification and are
+out of scope for this finding.
+
+Given that evidence, this ADR now declares:
+
+- **`03_STATE/objects/*.json` and `02_INDEXES/OBJECT_INDEX.json` are
+  runtime-derived, non-authoritative state.** `PER-000001` in SQLite
+  (`09_DATABASE/GMV.db`) is the sole canonical identity source; these JSON
+  artifacts describe it, they do not define it.
+- **Governed freeze:** no writer to these two artifacts is authorized. Any
+  future writer requires explicit Project Owner approval before it is
+  introduced, and must create or update Object identities exclusively
+  through `gmv_core.identity` (OID validation) and
+  `gmv_core.repositories.identity` (transaction-safe allocation) — never
+  by hand-writing JSON.
+
+This freeze is declarative governance, not a technical control, and must
+not be conflated with either of the following, which remain distinct:
+
+- **Diagnostic enforcement** (already implemented): `gmv doctor --strict`'s
+  `identity.json_conformance` check (`gmv_core/json_identity_audit.py`)
+  detects and reports a non-conformant OID, a file/index inconsistency, or
+  a duplicate identity **after it has already been written**. It is a
+  read-only audit, not a gate.
+- **Filesystem immutability** (does not exist): no permission change, ACL,
+  lock, or other physical mechanism prevents a write to either artifact.
+  Nothing in `~/.gmv_core` currently stops a new, non-conformant JSON
+  identity file from being created by hand or by a future script.
+
+This addendum does not resolve, close, or alter the status of `ARC-005`,
+`DB-020`, or `ARC-009`; their circular dependencies on `MAIN-011` remain
+exactly as recorded above.
