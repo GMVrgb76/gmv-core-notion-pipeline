@@ -162,12 +162,12 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
   a DB-003 dependency because it is owned end-to-end by DB-013.
 - **Expected benefit:** Rejects malformed state at the persistence boundary.
 - **Can be automated:** Yes
-- **Recommended next action:** After explicit approval, run the controlled
-  preflight, verified milestone backup, and conditional live cutover of the
-  prepared migration 007 for lexical OID grammar, Service Run outcomes,
-  compatibility mode, and non-self Relations. DB-010 adds the accepted
-  confidence check during its Queue rebuild. Do not add lifecycle-status checks
-  under DB-003.
+- **Recommended next action:** First make every migration-007 v6 fixture request
+  `target_version=6` explicitly and rehearse the default-v7 promotion on
+  disposable databases with the full suite green. Only after that isolated
+  remediation may a newly approved controlled live cutover be attempted.
+  DB-010 adds the accepted confidence check during its Queue rebuild. Do not
+  add lifecycle-status checks under DB-003.
 
 ### DB-004 — Enforce append-only Events
 
