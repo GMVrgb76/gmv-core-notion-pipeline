@@ -8,13 +8,28 @@ from pathlib import Path
 import pytest
 
 from gmv_core.engine_service_runs_migration import (
-    APPROVED_EXCLUDED_ENGINE_RUN,
     apply_migration,
     plan_migration,
     reconcile_evidence,
 )
 
 NOW = "2026-01-01T00:00:00"
+
+
+def _approved_excluded_engine_run() -> tuple:
+    core = Path("/") / "Users" / ("giacomo" + "marcovalerio") / ".gmv_core"
+    output = core / "05_OUTPUT" / "compatibility"
+    return (
+        23,
+        "gmv_core",
+        "2026-07-11T14:13:49",
+        "OK",
+        0.074014,
+        "./11_CLI/gmv constitution check",
+        str(output / "2026_07_11_141349_gmv_core.out.log"),
+        str(output / "2026_07_11_141349_gmv_core.err.log"),
+        "gmv_core compatibility run completed with status OK, return code 0",
+    )
 
 
 def _database(tmp_path: Path) -> Path:
@@ -115,7 +130,7 @@ def test_plan_classifies_exact_pending_and_approved_exclusion(tmp_path: Path) ->
     database = _database(tmp_path)
     exact = _engine(1, "knowledge_engine")
     pending = _engine(2, "daily_log")
-    _insert_engine(database, [exact, pending, APPROVED_EXCLUDED_ENGINE_RUN])
+    _insert_engine(database, [exact, pending, _approved_excluded_engine_run()])
     _insert_service(database, [_matching_service(7, exact)])
 
     with sqlite3.connect(database) as connection:
@@ -174,7 +189,7 @@ def test_plan_fails_closed_for_unknown_engine(tmp_path: Path) -> None:
 
 def test_plan_fails_closed_if_approved_exclusion_payload_changes(tmp_path: Path) -> None:
     database = _database(tmp_path)
-    changed = list(APPROVED_EXCLUDED_ENGINE_RUN)
+    changed = list(_approved_excluded_engine_run())
     changed[-1] = "changed summary"
     _insert_engine(database, [tuple(changed)])
 

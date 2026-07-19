@@ -15,21 +15,13 @@ SERVICE_IDENTITIES = {
     "market_engine": ("SRV-000004", "Market Engine"),
 }
 
-# The one Project Owner-approved exclusion is deliberately exact. Any changed
-# field or additional unmapped Engine Run is a new reconciliation decision and
-# must fail closed rather than being silently classified as historical.
-APPROVED_EXCLUDED_ENGINE_RUN = (
-    23,
-    "gmv_core",
-    "2026-07-11T14:13:49",
-    "OK",
-    0.074014,
-    "./11_CLI/gmv constitution check",
-    "/Users/giacomomarcovalerio/.gmv_core/05_OUTPUT/compatibility/"
-    "2026_07_11_141349_gmv_core.out.log",
-    "/Users/giacomomarcovalerio/.gmv_core/05_OUTPUT/compatibility/"
-    "2026_07_11_141349_gmv_core.err.log",
-    "gmv_core compatibility run completed with status OK, return code 0",
+# The one Project Owner-approved exclusion is deliberately exact. Its complete
+# source payload is pinned by hash so personal absolute artifact paths never
+# enter tracked source. Any changed field or additional unmapped Engine Run is
+# a new reconciliation decision and must fail closed.
+APPROVED_EXCLUDED_ENGINE_RUN_ID = 23
+APPROVED_EXCLUDED_ENGINE_RUN_SHA256 = (
+    "14cb0faf3f2db75eb4a428eddc9dfadb2d1c02439218fb8667432b2fa0f66a8d"
 )
 
 RECORDED_GATE_COUNTS = {(5, 25, 1), (30, 0, 1)}
@@ -212,7 +204,12 @@ def plan_migration(connection: sqlite3.Connection) -> MigrationPlan:
         engine = str(row[1])
         identity = SERVICE_IDENTITIES.get(engine)
         if identity is None:
-            if tuple(row) != APPROVED_EXCLUDED_ENGINE_RUN:
+            approved_exclusion = (
+                int(row[0]) == APPROVED_EXCLUDED_ENGINE_RUN_ID
+                and _content_hash(tuple(row[1:]))
+                == APPROVED_EXCLUDED_ENGINE_RUN_SHA256
+            )
+            if not approved_exclusion:
                 raise ValueError(
                     f"unapproved unmapped Engine Run: id={row[0]} engine={engine}"
                 )

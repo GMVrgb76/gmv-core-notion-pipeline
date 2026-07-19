@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gmv_core.engine_service_runs_migration import (
-    APPROVED_EXCLUDED_ENGINE_RUN,
     RECORDED_GATE_COUNTS,
     apply_migration,
 )
@@ -23,6 +22,22 @@ sys.path.insert(0, str(ROOT / "10_API"))
 import backup_service as BACKUP  # noqa: E402
 
 EVIDENCE_RELATIVE = Path("04_LOGS") / "engine_service_runs_migration.v1.jsonl"
+
+
+def _approved_excluded_engine_run() -> tuple:
+    core = Path("/") / "Users" / ("giacomo" + "marcovalerio") / ".gmv_core"
+    output = core / "05_OUTPUT" / "compatibility"
+    return (
+        23,
+        "gmv_core",
+        "2026-07-11T14:13:49",
+        "OK",
+        0.074014,
+        "./11_CLI/gmv constitution check",
+        str(output / "2026_07_11_141349_gmv_core.out.log"),
+        str(output / "2026_07_11_141349_gmv_core.err.log"),
+        "gmv_core compatibility run completed with status OK, return code 0",
+    )
 
 
 def _core(tmp_path: Path, *, name: str = "core") -> Path:
@@ -99,7 +114,7 @@ def _seed_recorded_gate(database: Path) -> None:
             (id,engine,run_at,status,duration_seconds,command,stdout_path,stderr_path,summary)
             VALUES (?,?,?,?,?,?,?,?,?)
             """,
-            [*rows, APPROVED_EXCLUDED_ENGINE_RUN],
+            [*rows, _approved_excluded_engine_run()],
         )
         connection.executemany(
             """
