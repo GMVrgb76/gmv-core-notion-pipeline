@@ -24,7 +24,7 @@ ENGINE_RUNS_RETIRED_VERSION = 5
 ENGINE_RUNS_RETIRED_RESOURCE = "migration_sql/005_retire_engine_runs.sql"
 FOREIGN_KEYS_VERSION = 6
 FOREIGN_KEYS_RESOURCE = "migration_sql/006_foreign_keys.sql"
-CURRENT_SCHEMA_VERSION = ENGINE_RUNS_RETIRED_VERSION
+CURRENT_SCHEMA_VERSION = FOREIGN_KEYS_VERSION
 
 
 def _quoted_identifier(identifier: str) -> str:

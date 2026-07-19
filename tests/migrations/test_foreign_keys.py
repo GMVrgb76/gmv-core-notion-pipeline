@@ -39,7 +39,13 @@ def _version_five_database(tmp_path: Path, name: str = "foreign-keys.db") -> Pat
     home = tmp_path / name
     database = home / "09_DATABASE" / "GMV.db"
     database.parent.mkdir(parents=True)
-    assert migrations.migrate(database) == migrations.ENGINE_RUNS_RETIRED_VERSION
+    assert (
+        migrations.migrate(
+            database,
+            target_version=migrations.ENGINE_RUNS_RETIRED_VERSION,
+        )
+        == migrations.ENGINE_RUNS_RETIRED_VERSION
+    )
     return database
 
 
@@ -246,12 +252,11 @@ def test_failure_after_drop_rolls_back_schema_data_and_version(
     assert _dump(database) == before
 
 
-def test_version_six_is_explicit_and_default_remains_five(tmp_path: Path) -> None:
+def test_version_six_is_the_default_after_live_cutover(tmp_path: Path) -> None:
     database = _version_five_database(tmp_path)
 
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.ENGINE_RUNS_RETIRED_VERSION == 5
-    assert migrations.migrate(database) == 5
-    assert migrations.migrate(database, target_version=migrations.FOREIGN_KEYS_VERSION) == 6
+    assert migrations.CURRENT_SCHEMA_VERSION == migrations.FOREIGN_KEYS_VERSION == 6
+    assert migrations.migrate(database) == 6
     assert migrations.migrate(database, target_version=migrations.FOREIGN_KEYS_VERSION) == 6
 
 
