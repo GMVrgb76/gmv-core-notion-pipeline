@@ -41,8 +41,12 @@ def _approved_excluded_engine_run() -> tuple:
 
 def _version_four_database(tmp_path: Path) -> Path:
     database = tmp_path / "version-four.db"
-    assert migrations.migrate(database) == migrations.APPEND_ONLY_EVENTS_VERSION
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.APPEND_ONLY_EVENTS_VERSION
+    assert (
+        migrations.migrate(
+            database, target_version=migrations.APPEND_ONLY_EVENTS_VERSION
+        )
+        == migrations.APPEND_ONLY_EVENTS_VERSION
+    )
     return database
 
 

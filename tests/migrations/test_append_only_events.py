@@ -58,13 +58,13 @@ def _trigger_names(connection: sqlite3.Connection) -> set[str]:
     }
 
 
-def test_migration_four_is_current_and_byte_stable_after_live_cutover(
+def test_current_migration_is_byte_stable_and_includes_append_only_events(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "current-version.db"
 
     assert migrations.migrate(database) == migrations.CURRENT_SCHEMA_VERSION
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.APPEND_ONLY_EVENTS_VERSION
+    assert migrations.CURRENT_SCHEMA_VERSION == migrations.ENGINE_RUNS_RETIRED_VERSION
     with sqlite3.connect(database) as connection:
         columns = [row[1] for row in connection.execute("PRAGMA table_info(events)")]
         assert "supersedes_event_id" in columns
@@ -74,7 +74,10 @@ def test_migration_four_is_current_and_byte_stable_after_live_cutover(
     assert hashlib.sha256(database.read_bytes()).hexdigest() == migrated_digest
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (4,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (5,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='engine_runs'"
+        ).fetchone() == (0,)
         assert "supersedes_event_id" in {
             row[1] for row in connection.execute("PRAGMA table_info(events)")
         }
