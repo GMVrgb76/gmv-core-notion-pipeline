@@ -135,7 +135,7 @@ Comando o file di avvio.
 Un Service deve:
 
 1. leggere il Core come fonte della verità;
-2. scrivere ogni esecuzione in engine_runs o nella futura tabella service_runs;
+2. scrivere ogni esecuzione in service_runs; engine_runs è un registro legacy e non riceve nuove scritture;
 3. creare almeno un evento nella Timeline;
 4. non conservare stato permanente fuori dal Core;
 5. produrre log tecnici ispezionabili;
@@ -280,7 +280,7 @@ inputs:
   - legacy Morning Brief sources
 outputs:
   - Morning Brief
-  - engine_runs
+  - service_runs
   - timeline
   - stdout/stderr logs
 reads:
@@ -339,7 +339,7 @@ inputs:
   - Dropbox archive
 outputs:
   - daily log
-  - engine_runs
+  - service_runs
   - timeline
   - stdout/stderr logs
 reads:
@@ -396,7 +396,7 @@ inputs:
   - real estate source files
 outputs:
   - market report
-  - engine_runs
+  - service_runs
   - timeline
   - stdout/stderr logs
 reads:

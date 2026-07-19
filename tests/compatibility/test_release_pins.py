@@ -35,7 +35,7 @@ def _run(home: Path, source: Path, expected_hash: str) -> subprocess.CompletedPr
         [
             sys.executable,
             str(COMPATIBILITY),
-            "release_test",
+            "market_engine",
             "--",
             str(source),
         ],
@@ -84,7 +84,7 @@ def test_release_source_must_be_exact_command_argument(tmp_path: Path) -> None:
     )
 
     result = subprocess.run(
-        [sys.executable, str(COMPATIBILITY), "release_test", "--", str(other)],
+        [sys.executable, str(COMPATIBILITY), "market_engine", "--", str(other)],
         env=environment,
         check=False,
         capture_output=True,

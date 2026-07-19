@@ -22,6 +22,11 @@ DB = CORE / "09_DATABASE" / "GMV.db"
 LOGDIR = CORE / "04_LOGS"
 OUTDIR = CORE / "05_OUTPUT" / "compatibility"
 ENGINE_PATTERN = re.compile(r"[a-z][a-z0-9_]*\Z")
+SERVICE_IDENTITIES = {
+    "morning_brief": ("SRV-000002", "Morning Brief"),
+    "daily_log": ("SRV-000003", "Daily Log"),
+    "market_engine": ("SRV-000004", "Market Engine"),
+}
 DEFAULT_TIMEOUT_SECONDS = 900.0
 DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
 TERMINATION_GRACE_SECONDS = 1.0
@@ -158,9 +163,10 @@ def init_db():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS engine_runs (
+    CREATE TABLE IF NOT EXISTS service_runs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        engine TEXT NOT NULL,
+        service_oid TEXT NOT NULL,
+        service_name TEXT NOT NULL,
         run_at TEXT NOT NULL,
         status TEXT NOT NULL,
         duration_seconds REAL,
@@ -191,6 +197,8 @@ def validate_invocation(arguments: list[str]) -> tuple[str, list[str]]:
     command = arguments[3:]
     if not ENGINE_PATTERN.fullmatch(engine):
         raise ValueError("invalid engine name: use lowercase letters, digits, and underscores")
+    if engine not in SERVICE_IDENTITIES:
+        raise ValueError(f"unregistered compatibility service: {engine}")
 
     executable = command[0]
     if "/" in executable:
@@ -226,6 +234,7 @@ def validate_release_pin(command: list[str]) -> None:
 
 
 def run_engine(engine: str, command: list[str]) -> int:
+    service_oid, service_name = SERVICE_IDENTITIES[engine]
     LOGDIR.mkdir(parents=True, exist_ok=True)
     OUTDIR.mkdir(parents=True, exist_ok=True)
     DB.parent.mkdir(parents=True, exist_ok=True)
@@ -288,11 +297,12 @@ def run_engine(engine: str, command: list[str]) -> int:
     cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO engine_runs
-    (engine, run_at, status, duration_seconds, command, stdout_path, stderr_path, summary)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO service_runs
+    (service_oid, service_name, run_at, status, duration_seconds,
+     command, stdout_path, stderr_path, summary)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        engine, now, status, duration, shlex.join(command),
+        service_oid, service_name, now, status, duration, shlex.join(command),
         str(stdout_path), str(stderr_path), summary
     ))
 

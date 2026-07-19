@@ -49,7 +49,7 @@ def _latest_run(home: Path) -> tuple[str, str, str, str]:
     with sqlite3.connect(database) as connection:
         return connection.execute(
             "SELECT status,command,stdout_path,stderr_path "
-            "FROM engine_runs ORDER BY id DESC LIMIT 1"
+            "FROM service_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
 
@@ -61,7 +61,7 @@ def test_exact_arguments_preserve_spaces_unicode_and_metacharacters(
     marker = tmp_path / "must-not-exist"
     arguments = ("two words", "ü", f"$(touch {marker})", "; echo unsafe")
 
-    result = _run_compatibility(tmp_path, "test_engine", helper, *arguments)
+    result = _run_compatibility(tmp_path, "daily_log", helper, *arguments)
 
     assert result.returncode == 0
     status, command, stdout_path, stderr_path = _latest_run(tmp_path)
@@ -76,7 +76,7 @@ def test_nonzero_child_exit_is_recorded_and_propagated(tmp_path: Path) -> None:
     helper = tmp_path / "fails.py"
     _write_program(helper, "import sys; print('failed', file=sys.stderr); sys.exit(17)")
 
-    result = _run_compatibility(tmp_path, "test_engine", helper)
+    result = _run_compatibility(tmp_path, "daily_log", helper)
 
     assert result.returncode == 17
     status, _command, _stdout_path, stderr_path = _latest_run(tmp_path)
@@ -105,7 +105,7 @@ def test_shell_command_string_contract_is_rejected(tmp_path: Path) -> None:
     environment["HOME"] = str(tmp_path)
 
     result = subprocess.run(
-        [sys.executable, str(COMPATIBILITY), "test_engine", "echo unsafe"],
+        [sys.executable, str(COMPATIBILITY), "daily_log", "echo unsafe"],
         env=environment,
         check=False,
         capture_output=True,
@@ -114,5 +114,21 @@ def test_shell_command_string_contract_is_rejected(tmp_path: Path) -> None:
 
     assert result.returncode == 2
     assert "ENGINE_NAME -- COMMAND" in result.stderr
+    assert not (tmp_path / ".gmv_core" / "04_LOGS").exists()
+    assert not (tmp_path / ".gmv_core" / "05_OUTPUT").exists()
+
+
+def test_unregistered_valid_engine_name_is_rejected_before_execution(
+    tmp_path: Path,
+) -> None:
+    helper = tmp_path / "must-not-run.py"
+    marker = tmp_path / "ran"
+    _write_program(helper, f"from pathlib import Path; Path({str(marker)!r}).touch()")
+
+    result = _run_compatibility(tmp_path, "unknown_engine", helper)
+
+    assert result.returncode == 2
+    assert result.stderr == "error: unregistered compatibility service: unknown_engine\n"
+    assert not marker.exists()
     assert not (tmp_path / ".gmv_core" / "04_LOGS").exists()
     assert not (tmp_path / ".gmv_core" / "05_OUTPUT").exists()

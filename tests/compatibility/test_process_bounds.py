@@ -27,7 +27,7 @@ def _command(home: Path, helper: Path) -> tuple[list[str], dict[str, str]]:
         [
             sys.executable,
             str(COMPATIBILITY),
-            "bounded_test",
+            "daily_log",
             "--",
             str(helper),
         ],
@@ -40,7 +40,7 @@ def _latest_run(home: Path) -> tuple[str, str, str]:
     with sqlite3.connect(database) as connection:
         return connection.execute(
             "SELECT status,stdout_path,stderr_path "
-            "FROM engine_runs ORDER BY id DESC LIMIT 1"
+            "FROM service_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
 
