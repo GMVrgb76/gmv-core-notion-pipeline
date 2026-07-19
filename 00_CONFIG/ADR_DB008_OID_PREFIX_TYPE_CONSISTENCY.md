@@ -149,12 +149,12 @@ remain separate Project Owner gates.
   identity is missing or mistyped.
 - Static coverage permits direct `objects` insertion and runtime
   `oid_sequences` advancement only in the transaction-bound Identity
-  repository. The Importer explicitly supports schemas v6, v7, and v8 while
-  the application default remains v7.
+  repository. The Importer explicitly supports schemas v6, v7, and v8. At
+  the isolated implementation gate, the application default remained v7.
 
-Migration 008, the writer remediation, and all tests were exercised only on
-temporary databases. No backup, live cutover, restore, default promotion, or
-scheduler action is authorized by this isolated implementation slice.
+Migration 008, the writer remediation, and all tests were initially exercised
+only on temporary databases. Live realization required and subsequently
+received a separate controlled Project Owner authorization.
 
 ## Compatibility evidence at this decision gate
 
@@ -165,8 +165,28 @@ the closed map; all six typed-reference classes have zero mismatches; all six
 `oid_sequences` rows match the map and have no lag. Database hash, mtime, and
 size were identical before and after the audit.
 
-This evidence proves current compatibility only. It does not replace the
-required future in-transaction preflight or persistence enforcement.
+At the decision gate this evidence proved compatibility only; it did not
+replace the later in-transaction preflight or persistence enforcement.
+
+## Operational realization
+
+On 2026-07-20 the separately authorized controlled gate completed at source
+commit `948977b51cec859e2ec3de6b47d7ba524e204f90`. No writer held the live
+database; the stable-file and immediate-lock probes passed; the full data,
+foreign-key, JSON identity, Doctor, artifact, and test preflight was green.
+Milestone `BKP-20260719T221303Z-13dfe345` was created and independently
+restore-checked at schema v7 before migration.
+
+Migration 008 then committed live under its `BEGIN IMMEDIATE` transaction.
+Schema v8 has the six exact prefix/type pairs, six correctly typed reference
+classes, twelve typed-reference triggers, six exact no-lag OID sequences, ten
+active restrictive foreign keys, integrity `ok`, and zero foreign-key
+violations. All rows, view definitions/results, unrelated schema and triggers,
+indexes, foreign keys, `sqlite_sequence`, and `oid_sequences` matched the
+verified milestone baseline. Doctor, artifact audit, pertinent tests, the full
+suite, Ruff, and diff checks passed before default promotion and again after
+the application default became v8. No restore was required and the scheduler
+was not changed.
 
 ## Consequences
 

@@ -577,12 +577,13 @@ def test_fault_injection_rolls_back_schema_data_version_and_enforcement(
         assert _dump(connection) == before
 
 
-def test_version_eight_is_explicit_and_default_remains_v7(tmp_path: Path) -> None:
-    default_database = tmp_path / "default-v7.db"
-    explicit_database = tmp_path / "explicit-v8.db"
+def test_version_eight_is_the_default_after_live_cutover(tmp_path: Path) -> None:
+    default_database = tmp_path / "default-v8.db"
 
-    assert migrations.CURRENT_SCHEMA_VERSION == migrations.DOMAIN_CONSTRAINTS_VERSION == 7
-    assert migrations.OID_TYPE_CONSISTENCY_VERSION == 8
-    assert migrations.migrate(default_database) == 7
-    assert migrations.migrate(explicit_database, target_version=8) == 8
-    assert migrations.migrate(explicit_database, target_version=8) == 8
+    assert (
+        migrations.CURRENT_SCHEMA_VERSION
+        == migrations.OID_TYPE_CONSISTENCY_VERSION
+        == 8
+    )
+    assert migrations.migrate(default_database) == 8
+    assert migrations.migrate(default_database) == 8

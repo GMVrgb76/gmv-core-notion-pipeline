@@ -209,21 +209,18 @@ Effort scale: XS (hours), S (up to 2 days), M (up to 1 week), L (multiple weeks)
 
 ### DB-008 — Enforce OID prefix/type consistency
 
-- **Description:** Schema v7 enforces lexical OID grammar, but persistence does
-  not yet bind each recognized prefix to the exact `objects.type` or prove the
-  domain type of extension references. The accepted DB-008 decision fixes the
-  closed six-pair map and classifies historical non-OID identifiers.
+- **Status:** Complete. Schema v8 is live and is the application default.
+- **Description:** Schema v8 binds each recognized prefix to the exact
+  `objects.type`, enforces the closed six-pair sequence map, and proves the
+  domain type of six extension references. Historical non-OID identifiers
+  remain excluded by the accepted DB-008 decision.
 - **Severity:** High
 - **Effort:** M
 - **Dependencies:** ARC-004, DB-003
 - **Expected benefit:** Detects identity corruption at creation time.
 - **Can be automated:** Yes
-- **Recommended next action:** After explicit approval, run the controlled
-  operational gate: prove no active writes, repeat the complete preflight,
-  create and verify a fresh restorable milestone, then conditionally apply
-  migration 008 live and promote the default only after full post-cutover
-  parity, Doctor, artifact, static, migration, and suite checks. Restore
-  authority remains limited to failure of a post-commit gate.
+- **Recommended next action:** None for DB-008. Continue with the next
+  dependency-ordered item in the Sprint 003 execution sequence.
 
 ### DB-009 — Make queue source identity deterministic
 
