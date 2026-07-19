@@ -222,7 +222,7 @@ description: Initializes and updates the structured knowledge layer.
 inputs:
   - GMV.db
 outputs:
-  - engine_runs
+  - service_runs
   - timeline
   - knowledge report
 reads:
@@ -230,7 +230,7 @@ reads:
 writes:
   - objects
   - timeline
-  - engine_runs
+  - service_runs
   - ~/.gmv_core/05_OUTPUT/knowledge_engine/
 requires:
   - python3

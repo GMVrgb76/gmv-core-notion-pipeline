@@ -1,9 +1,8 @@
-"""knowledge_engine.py writes Events, not Timeline (DB-005 first writer slice).
+"""Knowledge Engine writes canonical Events and Service Runs.
 
 Isolated only: runs the real script as a subprocess against a disposable
-`.gmv_core` home (never the live database), verifying the Timeline write was
-replaced with an equivalent Events write while objects/engine_runs behavior
-is unchanged. Never invoked against 09_DATABASE/GMV.db.
+`.gmv_core` home (never the live database), verifying the DB-005 Events writer
+and the DB-006 Service-run writer. Never invoked against 09_DATABASE/GMV.db.
 """
 
 from __future__ import annotations
@@ -36,6 +35,9 @@ def _counts(database: Path) -> dict[str, int]:
             "engine_runs": int(
                 connection.execute("SELECT COUNT(*) FROM engine_runs").fetchone()[0]
             ),
+            "service_runs": int(
+                connection.execute("SELECT COUNT(*) FROM service_runs").fetchone()[0]
+            ),
             "timeline": int(connection.execute("SELECT COUNT(*) FROM timeline").fetchone()[0]),
             "events": int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0]),
         }
@@ -66,7 +68,7 @@ def test_knowledge_engine_writes_events_not_timeline(
     )
 
 
-def test_knowledge_engine_objects_and_engine_runs_behavior_is_unchanged(
+def test_knowledge_engine_writes_canonical_service_run(
     cli_environment: dict[str, str], characterized_database: Path
 ) -> None:
     before = _counts(characterized_database)
@@ -79,19 +81,22 @@ def test_knowledge_engine_objects_and_engine_runs_behavior_is_unchanged(
     # PER-000001 does not exist in the fixture baseline (only SYS/SRV/PLG/RES
     # do), so INSERT OR IGNORE inserts exactly one new object row.
     assert after["objects"] == before["objects"] + 1
-    assert after["engine_runs"] == before["engine_runs"] + 1
+    assert after["engine_runs"] == before["engine_runs"]
+    assert after["service_runs"] == before["service_runs"] + 1
 
     with sqlite3.connect(characterized_database) as connection:
         person = connection.execute(
             "SELECT oid,type,name,status FROM objects WHERE oid='PER-000001'"
         ).fetchone()
         run = connection.execute(
-            "SELECT engine,status,summary FROM engine_runs ORDER BY id DESC LIMIT 1"
+            "SELECT service_oid,service_name,status,summary "
+            "FROM service_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
     assert person == ("PER-000001", "Person", "Giacomo Marco Valerio", "active")
     assert run == (
-        "knowledge_engine",
+        "SRV-000001",
+        "Knowledge Engine",
         "OK",
         "Knowledge Engine V0 executed. GMV.db initialized. First persistent OID verified: PER-000001.",
     )
@@ -110,8 +115,33 @@ def test_knowledge_engine_second_run_does_not_duplicate_the_object(
 
     # objects: INSERT OR IGNORE keeps PER-000001 unique across runs.
     assert after_second["objects"] == after_first["objects"]
-    # events/engine_runs: one new row appended per run.
+    # Events and Service Runs append once per execution; the legacy Engine
+    # ledger is no longer a Knowledge Engine writer.
     assert after_second["events"] == after_first["events"] + 1
-    assert after_second["engine_runs"] == after_first["engine_runs"] + 1
+    assert after_second["service_runs"] == after_first["service_runs"] + 1
+    assert after_second["engine_runs"] == after_first["engine_runs"]
     # timeline: never touched by either run.
     assert after_second["timeline"] == after_first["timeline"]
+
+
+def test_knowledge_engine_event_and_service_run_share_one_transaction(
+    cli_environment: dict[str, str], characterized_database: Path
+) -> None:
+    before = _counts(characterized_database)
+    with sqlite3.connect(characterized_database) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_knowledge_service_run
+            BEFORE INSERT ON service_runs
+            WHEN NEW.service_oid = 'SRV-000001'
+            BEGIN
+                SELECT RAISE(ABORT, 'synthetic service-run failure');
+            END
+            """
+        )
+
+    result = _run_knowledge_engine(cli_environment)
+
+    assert result.returncode != 0
+    assert "synthetic service-run failure" in result.stderr
+    assert _counts(characterized_database) == before

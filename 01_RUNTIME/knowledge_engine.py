@@ -25,11 +25,16 @@ CREATE TABLE IF NOT EXISTS objects (
 """)
 
 cur.execute("""
-CREATE TABLE IF NOT EXISTS engine_runs (
+CREATE TABLE IF NOT EXISTS service_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    engine TEXT NOT NULL,
+    service_oid TEXT NOT NULL,
+    service_name TEXT NOT NULL,
     run_at TEXT NOT NULL,
     status TEXT NOT NULL,
+    duration_seconds REAL,
+    command TEXT,
+    stdout_path TEXT,
+    stderr_path TEXT,
     summary TEXT
 )
 """)
@@ -73,11 +78,12 @@ VALUES (?, ?, ?, ?, ?)
 summary = "Knowledge Engine V0 executed. GMV.db initialized. First persistent OID verified: PER-000001."
 
 cur.execute("""
-INSERT INTO engine_runs
-(engine, run_at, status, summary)
-VALUES (?, ?, ?, ?)
+INSERT INTO service_runs
+(service_oid, service_name, run_at, status, summary)
+VALUES (?, ?, ?, ?, ?)
 """, (
-    "knowledge_engine",
+    "SRV-000001",
+    "Knowledge Engine",
     now,
     "OK",
     summary
