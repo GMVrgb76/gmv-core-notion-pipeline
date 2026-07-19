@@ -1,11 +1,9 @@
-"""Static boundary test: only the known remaining writer may INSERT INTO timeline.
+"""Static boundary test: no tracked writer may INSERT INTO timeline.
 
-Temporary allow-list, DB-005/AUTO-003. Fails if any tracked Python file
-outside this list writes directly to the legacy `timeline` table.
-01_RUNTIME/knowledge_engine.py was migrated to Events and removed from this
-list. This allow-list is expected to shrink to empty once DB-005 migrates
-the remaining writer -- at that point this test should assert no writers
-remain, not that this one specifically does.
+DB-005/AUTO-003. Both known writers (01_RUNTIME/knowledge_engine.py,
+10_API/gmv_compatibility.py) have been migrated to Events. This is now a
+permanent regression guard, not a temporary allow-list: any future direct
+Timeline write must fail this test.
 """
 
 from __future__ import annotations
@@ -14,11 +12,6 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ALLOWED_TIMELINE_WRITERS = frozenset(
-    {
-        "10_API/gmv_compatibility.py",
-    }
-)
 
 
 def _writers_of_timeline() -> set[str]:
@@ -37,5 +30,5 @@ def _writers_of_timeline() -> set[str]:
     }
 
 
-def test_only_known_writers_insert_into_timeline() -> None:
-    assert _writers_of_timeline() == set(ALLOWED_TIMELINE_WRITERS)
+def test_no_tracked_writer_inserts_into_timeline() -> None:
+    assert _writers_of_timeline() == set()

@@ -171,7 +171,7 @@ def init_db():
     )
     """)
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS timeline (
+    CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         oid TEXT NOT NULL,
         event_at TEXT NOT NULL,
@@ -297,7 +297,7 @@ def run_engine(engine: str, command: list[str]) -> int:
     ))
 
     cur.execute("""
-    INSERT INTO timeline
+    INSERT INTO events
     (oid, event_at, event_type, description, source)
     VALUES (?, ?, ?, ?, ?)
     """, (
