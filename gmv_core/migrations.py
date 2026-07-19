@@ -15,6 +15,8 @@ OID_SEQUENCE_VERSION = 2
 OID_SEQUENCE_RESOURCE = "migration_sql/002_oid_sequences.sql"
 TIMELINE_VIEW_VERSION = 3
 TIMELINE_VIEW_RESOURCE = "migration_sql/003_timeline_view.sql"
+APPEND_ONLY_EVENTS_VERSION = 4
+APPEND_ONLY_EVENTS_RESOURCE = "migration_sql/004_append_only_events.sql"
 CURRENT_SCHEMA_VERSION = TIMELINE_VIEW_VERSION
 
 
@@ -161,6 +163,7 @@ def migrate(
         BASELINE_VERSION,
         OID_SEQUENCE_VERSION,
         TIMELINE_VIEW_VERSION,
+        APPEND_ONLY_EVENTS_VERSION,
     }
     if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
@@ -199,6 +202,17 @@ def migrate(
                     resource=TIMELINE_VIEW_RESOURCE,
                 )
                 current_version = TIMELINE_VIEW_VERSION
+            if (
+                target_version >= APPEND_ONLY_EVENTS_VERSION
+                and current_version == TIMELINE_VIEW_VERSION
+            ):
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=APPEND_ONLY_EVENTS_VERSION,
+                    resource=APPEND_ONLY_EVENTS_RESOURCE,
+                )
+                current_version = APPEND_ONLY_EVENTS_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -210,7 +224,12 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument(
         "--target-version",
         type=int,
-        choices=(BASELINE_VERSION, OID_SEQUENCE_VERSION, TIMELINE_VIEW_VERSION),
+        choices=(
+            BASELINE_VERSION,
+            OID_SEQUENCE_VERSION,
+            TIMELINE_VIEW_VERSION,
+            APPEND_ONLY_EVENTS_VERSION,
+        ),
         default=CURRENT_SCHEMA_VERSION,
     )
     options = parser.parse_args(arguments)
