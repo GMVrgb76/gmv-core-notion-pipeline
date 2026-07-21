@@ -5,7 +5,11 @@ the GMV database path via gmv_core's own configuration surface and opens the
 connection. Callers retain sqlite3.Connection's own context-manager semantics
 (commit/rollback on exit; the connection is not closed). DB-002 additionally
 enables SQLite foreign-key enforcement before returning every Core-owned
-connection.
+connection. SEC-006's first slice additionally installs log-only write
+capability authorization (gmv_core.authorization) on every connection, with
+the statement cache disabled (cached_statements=0) -- required because a
+cached prepared statement skips SQLite's authorizer callback entirely on
+reuse, regardless of which caller or mode is active.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import os
 import sqlite3
 from collections.abc import Mapping
 
+from gmv_core import authorization
 from gmv_core.config import load_config
 from gmv_core.errors import DatabaseConfigurationError
 from gmv_core.paths import GMVPaths
@@ -40,10 +45,24 @@ def connect_path(
     uri: bool = False,
     timeout: float = 5.0,
 ) -> sqlite3.Connection:
-    """Open an explicit SQLite target with verified FK enforcement."""
-    connection = sqlite3.connect(database, uri=uri, timeout=timeout)
+    """Open an explicit SQLite target with verified FK enforcement.
+
+    Every connection is opened with ``cached_statements=0`` and gets
+    log-only write capability authorization installed
+    (``gmv_core.authorization``). The mode is always the literal ``"log"``
+    here -- this factory has no parameter that can select ``"enforce"``.
+    """
+    connection = sqlite3.connect(
+        database,
+        uri=uri,
+        timeout=timeout,
+        cached_statements=0,
+        factory=authorization.AuthorizingConnection,
+    )
     try:
-        return enable_foreign_keys(connection)
+        enable_foreign_keys(connection)
+        authorization.install(connection, mode="log", database=database)
+        return connection
     except Exception:
         connection.close()
         raise

@@ -46,3 +46,7 @@ class OIDValidationError(ValidationError):
 
 class OIDAllocationError(GMVError):
     """Raised when an OID cannot be allocated under the identity contract."""
+
+
+class UnauthorizedWriteError(GMVError):
+    """Raised in enforce mode when a write capability check is denied."""
