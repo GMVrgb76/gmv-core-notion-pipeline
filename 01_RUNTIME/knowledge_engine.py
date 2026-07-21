@@ -8,9 +8,10 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 database = importlib.import_module("gmv_core.database")
-DatabaseConfigurationError = importlib.import_module(
-    "gmv_core.errors"
-).DatabaseConfigurationError
+migrations = importlib.import_module("gmv_core.migrations")
+errors = importlib.import_module("gmv_core.errors")
+DatabaseConfigurationError = errors.DatabaseConfigurationError
+MigrationStateError = errors.MigrationStateError
 
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE" / "GMV.db"
@@ -23,6 +24,7 @@ conn = database.connect_path(DB)
 cur = conn.cursor()
 
 try:
+    migrations.require_supported_schema_version(conn)
     database.require_object_identities(
         conn,
         {
@@ -30,47 +32,10 @@ try:
             "PER-000001": "Person",
         },
     )
-except DatabaseConfigurationError as error:
+except (MigrationStateError, DatabaseConfigurationError) as error:
     conn.close()
     print(f"error: {error}", file=sys.stderr)
     raise SystemExit(2) from None
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS objects (
-    oid TEXT PRIMARY KEY,
-    type TEXT NOT NULL,
-    name TEXT NOT NULL,
-    status TEXT DEFAULT 'active',
-    created_at TEXT,
-    updated_at TEXT
-)
-""")
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS service_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    service_oid TEXT NOT NULL,
-    service_name TEXT NOT NULL,
-    run_at TEXT NOT NULL,
-    status TEXT NOT NULL,
-    duration_seconds REAL,
-    command TEXT,
-    stdout_path TEXT,
-    stderr_path TEXT,
-    summary TEXT
-)
-""")
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS timeline (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    oid TEXT NOT NULL,
-    event_at TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    description TEXT,
-    source TEXT
-)
-""")
 
 cur.execute("""
 INSERT INTO events

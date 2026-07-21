@@ -331,7 +331,80 @@ def test_pragma_read_always_allowed_pragma_write_always_denied(tmp_path: Path) -
     connection, _ = _open(tmp_path, "pragma.db", mode="enforce")
     connection.execute("PRAGMA user_version")  # read: always fine, no capability needed
     with pytest.raises(UnauthorizedWriteError):
-        connection.execute("PRAGMA user_version = 7")  # write: never granted to anyone
+        connection.execute("PRAGMA user_version = 7")  # write: never granted to a non-DDL caller
+
+
+def _ddl_caller_pragma(connection: sqlite3.Connection, sql: str) -> None:
+    connection.execute(sql)
+
+
+def test_ddl_caller_pragma_write_authorized_only_for_user_version_and_foreign_keys(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+    )
+    connection, _ = _open(tmp_path, "pragma_ddl.db", mode="enforce")
+    _ddl_caller_pragma(connection, "PRAGMA user_version = 7")  # authorized
+    _ddl_caller_pragma(connection, "PRAGMA foreign_keys = OFF")  # authorized
+    assert connection.execute("PRAGMA user_version").fetchone() == (7,)
+
+
+def test_ddl_caller_pragma_write_denied_for_any_other_pragma_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """DDL trust does not extend to arbitrary PRAGMA writes: even a DDL
+    caller is denied for journal_mode (or any name outside the exact
+    {user_version, foreign_keys} allow-list)."""
+    monkeypatch.setattr(
+        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+    )
+    connection, _ = _open(tmp_path, "pragma_ddl_other.db", mode="enforce")
+    with pytest.raises(UnauthorizedWriteError):
+        _ddl_caller_pragma(connection, "PRAGMA journal_mode = WAL")
+    with pytest.raises(UnauthorizedWriteError):
+        _ddl_caller_pragma(connection, "PRAGMA synchronous = OFF")
+
+
+def test_ddl_caller_pragma_write_authorization_is_case_insensitive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SQLite reports the pragma name to the authorizer exactly as written
+    (case preserved, verified empirically) -- the allow-list comparison
+    must normalize case so it cannot be bypassed, and case must not grant
+    anything extra either."""
+    monkeypatch.setattr(
+        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+    )
+    connection, _ = _open(tmp_path, "pragma_case.db", mode="enforce")
+    _ddl_caller_pragma(connection, "PRAGMA USER_VERSION = 7")  # still authorized
+    assert connection.execute("PRAGMA user_version").fetchone() == (7,)
+    with pytest.raises(UnauthorizedWriteError):
+        _ddl_caller_pragma(connection, "PRAGMA JOURNAL_MODE = WAL")  # still denied
+
+
+def test_non_ddl_caller_pragma_write_denied_even_for_user_version_or_foreign_keys(
+    tmp_path: Path,
+) -> None:
+    connection, _ = _open(tmp_path, "pragma_non_ddl.db", mode="enforce")
+    with pytest.raises(UnauthorizedWriteError):
+        _writer_a(connection, "PRAGMA foreign_keys = OFF")
+
+
+def test_unauthorized_pragma_write_is_would_deny_in_log_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+    )
+    connection, log_path = _open(tmp_path, "GMV.db", mode="log", with_log=True)
+    _ddl_caller_pragma(connection, "PRAGMA journal_mode = WAL")  # not in the allow-list: would_deny
+    assert log_path is not None and log_path.exists()
+    lines = [json.loads(line) for line in log_path.read_text().splitlines() if line]
+    assert len(lines) == 1
+    assert lines[0]["outcome"] == "would_deny"
+    assert lines[0]["verb"] == "PRAGMA_WRITE"
+    assert lines[0]["table"] == "journal_mode"
 
 
 @pytest.mark.parametrize(
@@ -587,20 +660,14 @@ def test_log_only_to_enforce_mode_switch_reauthorizes_with_cached_statements_zer
 # ---------------------------------------------------------------------------
 
 
-def test_knowledge_engine_approved_writes_are_never_logged_only_its_preexisting_ddl_gap_is(
-    isolated_gmv,
-) -> None:
+def test_knowledge_engine_no_longer_attempts_any_ddl(isolated_gmv) -> None:
     """End-to-end proof against a real production writer, run as an
-    isolated subprocess (never the live database). knowledge_engine.py's
-    two approved writes (INSERT events, INSERT service_runs) are
-    authorized and therefore produce no log entry at all. Its `<module>`
-    scope is not a DDL caller, so its own pre-existing
+    isolated subprocess (never the live database). Since the redundant
     `CREATE TABLE IF NOT EXISTS objects/service_runs/timeline` bootstrap
-    (3 statements, each producing a CREATE_TABLE action plus an internal
-    INSERT INTO sqlite_master bookkeeping action) is a real, observed,
-    non-blocking would_deny violation in log-only mode -- exactly the
-    kind of pre-existing gap this observation period exists to surface.
-    """
+    was removed and replaced by a read-only schema-version preflight,
+    knowledge_engine.py's two approved writes (INSERT events, INSERT
+    service_runs) are authorized -- and, with no DDL attempted and no
+    other violation, no write_authorization.jsonl is created at all."""
     with sqlite3.connect(isolated_gmv.database) as connection:
         connection.execute("DROP TABLE test_sentinel")
     migrate(isolated_gmv.database, target_version=FOREIGN_KEYS_VERSION)
@@ -614,6 +681,7 @@ def test_knowledge_engine_approved_writes_are_never_logged_only_its_preexisting_
             "VALUES ('PER-000001','Person','Giacomo Marco Valerio','active')"
         )
     log_path = isolated_gmv.home / "04_LOGS" / "write_authorization.jsonl"
+    (isolated_gmv.home / "04_LOGS").mkdir(parents=True, exist_ok=True)
     assert not log_path.exists()  # migrate() itself is DDL-authorized: nothing logged yet
 
     result = subprocess.run(
@@ -625,21 +693,16 @@ def test_knowledge_engine_approved_writes_are_never_logged_only_its_preexisting_
     )
     assert result.returncode == 0, result.stderr
 
-    assert log_path.exists()
-    records = [json.loads(line) for line in log_path.read_text().splitlines() if line]
-    knowledge_records = [
-        record for record in records if record["caller_file"] == "01_RUNTIME/knowledge_engine.py"
-    ]
-    assert all(record["outcome"] == "would_deny" for record in knowledge_records)
-    assert all(record["mode"] == "log" for record in knowledge_records)
-    assert len(knowledge_records) == 6
-    assert {record["verb"] for record in knowledge_records} == {"CREATE_TABLE", "INSERT"}
-    assert {record["table"] for record in knowledge_records} == {
-        "objects",
-        "service_runs",
-        "timeline",
-        "sqlite_master",
-    }
-    # The two approved capability writes (events, service_runs INSERTs)
-    # are authorized and therefore produce no record at all.
-    assert not any(record["table"] == "events" for record in knowledge_records)
+    # No violation of any kind (no DDL attempt, no unauthorized write):
+    # the log file is never created.
+    assert not log_path.exists()
+
+    with sqlite3.connect(isolated_gmv.database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM events").fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM service_runs").fetchone() == (1,)
+        # timeline remains exactly what the migrations declared it to be
+        # (a view, from this schema version onward) -- knowledge_engine.py
+        # never touches it and cannot have recreated it as a table.
+        assert connection.execute(
+            "SELECT type FROM sqlite_master WHERE name='timeline'"
+        ).fetchone() == ("view",)

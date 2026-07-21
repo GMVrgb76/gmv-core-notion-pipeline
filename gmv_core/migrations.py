@@ -142,6 +142,36 @@ def _version(connection: sqlite3.Connection) -> int:
     return int(row[0]) if row is not None else 0
 
 
+SUPPORTED_SCHEMA_VERSIONS = (
+    FOREIGN_KEYS_VERSION,
+    DOMAIN_CONSTRAINTS_VERSION,
+    OID_TYPE_CONSISTENCY_VERSION,
+)
+
+
+def require_supported_schema_version(connection: sqlite3.Connection) -> int:
+    """Fail closed unless the connection's schema version is canonical.
+
+    Reads exactly one thing -- ``PRAGMA user_version`` -- and nothing else.
+    Never creates, alters, migrates, or repairs any schema object. Callers
+    outside gmv_core (Knowledge Engine today) use this to fail fast before
+    any write, rather than silently proceeding against a missing or
+    divergent schema. 0 (unversioned/empty), any version prior to
+    FOREIGN_KEYS_VERSION, and any version newer than OID_TYPE_CONSISTENCY_
+    VERSION (including a future version this build does not yet know
+    about) are all rejected identically -- there is no "else: accept"
+    branch.
+    """
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version not in SUPPORTED_SCHEMA_VERSIONS:
+        expected = " or ".join(str(candidate) for candidate in SUPPORTED_SCHEMA_VERSIONS)
+        raise MigrationStateError(
+            f"unsupported schema version: found {version}, expected {expected}. "
+            "Run the approved migration before proceeding."
+        )
+    return version
+
+
 def _apply_migration(
     connection: sqlite3.Connection,
     *,

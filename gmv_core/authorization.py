@@ -88,6 +88,11 @@ DDL_CALLERS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+#: The only PRAGMA names the 2 DDL callers may ever write (lower-cased).
+#: No other mutating PRAGMA -- including journal_mode -- is ever granted,
+#: to either caller, regardless of DDL trust.
+_AUTHORIZED_PRAGMA_WRITES: frozenset[str] = frozenset({"user_version", "foreign_keys"})
+
 # --- SQLite authorizer action codes (fixed list -- these integers alias
 # unrelated result/limit codes elsewhere in the sqlite3 module namespace,
 # so only this explicit list may be used to build a code-to-name map) ----
@@ -238,15 +243,23 @@ def _decide(
         pragma_name = arg1 or ""
         if arg2 is None:
             return "authorized", "PRAGMA_READ", pragma_name
-        # PRAGMA writes (user_version, the migration-confined foreign_keys
-        # toggle) are schema-lifecycle operations performed by the migration
-        # SQL scripts themselves (executed via _apply_migration's
-        # executescript call) -- the same DDL trust already granted to
-        # CREATE/ALTER/DROP applies here. The one-time connect_path()
-        # bootstrap (`PRAGMA foreign_keys = ON`) runs before install() and
-        # never reaches this authorizer at all. Every other caller's PRAGMA
-        # write remains denied.
-        if caller is not None and caller in DDL_CALLERS:
+        # PRAGMA writes are governed by an explicit name allow-list, not by
+        # caller trust alone: only `user_version` (schema-version bookkeeping)
+        # and `foreign_keys` (the migration-confined FK toggle, already
+        # fenced by ADR_DB002_RESTRICTIVE_FOREIGN_KEYS.md) are ever granted,
+        # and only to the 2 DDL callers. SQLite reports the pragma name
+        # exactly as written in the SQL text (case preserved, verified
+        # empirically) -- normalize before comparing so this cannot be
+        # bypassed by case alone. Every other PRAGMA write -- including
+        # journal_mode -- is denied even for a DDL caller; there is no
+        # blanket "DDL callers may write any PRAGMA" branch. The one-time
+        # connect_path() bootstrap (`PRAGMA foreign_keys = ON`) runs before
+        # install() and never reaches this authorizer at all.
+        if (
+            caller is not None
+            and caller in DDL_CALLERS
+            and pragma_name.lower() in _AUTHORIZED_PRAGMA_WRITES
+        ):
             return "authorized", "PRAGMA_WRITE", pragma_name
         return "violation", "PRAGMA_WRITE", pragma_name
 
