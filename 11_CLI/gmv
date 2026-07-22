@@ -2,37 +2,6 @@
 
 set -euo pipefail
 
-readonly DB="$HOME/.gmv_core/09_DATABASE/GMV.db"
-
-require_command() {
-  local command_name="$1"
-
-  if ! command -v "$command_name" >/dev/null 2>&1; then
-    echo "error: required command not found: $command_name" >&2
-    return 127
-  fi
-}
-
-show_launchagents() {
-  local launchctl_output
-
-  if ! command -v launchctl >/dev/null 2>&1; then
-    echo "warning: optional command not found: launchctl" >&2
-    return 0
-  fi
-
-  if ! launchctl_output="$(launchctl list 2>/dev/null)"; then
-    echo "warning: optional command failed: launchctl list" >&2
-    return 0
-  fi
-
-  while IFS= read -r line; do
-    if [[ "$line" == *com.gmv* ]]; then
-      echo "$line"
-    fi
-  done <<< "$launchctl_output"
-}
-
 command_name="${1:-}"
 
 case "$command_name" in
@@ -48,56 +17,8 @@ if [ "${2:-}" = "--strict" ]; then
   "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/doctor_service.py" "$@"
   exit $?
 fi
-require_command sqlite3
-echo
-echo "=================================================="
-echo "               GMV DOCTOR"
-echo "=================================================="
-
-echo
-echo "[1] DATABASE"
-sqlite3 "$DB" "PRAGMA integrity_check;"
-
-echo
-echo "[2] OBJECT COUNTS"
-sqlite3 "$DB" "SELECT type, COUNT(*) FROM objects GROUP BY type ORDER BY type;"
-
-echo
-echo "[3] REGISTERED SERVICES"
-sqlite3 "$DB" "SELECT service_name,status FROM service_registry_view;"
-
-echo
-echo "[4] REGISTERED PLUGINS"
-sqlite3 "$DB" "SELECT plugin_name,status FROM plugin_registry_view;"
-
-echo
-echo "[5] DATABASE VIEWS"
-sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='view' ORDER BY name;"
-
-echo
-echo "[6] LAST SERVICE RUNS"
-sqlite3 "$DB" "SELECT service_oid,service_name,run_at,status FROM service_runs ORDER BY id DESC LIMIT 10;"
-
-echo
-echo "[7] LAUNCHAGENTS"
-show_launchagents
-
-echo
-echo "[8] ORPHAN SERVICE RUNS"
-sqlite3 "$DB" "SELECT COUNT(*) FROM service_runs sr LEFT JOIN objects o ON sr.service_oid=o.oid WHERE o.oid IS NULL;"
-
-echo
-echo "[9] ORPHAN EVENTS"
-sqlite3 "$DB" "SELECT COUNT(*) FROM events e LEFT JOIN objects o ON e.oid=o.oid WHERE o.oid IS NULL;"
-
-echo
-echo "[10] PENDING PLUGINS"
-sqlite3 "$DB" "SELECT plugin_name FROM plugin_registry_view WHERE status='pending';"
-
-echo
-echo "=================================================="
-echo "GMV DOCTOR COMPLETED"
-echo "=================================================="
+"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/doctor_service.py" --legacy
+exit $?
 ;;
 
 object)

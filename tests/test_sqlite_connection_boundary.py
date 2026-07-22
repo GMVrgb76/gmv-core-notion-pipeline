@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,7 @@ DISABLED_FOREIGN_KEYS = re.compile(
     r"PRAGMA\s+foreign_keys\s*=\s*(?:OFF|0)",
     flags=re.IGNORECASE,
 )
+SHELL_SHEBANG = re.compile(rb"^#![^\n]*(?:/|\s)(?:ba|da|k|z)?sh(?:\s|$)")
 
 
 def _tracked_files(*patterns: str) -> tuple[str, ...]:
@@ -30,6 +32,19 @@ def _tracked_files(*patterns: str) -> tuple[str, ...]:
         text=True,
     )
     return tuple(line for line in result.stdout.splitlines() if line)
+
+
+def _tracked_shell_files() -> tuple[str, ...]:
+    shell_files = []
+    for relative in _tracked_files():
+        path = ROOT / relative
+        if not path.is_file():
+            continue
+        with path.open("rb") as stream:
+            first_line = stream.readline(512)
+        if SHELL_SHEBANG.search(first_line):
+            shell_files.append(relative)
+    return tuple(shell_files)
 
 
 def _raw_connect_lines(path: Path) -> tuple[int, ...]:
@@ -63,6 +78,42 @@ def _raw_connect_lines(path: Path) -> tuple[int, ...]:
     return tuple(sorted(lines))
 
 
+def _direct_sqlite_client_lines(source: str) -> tuple[int, ...]:
+    """Find shell commands whose executable is the external SQLite client."""
+    hits = []
+    command_prefixes = {"command", "exec"}
+    control_words = {"if", "then", "elif", "else", "while", "until", "do"}
+    for line_number, raw_line in enumerate(source.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        try:
+            lexer = shlex.shlex(stripped, posix=True, punctuation_chars=";&|()")
+            lexer.commenters = "#"
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError:
+            continue
+
+        expect_command = True
+        for word in tokens:
+            if word in control_words or set(word) <= set(";&|()"):
+                expect_command = True
+                continue
+            if not expect_command:
+                continue
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", word):
+                continue
+            if word in command_prefixes:
+                continue
+            if word == "env":
+                continue
+            if Path(word).name == "sqlite3":
+                hits.append(line_number)
+            expect_command = False
+    return tuple(hits)
+
+
 def test_only_core_factory_calls_sqlite_connect() -> None:
     calls = {
         relative: _raw_connect_lines(ROOT / relative)
@@ -73,6 +124,36 @@ def test_only_core_factory_calls_sqlite_connect() -> None:
 
     assert set(calls) == {RAW_CONNECT_OWNER}
     assert len(calls[RAW_CONNECT_OWNER]) == 1
+
+
+def test_tracked_production_shell_never_invokes_sqlite_client() -> None:
+    hits = {
+        relative: _direct_sqlite_client_lines((ROOT / relative).read_text(encoding="utf-8"))
+        for relative in _tracked_shell_files()
+    }
+    assert {relative: lines for relative, lines in hits.items() if lines} == {}
+
+
+def test_shell_sqlite_boundary_rejects_direct_client_forms() -> None:
+    sources = (
+        'sqlite3 "$DB" "SELECT type FROM objects"',
+        "/usr/bin/sqlite3 ~/.gmv_core/09_DATABASE/GMV.db",
+        'if command /usr/bin/sqlite3 "$HOME/.gmv_core/09_DATABASE/GMV.db"; then :; fi',
+    )
+    assert [_direct_sqlite_client_lines(source) for source in sources] == [
+        (1,),
+        (1,),
+        (1,),
+    ]
+
+
+def test_shell_sqlite_boundary_ignores_non_executable_references() -> None:
+    source = """
+    # sqlite3 "$DB" "SELECT 1"
+    echo 'documentation: sqlite3 ~/.gmv_core/09_DATABASE/GMV.db'
+    printf '%s\\n' 'sqlite3 is not required'
+    """
+    assert _direct_sqlite_client_lines(source) == ()
 
 
 def test_foreign_key_disable_is_confined_to_atomic_table_rebuild() -> None:

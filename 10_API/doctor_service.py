@@ -15,8 +15,10 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import shutil
 import sqlite3
 import stat
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -69,6 +71,102 @@ def _with_database(
     except (OSError, sqlite3.Error, ValueError) as error:
         return CheckResult(name, "FAIL", str(error))
     return CheckResult(name, "PASS", message)
+
+
+def _legacy_rows(database: Path, sql: str) -> list[tuple[object, ...]]:
+    """Run one legacy Doctor query through a genuinely read-only Core URI."""
+    with database_module.connect_path(_database_uri(database), uri=True) as connection:
+        return list(connection.execute(sql))
+
+
+def _print_legacy_rows(rows: list[tuple[object, ...]]) -> None:
+    for row in rows:
+        print("|".join("" if value is None else str(value) for value in row))
+
+
+def _print_legacy_launchagents() -> None:
+    executable = shutil.which("launchctl")
+    if executable is None:
+        print("warning: optional command not found: launchctl", file=sys.stderr)
+        return
+    result = subprocess.run(  # noqa: S603 - executable resolved by shutil.which
+        [executable, "list"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("warning: optional command failed: launchctl list", file=sys.stderr)
+        return
+    for line in result.stdout.splitlines():
+        if "com.gmv" in line:
+            print(line)
+
+
+def run_legacy_doctor(database: Path) -> int:
+    """Preserve the historical human Doctor report without shell SQLite."""
+    print()
+    print("==================================================")
+    print("               GMV DOCTOR")
+    print("==================================================")
+
+    checks: tuple[tuple[str, str | None], ...] = (
+        ("[1] DATABASE", "PRAGMA integrity_check"),
+        (
+            "[2] OBJECT COUNTS",
+            "SELECT type, COUNT(*) FROM objects GROUP BY type ORDER BY type",
+        ),
+        (
+            "[3] REGISTERED SERVICES",
+            "SELECT service_name,status FROM service_registry_view",
+        ),
+        (
+            "[4] REGISTERED PLUGINS",
+            "SELECT plugin_name,status FROM plugin_registry_view",
+        ),
+        (
+            "[5] DATABASE VIEWS",
+            "SELECT name FROM sqlite_master WHERE type='view' ORDER BY name",
+        ),
+        (
+            "[6] LAST SERVICE RUNS",
+            "SELECT service_oid,service_name,run_at,status "
+            "FROM service_runs ORDER BY id DESC LIMIT 10",
+        ),
+        ("[7] LAUNCHAGENTS", None),
+        (
+            "[8] ORPHAN SERVICE RUNS",
+            "SELECT COUNT(*) FROM service_runs sr "
+            "LEFT JOIN objects o ON sr.service_oid=o.oid WHERE o.oid IS NULL",
+        ),
+        (
+            "[9] ORPHAN EVENTS",
+            "SELECT COUNT(*) FROM events e "
+            "LEFT JOIN objects o ON e.oid=o.oid WHERE o.oid IS NULL",
+        ),
+        (
+            "[10] PENDING PLUGINS",
+            "SELECT plugin_name FROM plugin_registry_view WHERE status='pending'",
+        ),
+    )
+
+    for heading, sql in checks:
+        print()
+        print(heading)
+        if sql is None:
+            _print_legacy_launchagents()
+            continue
+        try:
+            _print_legacy_rows(_legacy_rows(database, sql))
+        except (OSError, sqlite3.Error, ValueError) as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+
+    print()
+    print("==================================================")
+    print("GMV DOCTOR COMPLETED")
+    print("==================================================")
+    return 0
 
 
 def run_checks(database: Path, home: Path | None = None) -> list[CheckResult]:
@@ -168,6 +266,7 @@ def run_checks(database: Path, home: Path | None = None) -> list[CheckResult]:
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--legacy", action="store_true")
     parser.add_argument(
         "--database",
         type=Path,
@@ -179,6 +278,8 @@ def main(arguments: list[str] | None = None) -> int:
         default=Path.home() / ".gmv_core",
     )
     options = parser.parse_args(arguments)
+    if options.legacy:
+        return run_legacy_doctor(options.database)
     checks = run_checks(options.database, options.home)
     failed = any(check.status == "FAIL" for check in checks)
     if options.json:
