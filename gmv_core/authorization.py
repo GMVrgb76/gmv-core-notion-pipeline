@@ -1,4 +1,4 @@
-"""SEC-006 first slice: capability-based write authorization (log-only).
+"""SEC-006 capability-based write authorization.
 
 Layers two independent mechanisms:
 
@@ -17,11 +17,11 @@ DDL is authorized per-caller (not per-table) to exactly the two migration
 functions listed in ``DDL_CALLERS``; every other action code not explicitly
 recognized as always-safe is denied by default.
 
-Ordinary Core connections only ever install mode ``"log"``: violations are
-recorded as ``would_deny`` and still execute. ``"enforce"`` is reachable only
-through a separate factory that rejects every target except ``:memory:`` or
+Ordinary Core connections install mode ``"enforce"``: violations are recorded
+as ``denied`` and blocked. No production caller or environment setting can
+weaken this to log-only. A separate isolated-enforcement factory remains for
+explicit temporary rehearsals and rejects every target except ``:memory:`` or
 the exact GMV database shape beneath an operating-system temporary root.
-No production caller or environment setting can select it.
 
 Statement caching is incompatible with per-call authorization: SQLite's
 authorizer only fires when a statement is newly prepared, and Python's
@@ -421,9 +421,9 @@ def install(
 ) -> None:
     """Install log-only or enforce-mode authorization on an open connection.
 
-    ``gmv_core.database.connect_path`` always passes the literal ``"log"``.
-    The separate isolated-enforcement factory may pass ``"enforce"`` only
-    after validating a temporary target. Tests also call this directly
+    ``gmv_core.database.connect_path`` always passes the literal ``"enforce"``.
+    The separate isolated-enforcement factory passes the same mode only after
+    validating a temporary target. Tests call this directly with both modes
     against their own throwaway connections.
 
     ``database`` is the same path/URI argument the connection was opened

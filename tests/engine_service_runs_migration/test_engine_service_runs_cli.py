@@ -246,7 +246,7 @@ def test_apply_rejects_corrupt_backup(tmp_path: Path) -> None:
     assert _counts(core / "09_DATABASE" / "GMV.db") == (31, 5)
 
 
-def test_apply_migrates_25_logs_exclusion_and_preserves_engine_runs(
+def test_apply_is_blocked_after_db006_write_capability_revocation(
     tmp_path: Path,
 ) -> None:
     core = _core(tmp_path)
@@ -256,17 +256,14 @@ def test_apply_migrates_25_logs_exclusion_and_preserves_engine_runs(
 
     result = _run(core, "apply", "--confirm", "--backup", str(backup))
 
-    assert result.returncode == 0, result.stderr
-    assert "migrated 25 row(s); excluded 1 approved row(s)" in result.stdout
-    assert _counts(database) == (31, 30)
-    records = _records(core)
-    assert len(records) == 26
-    assert sum(r["action"] == "engine_run.migrated" for r in records) == 25
-    assert sum(r["action"] == "engine_run.excluded" for r in records) == 1
-    assert {r.get("backup_id") for r in records} == {backup.name}
+    assert result.returncode == 1
+    assert "UnauthorizedWriteError" in result.stderr
+    assert "engine_service_runs_migration.py" in result.stderr
+    assert _counts(database) == (31, 5)
+    assert not (core / EVIDENCE_RELATIVE).exists()
 
 
-def test_apply_is_idempotent_at_complete_gate(tmp_path: Path) -> None:
+def test_repeated_apply_attempts_remain_blocked_and_non_mutating(tmp_path: Path) -> None:
     core = _core(tmp_path)
     database = core / "09_DATABASE" / "GMV.db"
     _seed_recorded_gate(database)
@@ -275,11 +272,12 @@ def test_apply_is_idempotent_at_complete_gate(tmp_path: Path) -> None:
     first = _run(core, "apply", "--confirm", "--backup", str(backup))
     second = _run(core, "apply", "--confirm", "--backup", str(backup))
 
-    assert first.returncode == 0, first.stderr
-    assert second.returncode == 0, second.stderr
-    assert "migrated 0 row(s)" in second.stdout
-    assert _counts(database) == (31, 30)
-    assert len(_records(core)) == 26
+    assert first.returncode == 1
+    assert second.returncode == 1
+    assert "UnauthorizedWriteError" in first.stderr
+    assert "UnauthorizedWriteError" in second.stderr
+    assert _counts(database) == (31, 5)
+    assert not (core / EVIDENCE_RELATIVE).exists()
 
 
 def test_apply_fails_closed_when_recorded_counts_diverge(tmp_path: Path) -> None:
@@ -326,9 +324,15 @@ def test_reconcile_fails_closed_on_corrupt_evidence(tmp_path: Path) -> None:
     core = _core(tmp_path)
     database = core / "09_DATABASE" / "GMV.db"
     _seed_recorded_gate(database)
-    backup = _milestone_backup(core, tmp_path / "backups")
-    applied = _run(core, "apply", "--confirm", "--backup", str(backup))
-    assert applied.returncode == 0, applied.stderr
+    with sqlite3.connect(database) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        apply_migration(
+            connection,
+            allowed_gate_counts=RECORDED_GATE_COUNTS,
+        )
+        connection.commit()
+    baseline = _run(core, "reconcile", "--json")
+    assert baseline.returncode == 0, baseline.stderr
     evidence = core / EVIDENCE_RELATIVE
     record = json.loads(evidence.read_text().splitlines()[0])
     record["record_hash"] = "0" * 64

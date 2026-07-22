@@ -10,6 +10,7 @@ import pytest
 import gmv_core.migrations as migrations
 from gmv_core import database as core_database
 from gmv_core.errors import MigrationError
+from tests.helpers import connect_fixture_database
 
 REBUILT_TABLES = (
     "events",
@@ -176,13 +177,13 @@ def test_migration_six_preserves_data_views_triggers_and_sequences(
 def test_all_ten_restrictive_foreign_keys_and_negative_writes(
     tmp_path: Path,
 ) -> None:
-    home = tmp_path / "enforced-home"
     database = _version_five_database(tmp_path, "enforced-home")
     with sqlite3.connect(database) as connection:
         _seed_references(connection)
     migrations.migrate(database, target_version=migrations.FOREIGN_KEYS_VERSION)
 
-    with core_database.connect(home=home) as connection:
+    with connect_fixture_database(database) as connection:
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
         declared = set()
         for table in REBUILT_TABLES:
             for row in connection.execute(f'PRAGMA foreign_key_list("{table}")'):

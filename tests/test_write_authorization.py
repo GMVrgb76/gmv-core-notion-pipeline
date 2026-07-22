@@ -1,4 +1,4 @@
-"""SEC-006 first slice: capability-based write authorization (log-only).
+"""SEC-006 capability-based write authorization.
 
 Covers, in order: (A) static cross-checks that the source tree matches the
 approved capability matrix exactly; (B) runtime behavior of
@@ -692,7 +692,7 @@ def test_log_only_to_enforce_mode_switch_reauthorizes_with_cached_statements_zer
     _writer_b(connection, sql)  # log-only: recorded as would_deny, still executes
     assert connection.execute("SELECT COUNT(*) FROM allowed_tbl").fetchone() == (1,)
 
-    connection._gmv_mode = "enforce"  # never done in production; here only to prove the property
+    connection._gmv_mode = "enforce"  # direct state switch is test-only; production opens this mode
     with pytest.raises(UnauthorizedWriteError):
         _writer_b(connection, sql)  # identical SQL text: must be re-evaluated, not reused
     assert connection.execute("SELECT COUNT(*) FROM allowed_tbl").fetchone() == (1,)

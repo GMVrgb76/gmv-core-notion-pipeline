@@ -16,6 +16,21 @@ class LiveDatabaseWriteError(RuntimeError):
     """Raised before a test opens the live database in writable mode."""
 
 
+def connect_fixture_database(database: str | os.PathLike[str]) -> sqlite3.Connection:
+    """Open a disposable schema-test connection with foreign keys enabled.
+
+    Constraint and migration tests use this only when they must insert
+    deliberately arbitrary or invalid fixture rows. Production behavior is
+    exercised through ``gmv_core.database`` and remains authorization-gated.
+    """
+    connection = sqlite3.connect(database)
+    connection.execute("PRAGMA foreign_keys = ON")
+    if connection.execute("PRAGMA foreign_keys").fetchone() != (1,):
+        connection.close()
+        raise RuntimeError("fixture connection could not enable foreign keys")
+    return connection
+
+
 def _database_path(database: object, *, uri: bool) -> tuple[Path | None, bool]:
     if isinstance(database, int):
         return None, False

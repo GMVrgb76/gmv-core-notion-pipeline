@@ -11,6 +11,7 @@ import pytest
 import gmv_core.migrations as migrations
 from gmv_core.database import connect_path
 from gmv_core.errors import MigrationError
+from tests.helpers import connect_fixture_database
 
 REBUILT_TABLES = {"objects", "service_runs", "engines", "relations"}
 
@@ -231,7 +232,7 @@ def test_positive_and_negative_writes_for_each_constraint(tmp_path: Path) -> Non
     database = _version_six_database(tmp_path)
     migrations.migrate(database, target_version=migrations.DOMAIN_CONSTRAINTS_VERSION)
 
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         connection.executemany(
             "INSERT INTO objects(oid,type,name) VALUES (?,?,?)",
             [
@@ -392,11 +393,12 @@ def test_injected_errors_roll_back_schema_data_version_and_enforcement(
     database = _version_six_database(tmp_path)
     valid_loader = migrations._migration_sql
 
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         _seed_complete_v6_shape(connection)
         connection.commit()
         before = _dump(connection)
 
+    with connect_path(database) as connection:
         def broken_loader(resource: str) -> str:
             sql = valid_loader(resource)
             if resource == migrations.DOMAIN_CONSTRAINTS_RESOURCE:

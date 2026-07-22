@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from gmv_core import database
-from gmv_core.errors import ConfigurationError, DatabaseConfigurationError
+from gmv_core.errors import (
+    ConfigurationError,
+    DatabaseConfigurationError,
+    UnauthorizedWriteError,
+)
 from gmv_core.paths import GMVPaths
 from tests.conftest import IsolatedGMV
 
@@ -17,16 +21,18 @@ def test_connect_resolves_database_under_injected_home(tmp_path: Path) -> None:
     home = tmp_path / "injected-core"
     expected = GMVPaths.from_home(home).database
     expected.parent.mkdir(parents=True)
-    with sqlite3.connect(expected):
-        pass
+    with sqlite3.connect(expected) as connection:
+        connection.execute("CREATE TABLE path_marker(id INTEGER PRIMARY KEY)")
 
     with database.connect(home=home) as connection:
-        opened = connection.execute("PRAGMA database_list").fetchone()[2]
+        marker = connection.execute(
+            "SELECT name FROM sqlite_master WHERE name='path_marker'"
+        ).fetchone()
 
-    assert Path(opened) == expected
+    assert marker == ("path_marker",)
 
 
-def test_connect_opens_a_working_connection(tmp_path: Path) -> None:
+def test_connect_blocks_unapproved_schema_and_data_writes(tmp_path: Path) -> None:
     home = tmp_path / "injected-core"
     database_path = GMVPaths.from_home(home).database
     database_path.parent.mkdir(parents=True)
@@ -34,11 +40,13 @@ def test_connect_opens_a_working_connection(tmp_path: Path) -> None:
         pass
 
     with database.connect(home=home) as connection:
-        connection.execute("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)")
-        connection.execute("INSERT INTO sentinel DEFAULT VALUES")
-        count = connection.execute("SELECT COUNT(*) FROM sentinel").fetchone()
+        with pytest.raises(UnauthorizedWriteError):
+            connection.execute("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)")
 
-    assert count == (1,)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name='sentinel'"
+        ).fetchone() is None
 
 
 def test_connect_enables_foreign_keys(tmp_path: Path) -> None:
@@ -60,7 +68,7 @@ def test_explicit_read_only_connection_enables_foreign_keys(tmp_path: Path) -> N
 
     with database.connect_path(uri, uri=True) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
-        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        with pytest.raises(UnauthorizedWriteError):
             connection.execute("INSERT INTO sentinel DEFAULT VALUES")
 
 
@@ -117,21 +125,17 @@ def test_required_object_identity_rejects_wrong_type() -> None:
 
 def test_connect_uses_load_config_precedence_by_default(isolated_gmv: IsolatedGMV) -> None:
     with database.connect() as connection:
-        connection.execute("INSERT INTO test_sentinel DEFAULT VALUES")
-
-    with sqlite3.connect(isolated_gmv.database) as connection:
         count = connection.execute("SELECT COUNT(*) FROM test_sentinel").fetchone()
 
-    assert count == (1,)
+    assert count == (0,)
 
 
 def test_connect_preserves_context_manager_semantics(isolated_gmv: IsolatedGMV) -> None:
     with database.connect() as connection:
-        connection.execute("INSERT INTO test_sentinel DEFAULT VALUES")
+        connection.execute("BEGIN IMMEDIATE")
 
-    count = connection.execute("SELECT COUNT(*) FROM test_sentinel").fetchone()
-
-    assert count == (1,)
+    assert connection.in_transaction is False
+    assert connection.execute("SELECT COUNT(*) FROM test_sentinel").fetchone() == (0,)
 
 
 def test_connect_propagates_configuration_error_when_home_unresolvable(

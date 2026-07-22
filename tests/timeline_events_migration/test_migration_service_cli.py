@@ -15,6 +15,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from gmv_core.timeline_events_migration import apply_migration
 from tests.characterization.conftest import SCHEMA_FIXTURE
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -193,7 +194,7 @@ def test_apply_fails_with_a_corrupt_backup_reference(tmp_path: Path) -> None:
 # --- apply: success path -----------------------------------------------------
 
 
-def test_apply_migrates_writes_evidence_and_preserves_timeline(tmp_path: Path) -> None:
+def test_apply_is_blocked_after_db005_write_capability_revocation(tmp_path: Path) -> None:
     core = _core(tmp_path)
     database = core / "09_DATABASE" / "GMV.db"
     _seed_divergence(database)
@@ -202,36 +203,27 @@ def test_apply_migrates_writes_evidence_and_preserves_timeline(tmp_path: Path) -
 
     result = _run(core, "apply", "--confirm", "--backup", str(backup))
 
-    assert result.returncode == 0, result.stderr
-    counts = _counts(database)
-    assert counts["timeline"] == timeline_before
-    assert counts["events"] == 3  # 1 identical (pre-existing) + 2 migrated
-
-    evidence = core / EVIDENCE_RELATIVE
-    records = [json.loads(line) for line in evidence.read_text().splitlines() if line]
-    assert len(records) == 2
-    assert {record["action"] for record in records} == {"timeline_row.migrated"}
-    assert {record["oid"] for record in records} == {"SYS-000001"}
+    assert result.returncode == 1
+    assert "UnauthorizedWriteError" in result.stderr
+    assert "timeline_events_migration.py" in result.stderr
+    assert _counts(database) == {"timeline": timeline_before, "events": 1}
+    assert not (core / EVIDENCE_RELATIVE).exists()
 
 
-def test_apply_is_idempotent_second_run_migrates_nothing(tmp_path: Path) -> None:
+def test_repeated_apply_attempts_remain_blocked_and_non_mutating(tmp_path: Path) -> None:
     core = _core(tmp_path)
     database = core / "09_DATABASE" / "GMV.db"
     _seed_divergence(database)
     backup = _milestone_backup(core, tmp_path / "backups")
 
     first = _run(core, "apply", "--confirm", "--backup", str(backup))
-    assert first.returncode == 0, first.stderr
-    counts_after_first = _counts(database)
-
     second = _run(core, "apply", "--confirm", "--backup", str(backup))
-    assert second.returncode == 0, second.stderr
-    assert _counts(database) == counts_after_first
-    assert "migrated 0 row(s)" in second.stdout
-
-    evidence = core / EVIDENCE_RELATIVE
-    records = [json.loads(line) for line in evidence.read_text().splitlines() if line]
-    assert len(records) == 2  # unchanged from the first run
+    assert first.returncode == 1
+    assert second.returncode == 1
+    assert "UnauthorizedWriteError" in first.stderr
+    assert "UnauthorizedWriteError" in second.stderr
+    assert _counts(database) == {"timeline": 3, "events": 1}
+    assert not (core / EVIDENCE_RELATIVE).exists()
 
 
 # --- reconcile: crash recovery and partial-log backfill ----------------------
@@ -267,10 +259,11 @@ def test_reconcile_backfills_only_the_gap_in_a_partial_log(tmp_path: Path) -> No
     core = _core(tmp_path)
     database = core / "09_DATABASE" / "GMV.db"
     _seed_divergence(database)
-    backup = _milestone_backup(core, tmp_path / "backups")
-
-    apply_result = _run(core, "apply", "--confirm", "--backup", str(backup))
-    assert apply_result.returncode == 0, apply_result.stderr
+    with sqlite3.connect(database) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        migrated = apply_migration(connection)
+        connection.commit()
+    assert len(migrated) == 2
 
     # `apply` only logs the rows it actually inserted (2). The pre-existing
     # "identical" row was never touched by apply and is therefore not yet in
@@ -315,9 +308,12 @@ def test_reconcile_fails_closed_on_a_corrupted_evidence_log(tmp_path: Path) -> N
     core = _core(tmp_path)
     database = core / "09_DATABASE" / "GMV.db"
     _seed_divergence(database)
-    backup = _milestone_backup(core, tmp_path / "backups")
-    apply_result = _run(core, "apply", "--confirm", "--backup", str(backup))
-    assert apply_result.returncode == 0, apply_result.stderr
+    with sqlite3.connect(database) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        apply_migration(connection)
+        connection.commit()
+    baseline = _run(core, "reconcile", "--json")
+    assert baseline.returncode == 0, baseline.stderr
 
     evidence = core / EVIDENCE_RELATIVE
     record = json.loads(evidence.read_text().splitlines()[0])

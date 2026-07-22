@@ -5,8 +5,8 @@ the GMV database path via gmv_core's own configuration surface and opens the
 connection. Callers retain sqlite3.Connection's own context-manager semantics
 (commit/rollback on exit; the connection is not closed). DB-002 additionally
 enables SQLite foreign-key enforcement before returning every Core-owned
-connection. SEC-006's first slice additionally installs log-only write
-capability authorization (gmv_core.authorization) on every connection, with
+connection. SEC-006 additionally installs enforced write-capability
+authorization (gmv_core.authorization) on every ordinary connection, with
 the statement cache disabled (cached_statements=0) -- required because a
 cached prepared statement skips SQLite's authorizer callback entirely on
 reuse, regardless of which caller or mode is active.
@@ -73,12 +73,12 @@ def connect_path(
     """Open an explicit SQLite target with verified FK enforcement.
 
     Every ordinary Core connection is opened with ``cached_statements=0``
-    and log-only write capability authorization. The mode remains a literal
-    here: no production caller or environment setting can select enforce.
+    and enforced write-capability authorization. The mode is a literal here:
+    no production caller or environment setting can weaken it to log-only.
     """
     return _connect_path(
         database,
-        authorization_mode="log",
+        authorization_mode="enforce",
         uri=uri,
         timeout=timeout,
     )

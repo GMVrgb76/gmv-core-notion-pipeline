@@ -102,11 +102,11 @@ def _enforced_migration_connect(isolated_gmv: IsolatedGMV):
     return connect
 
 
-def test_live_factory_remains_literal_log_only(isolated_gmv: IsolatedGMV) -> None:
+def test_ordinary_factory_is_literal_enforce(isolated_gmv: IsolatedGMV) -> None:
     assert "authorization_mode" not in inspect.signature(database_module.connect_path).parameters
     connection = database_module.connect_path(isolated_gmv.database)
     try:
-        assert connection._gmv_mode == "log"
+        assert connection._gmv_mode == "enforce"
     finally:
         connection.close()
 

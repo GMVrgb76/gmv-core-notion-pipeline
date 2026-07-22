@@ -13,6 +13,7 @@ from gmv_core.database import connect_path
 from gmv_core.errors import MigrationError, OIDValidationError
 from gmv_core.identity import PREFIX_TO_TYPE, validate_oid
 from gmv_core.repositories.identity import allocate_and_create_object
+from tests.helpers import connect_fixture_database
 
 PAIRS = tuple(PREFIX_TO_TYPE.items())
 DB008_TRIGGER_PREFIX = "gmv_"
@@ -255,7 +256,7 @@ def test_all_six_pairs_are_accepted_and_every_mismatch_is_rejected(
     migrations.migrate(database, target_version=migrations.OID_TYPE_CONSISTENCY_VERSION)
 
     types = tuple(PREFIX_TO_TYPE.values())
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         for prefix, object_type in PAIRS:
             connection.execute(
                 "INSERT INTO objects(oid,type,name) VALUES (?,?,?)",
@@ -280,7 +281,7 @@ def test_historical_and_operational_identifiers_are_not_object_oids(
 
     database = _version_seven_database(tmp_path, f"excluded-{value[:3]}.db")
     migrations.migrate(database, target_version=migrations.OID_TYPE_CONSISTENCY_VERSION)
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
                 "INSERT INTO objects(oid,type,name) VALUES (?,'Core','excluded')",
@@ -294,7 +295,7 @@ def test_all_six_typed_reference_classes_accept_valid_and_reject_wrong_types(
     database = _version_seven_database(tmp_path)
     migrations.migrate(database, target_version=migrations.OID_TYPE_CONSISTENCY_VERSION)
 
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         _seed_all_pairs(connection)
         connection.execute(
             """
@@ -506,7 +507,7 @@ def test_sequence_table_rejects_new_noncanonical_mapping(tmp_path: Path) -> None
     database = _version_seven_database(tmp_path)
     migrations.migrate(database, target_version=migrations.OID_TYPE_CONSISTENCY_VERSION)
 
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
                 """
@@ -548,10 +549,11 @@ def test_fault_injection_rolls_back_schema_data_version_and_enforcement(
     database = _version_seven_database(tmp_path)
     valid_loader = migrations._migration_sql
 
-    with connect_path(database) as connection:
+    with connect_fixture_database(database) as connection:
         _seed_complete_v7(connection)
         before = _dump(connection)
 
+    with connect_path(database) as connection:
         def broken_loader(resource: str) -> str:
             sql = valid_loader(resource)
             if resource == migrations.OID_TYPE_CONSISTENCY_RESOURCE:
