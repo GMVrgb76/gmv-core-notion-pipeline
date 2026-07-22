@@ -22,9 +22,11 @@ if str(CORE_SOURCE) not in sys.path:
     sys.path.insert(0, str(CORE_SOURCE))
 
 database = importlib.import_module("gmv_core.database")
+migrations = importlib.import_module("gmv_core.migrations")
 DatabaseConfigurationError = importlib.import_module(
     "gmv_core.errors"
 ).DatabaseConfigurationError
+MigrationStateError = importlib.import_module("gmv_core.errors").MigrationStateError
 
 CORE = Path.home() / ".gmv_core"
 DB = CORE / "09_DATABASE" / "GMV.db"
@@ -171,6 +173,7 @@ def run_bounded_process(
 def init_db(service_oid: str):
     conn = database.connect_path(DB)
     try:
+        migrations.require_supported_schema_version(conn)
         database.require_object_identities(
             conn,
             {"SYS-000001": "System", service_oid: "Service"},
@@ -178,32 +181,6 @@ def init_db(service_oid: str):
     except Exception:
         conn.close()
         raise
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS service_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        service_oid TEXT NOT NULL,
-        service_name TEXT NOT NULL,
-        run_at TEXT NOT NULL,
-        status TEXT NOT NULL,
-        duration_seconds REAL,
-        command TEXT,
-        stdout_path TEXT,
-        stderr_path TEXT,
-        summary TEXT
-    )
-    """)
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        oid TEXT NOT NULL,
-        event_at TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        description TEXT,
-        source TEXT
-    )
-    """)
-    conn.commit()
     return conn
 
 def validate_invocation(arguments: list[str]) -> tuple[str, list[str]]:
@@ -347,7 +324,7 @@ if __name__ == "__main__":
         engine_name, command_argv = validate_invocation(sys.argv)
         validate_release_pin(command_argv)
         return_code = run_engine(engine_name, command_argv)
-    except (ValueError, DatabaseConfigurationError) as error:
+    except (ValueError, DatabaseConfigurationError, MigrationStateError) as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(2)
 

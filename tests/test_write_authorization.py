@@ -154,6 +154,16 @@ def test_ddl_callers_match_source() -> None:
     assert scan.executescript_sites == set(authorization.DDL_CALLERS)
 
 
+def test_pragma_write_capability_matrix_is_exact() -> None:
+    assert authorization.PRAGMA_WRITE_CAPABILITIES == {
+        ("gmv_core/migrations.py", "_baseline_signature", "user_version"),
+        ("gmv_core/migrations.py", "_apply_migration", "user_version"),
+        ("gmv_core/migrations.py", "_apply_migration", "foreign_keys"),
+        ("gmv_core/migrations.py", "_adopt_current_shape", "user_version"),
+        ("gmv_core/database.py", "enable_foreign_keys", "foreign_keys"),
+    }
+
+
 def test_set_authorizer_called_only_by_the_authorization_module() -> None:
     """set_authorizer() is invoked from exactly two sites, both inside
     gmv_core/authorization.py: the install() factory call, and the
@@ -327,22 +337,55 @@ def test_cursor_execute_is_governed_identically_to_connection_execute(
         _writer_b_cursor(connection, "INSERT INTO other_tbl (v) VALUES ('via-cursor')")
 
 
-def test_pragma_read_always_allowed_pragma_write_always_denied(tmp_path: Path) -> None:
+def test_named_read_pragma_allowed_but_write_denied_without_capability(tmp_path: Path) -> None:
     connection, _ = _open(tmp_path, "pragma.db", mode="enforce")
-    connection.execute("PRAGMA user_version")  # read: always fine, no capability needed
+    connection.execute("PRAGMA user_version")
     with pytest.raises(UnauthorizedWriteError):
-        connection.execute("PRAGMA user_version = 7")  # write: never granted to a non-DDL caller
+        connection.execute("PRAGMA user_version = 7")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "PRAGMA table_info(allowed_tbl)",
+        "PRAGMA index_list(allowed_tbl)",
+        "PRAGMA index_xinfo(allowed_tbl)",
+        "PRAGMA foreign_key_list(allowed_tbl)",
+        "PRAGMA foreign_key_check",
+        "PRAGMA integrity_check(1)",
+        "PRAGMA foreign_keys",
+        "PRAGMA user_version",
+    ],
+)
+def test_read_only_pragma_with_argument_is_not_misclassified_as_write(
+    tmp_path: Path, sql: str
+) -> None:
+    connection, _ = _open(tmp_path, "pragma_read.db", mode="enforce")
+    connection.execute(sql).fetchall()
+
+
+def test_unknown_no_argument_pragma_is_denied_by_default(tmp_path: Path) -> None:
+    connection, _ = _open(tmp_path, "pragma_unknown.db", mode="enforce")
+    with pytest.raises(UnauthorizedWriteError):
+        connection.execute("PRAGMA journal_mode")
 
 
 def _ddl_caller_pragma(connection: sqlite3.Connection, sql: str) -> None:
     connection.execute(sql)
 
 
-def test_ddl_caller_pragma_write_authorized_only_for_user_version_and_foreign_keys(
+def test_exact_pragma_write_capabilities_authorize_only_named_operations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+        authorization,
+        "PRAGMA_WRITE_CAPABILITIES",
+        frozenset(
+            {
+                (THIS_FILE, "_ddl_caller_pragma", "user_version"),
+                (THIS_FILE, "_ddl_caller_pragma", "foreign_keys"),
+            }
+        ),
     )
     connection, _ = _open(tmp_path, "pragma_ddl.db", mode="enforce")
     _ddl_caller_pragma(connection, "PRAGMA user_version = 7")  # authorized
@@ -353,11 +396,11 @@ def test_ddl_caller_pragma_write_authorized_only_for_user_version_and_foreign_ke
 def test_ddl_caller_pragma_write_denied_for_any_other_pragma_name(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """DDL trust does not extend to arbitrary PRAGMA writes: even a DDL
-    caller is denied for journal_mode (or any name outside the exact
-    {user_version, foreign_keys} allow-list)."""
+    """Exact PRAGMA capability does not extend to any other name."""
     monkeypatch.setattr(
-        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+        authorization,
+        "PRAGMA_WRITE_CAPABILITIES",
+        frozenset({(THIS_FILE, "_ddl_caller_pragma", "user_version")}),
     )
     connection, _ = _open(tmp_path, "pragma_ddl_other.db", mode="enforce")
     with pytest.raises(UnauthorizedWriteError):
@@ -374,7 +417,9 @@ def test_ddl_caller_pragma_write_authorization_is_case_insensitive(
     must normalize case so it cannot be bypassed, and case must not grant
     anything extra either."""
     monkeypatch.setattr(
-        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+        authorization,
+        "PRAGMA_WRITE_CAPABILITIES",
+        frozenset({(THIS_FILE, "_ddl_caller_pragma", "user_version")}),
     )
     connection, _ = _open(tmp_path, "pragma_case.db", mode="enforce")
     _ddl_caller_pragma(connection, "PRAGMA USER_VERSION = 7")  # still authorized
@@ -395,7 +440,9 @@ def test_unauthorized_pragma_write_is_would_deny_in_log_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        authorization, "DDL_CALLERS", frozenset({(THIS_FILE, "_ddl_caller_pragma")})
+        authorization,
+        "PRAGMA_WRITE_CAPABILITIES",
+        frozenset({(THIS_FILE, "_ddl_caller_pragma", "user_version")}),
     )
     connection, log_path = _open(tmp_path, "GMV.db", mode="log", with_log=True)
     _ddl_caller_pragma(connection, "PRAGMA journal_mode = WAL")  # not in the allow-list: would_deny

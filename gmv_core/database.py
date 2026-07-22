@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import tempfile
 from collections.abc import Mapping
+from pathlib import Path
 
 from gmv_core import authorization
 from gmv_core.config import load_config
@@ -39,19 +41,13 @@ def enable_foreign_keys(connection: sqlite3.Connection) -> sqlite3.Connection:
     return connection
 
 
-def connect_path(
+def _connect_path(
     database: str | os.PathLike[str],
     *,
+    authorization_mode: str,
     uri: bool = False,
     timeout: float = 5.0,
 ) -> sqlite3.Connection:
-    """Open an explicit SQLite target with verified FK enforcement.
-
-    Every connection is opened with ``cached_statements=0`` and gets
-    log-only write capability authorization installed
-    (``gmv_core.authorization``). The mode is always the literal ``"log"``
-    here -- this factory has no parameter that can select ``"enforce"``.
-    """
     connection = sqlite3.connect(
         database,
         uri=uri,
@@ -61,11 +57,74 @@ def connect_path(
     )
     try:
         enable_foreign_keys(connection)
-        authorization.install(connection, mode="log", database=database)
+        authorization.install(connection, mode=authorization_mode, database=database)
         return connection
     except Exception:
         connection.close()
         raise
+
+
+def connect_path(
+    database: str | os.PathLike[str],
+    *,
+    uri: bool = False,
+    timeout: float = 5.0,
+) -> sqlite3.Connection:
+    """Open an explicit SQLite target with verified FK enforcement.
+
+    Every ordinary Core connection is opened with ``cached_statements=0``
+    and log-only write capability authorization. The mode remains a literal
+    here: no production caller or environment setting can select enforce.
+    """
+    return _connect_path(
+        database,
+        authorization_mode="log",
+        uri=uri,
+        timeout=timeout,
+    )
+
+
+def connect_path_isolated_enforcement(
+    database: str | os.PathLike[str],
+    *,
+    isolation_root: str | os.PathLike[str],
+    uri: bool = False,
+    timeout: float = 5.0,
+) -> sqlite3.Connection:
+    """Open enforce mode only for a strictly temporary rehearsal target.
+
+    This separate factory is deliberately unsuitable for the live database:
+    ``isolation_root`` must be a proper child of the operating-system temp
+    directory, SQLite URIs are rejected, and a file-backed target must be the
+    exact ``09_DATABASE/GMV.db`` beneath that root. ``:memory:`` is accepted
+    so the canonical migration runner can build its baseline signature while
+    an isolated rehearsal is active.
+    """
+    if uri:
+        raise DatabaseConfigurationError(
+            "isolated enforce mode does not accept SQLite URI targets"
+        )
+
+    root = Path(isolation_root).resolve(strict=False)
+    temporary_root = Path(tempfile.gettempdir()).resolve(strict=False)
+    if root == temporary_root or not root.is_relative_to(temporary_root):
+        raise DatabaseConfigurationError(
+            f"isolated enforce root must be below the system temp directory: {root}"
+        )
+
+    if os.fspath(database) != ":memory:":
+        target = Path(database).resolve(strict=False)
+        expected = (root / "09_DATABASE" / "GMV.db").resolve(strict=False)
+        if target != expected:
+            raise DatabaseConfigurationError(
+                f"isolated enforce target must be exactly {expected}; got {target}"
+            )
+
+    return _connect_path(
+        database,
+        authorization_mode="enforce",
+        timeout=timeout,
+    )
 
 
 def require_object_identities(

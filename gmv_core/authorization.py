@@ -17,11 +17,11 @@ DDL is authorized per-caller (not per-table) to exactly the two migration
 functions listed in ``DDL_CALLERS``; every other action code not explicitly
 recognized as always-safe is denied by default.
 
-This slice only ever installs mode ``"log"``: violations are recorded as
-``would_deny`` and still execute. Nothing is blocked. ``"enforce"`` mode
-exists and is exercised by tests, but no production caller in this
-codebase can select it -- ``gmv_core.database.connect_path`` passes the
-literal string ``"log"``, never a parameter.
+Ordinary Core connections only ever install mode ``"log"``: violations are
+recorded as ``would_deny`` and still execute. ``"enforce"`` is reachable only
+through a separate factory that rejects every target except ``:memory:`` or
+the exact GMV database shape beneath an operating-system temporary root.
+No production caller or environment setting can select it.
 
 Statement caching is incompatible with per-call authorization: SQLite's
 authorizer only fires when a statement is newly prepared, and Python's
@@ -52,6 +52,7 @@ _KNOWLEDGE_FILE = "01_RUNTIME/knowledge_engine.py"
 _COMPAT_FILE = "10_API/gmv_compatibility.py"
 _IMPORT_FILE = "10_API/import_service.py"
 _MIGRATIONS_FILE = "gmv_core/migrations.py"
+_DATABASE_FILE = "gmv_core/database.py"
 
 #: (caller_file, caller_function, verb, table) -- exactly the 10 approved
 #: DML call sites inventoried during the SEC-006 first-slice review.
@@ -88,10 +89,37 @@ DDL_CALLERS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-#: The only PRAGMA names the 2 DDL callers may ever write (lower-cased).
-#: No other mutating PRAGMA -- including journal_mode -- is ever granted,
-#: to either caller, regardless of DDL trust.
-_AUTHORIZED_PRAGMA_WRITES: frozenset[str] = frozenset({"user_version", "foreign_keys"})
+#: Exact PRAGMA-write capabilities. DDL trust is deliberately not reused:
+#: each caller receives only the one or two names it materially needs.
+#: ``_adopt_current_shape`` writes only the baseline version marker;
+#: ``enable_foreign_keys`` needs its capability only when migration failure
+#: recovery restores the connection after authorization is already active.
+PRAGMA_WRITE_CAPABILITIES: frozenset[tuple[str, str, str]] = frozenset(
+    {
+        (_MIGRATIONS_FILE, "_baseline_signature", "user_version"),
+        (_MIGRATIONS_FILE, "_apply_migration", "user_version"),
+        (_MIGRATIONS_FILE, "_apply_migration", "foreign_keys"),
+        (_MIGRATIONS_FILE, "_adopt_current_shape", "user_version"),
+        (_DATABASE_FILE, "enable_foreign_keys", "foreign_keys"),
+    }
+)
+
+#: Read-only PRAGMAs currently used by tracked production code. These may
+#: carry an argument (for example ``table_info(objects)``), so ``arg2`` alone
+#: cannot distinguish them from writes. Unknown PRAGMA names fail closed.
+_READ_ONLY_PRAGMAS: frozenset[str] = frozenset(
+    {
+        "foreign_key_check",
+        "foreign_key_list",
+        "index_list",
+        "index_xinfo",
+        "integrity_check",
+        "table_info",
+    }
+)
+
+#: PRAGMAs with both a read form (no argument) and a governed write form.
+_READ_WRITE_PRAGMAS: frozenset[str] = frozenset({"user_version", "foreign_keys"})
 
 # --- SQLite authorizer action codes (fixed list -- these integers alias
 # unrelated result/limit codes elsewhere in the sqlite3 module namespace,
@@ -241,27 +269,22 @@ def _decide(
 
     if action_code == sqlite3.SQLITE_PRAGMA:
         pragma_name = arg1 or ""
-        if arg2 is None:
+        normalized_name = pragma_name.lower()
+        if normalized_name in _READ_ONLY_PRAGMAS:
             return "authorized", "PRAGMA_READ", pragma_name
-        # PRAGMA writes are governed by an explicit name allow-list, not by
-        # caller trust alone: only `user_version` (schema-version bookkeeping)
-        # and `foreign_keys` (the migration-confined FK toggle, already
-        # fenced by ADR_DB002_RESTRICTIVE_FOREIGN_KEYS.md) are ever granted,
-        # and only to the 2 DDL callers. SQLite reports the pragma name
-        # exactly as written in the SQL text (case preserved, verified
-        # empirically) -- normalize before comparing so this cannot be
-        # bypassed by case alone. Every other PRAGMA write -- including
-        # journal_mode -- is denied even for a DDL caller; there is no
-        # blanket "DDL callers may write any PRAGMA" branch. The one-time
-        # connect_path() bootstrap (`PRAGMA foreign_keys = ON`) runs before
-        # install() and never reaches this authorizer at all.
+        if arg2 is None and normalized_name in _READ_WRITE_PRAGMAS:
+            return "authorized", "PRAGMA_READ", pragma_name
+        # Writes are governed by exact (file, function, pragma-name)
+        # capabilities, never by DDL trust alone. SQLite reports the name
+        # case-preserved, so normalize before comparing. Every other PRAGMA,
+        # including unknown no-argument forms and journal_mode, is denied.
         if (
             caller is not None
-            and caller in DDL_CALLERS
-            and pragma_name.lower() in _AUTHORIZED_PRAGMA_WRITES
+            and (*caller, normalized_name) in PRAGMA_WRITE_CAPABILITIES
         ):
             return "authorized", "PRAGMA_WRITE", pragma_name
-        return "violation", "PRAGMA_WRITE", pragma_name
+        verb = "PRAGMA_WRITE" if arg2 is not None else "PRAGMA_READ"
+        return "violation", verb, pragma_name
 
     if action_code in _DDL_ACTION_NAMES:
         verb = _DDL_ACTION_NAMES[action_code]
@@ -398,10 +421,10 @@ def install(
 ) -> None:
     """Install log-only or enforce-mode authorization on an open connection.
 
-    Only ``gmv_core.database.connect_path`` calls this in production, and
-    it always passes the literal string ``"log"`` -- there is no
-    production code path that can select ``"enforce"``. Tests call this
-    directly with either mode against their own throwaway connections.
+    ``gmv_core.database.connect_path`` always passes the literal ``"log"``.
+    The separate isolated-enforcement factory may pass ``"enforce"`` only
+    after validating a temporary target. Tests also call this directly
+    against their own throwaway connections.
 
     ``database`` is the same path/URI argument the connection was opened
     with; it is used only to derive the log location (see
