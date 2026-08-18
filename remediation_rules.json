@@ -1,0 +1,239 @@
+{
+  "schema_version": "1.0",
+  "component_version": "0.1",
+  "policy": "fail_closed",
+  "rules": {
+    "S01": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "Un campo obbligatorio mancante non può essere inventato.",
+      "proposed_action": "Ricercare una fonte verificabile oppure sottoporre l'esclusione a decisione umana."
+    },
+    "S02": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "MEDIUM",
+      "reason": "Un valore rilevante assente richiede evidenza esterna.",
+      "proposed_action": "Recuperare evidenza prima di valorizzare il campo."
+    },
+    "S03": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "La forma corretta di un valore non interpretabile non è deducibile con certezza.",
+      "proposed_action": "Verificare il valore presso una fonte e proporre la forma corretta."
+    },
+    "R01": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "La relazione obbligatoria assente richiede l'identificazione del record corretto.",
+      "proposed_action": "Identificare con evidenza il record da collegare."
+    },
+    "R02": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "Un riferimento non risolto non determina da solo il bersaglio corretto.",
+      "proposed_action": "Verificare se correggere il riferimento o creare una scheda separata."
+    },
+    "R03": {
+      "classification": "AUTO_FIX",
+      "operation": "ADD_MISSING_INVERSE_RELATION",
+      "authorization_required": "LOCAL_COPY_ONLY",
+      "risk": "LOW",
+      "reason": "Il collegamento sorgente esistente e la configurazione bidirezionale determinano univocamente la relazione inversa mancante.",
+      "proposed_action": "Aggiungere l'ID del record sorgente alla relazione inversa della copia locale, previa verifica di tutte le precondizioni."
+    },
+    "R04": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Collegare o escludere un record isolato è una decisione archivistica.",
+      "proposed_action": "Decidere se collegare, conservare isolato o escludere il record."
+    },
+    "T01": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "Una cronologia incoerente richiede verifica delle date.",
+      "proposed_action": "Verificare le date presso una fonte affidabile."
+    },
+    "T02": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "L'incoerenza temporale non identifica quale valore sia errato.",
+      "proposed_action": "Verificare date e relazioni coinvolte."
+    },
+    "T03": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "La data anomala richiede controllo della fonte e non consente una correzione automatica.",
+      "proposed_action": "Verificare la data e l'identità dell'artista collegato."
+    },
+    "T05": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "MEDIUM",
+      "reason": "Un anno implausibile necessita conferma documentale.",
+      "proposed_action": "Confermare l'anno con una fonte verificabile."
+    },
+    "M01": {
+      "classification": "SCHEMA_CHANGE",
+      "operation": null,
+      "authorization_required": "SCHEMA_APPROVAL",
+      "risk": "HIGH",
+      "reason": "L'assenza del campo-fonte è una proprietà del modello dati.",
+      "proposed_action": "Proporre separatamente l'aggiunta del campo-fonte allo schema."
+    },
+    "M02": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "HIGH",
+      "reason": "Una fonte vuota non può essere compilata senza evidenza.",
+      "proposed_action": "Individuare e verificare una fonte risolvibile."
+    },
+    "M03": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "MEDIUM",
+      "reason": "Il passaggio da fonte web a SUM richiede acquisizione e verifica della fonte.",
+      "proposed_action": "Acquisire la fonte nel SUM e registrarne il locator canonico."
+    },
+    "M04": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Lo stato epistemico non può essere dedotto dalla sola anomalia.",
+      "proposed_action": "Assegnare uno stato dopo valutazione umana delle evidenze."
+    },
+    "M06": {
+      "classification": "RESEARCH_REQUIRED",
+      "operation": null,
+      "authorization_required": "VERIFIED_SOURCE",
+      "risk": "MEDIUM",
+      "reason": "Una verifica mancante o obsoleta richiede una nuova verifica effettiva.",
+      "proposed_action": "Riesaminare le fonti e registrare una nuova verifica."
+    },
+    "M07": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Cambiare pubblicabilità o stato epistemico richiede una decisione responsabile.",
+      "proposed_action": "Rivalutare pubblicabilità, stato e fonte senza modifica automatica."
+    },
+    "M08": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "CRITICAL",
+      "reason": "La pubblicazione di dati riservati richiede una decisione esplicita.",
+      "proposed_action": "Bloccare la pubblicazione e sottoporre il record al responsabile."
+    },
+    "Q01": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Rimuovere un placeholder può eliminare contenuto curatoriale senza sostituto verificato.",
+      "proposed_action": "Revisionare manualmente il testo o mantenere il record non pubblicabile."
+    },
+    "Q02": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "MEDIUM",
+      "reason": "La completezza del testo è una valutazione editoriale.",
+      "proposed_action": "Revisionare manualmente il testo troncato."
+    },
+    "Q03": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "MEDIUM",
+      "reason": "Il registro linguistico richiede giudizio editoriale.",
+      "proposed_action": "Valutare e riscrivere manualmente il passaggio."
+    },
+    "Q04": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "MEDIUM",
+      "reason": "I marcatori stilistici non provano da soli un errore correggibile.",
+      "proposed_action": "Sottoporre il testo a revisione editoriale."
+    },
+    "Q07": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "LOW",
+      "reason": "La ripetizione può essere legittima oppure boilerplate e richiede contesto.",
+      "proposed_action": "Valutare manualmente le occorrenze nel loro contesto."
+    },
+    "Q08": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "MEDIUM",
+      "reason": "La vaghezza temporale richiede interpretazione e fonte.",
+      "proposed_action": "Precisare il testo soltanto dopo verifica editoriale e documentale."
+    },
+    "D01": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Unire o eliminare duplicati può perdere dati e relazioni.",
+      "proposed_action": "Confrontare i record e approvare un piano di consolidamento."
+    },
+    "D02": {
+      "classification": "HUMAN_DECISION",
+      "operation": null,
+      "authorization_required": "HUMAN_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Una somiglianza di nome non dimostra identità.",
+      "proposed_action": "Verificare l'identità prima di qualsiasi consolidamento."
+    },
+    "N01": {
+      "classification": "SCHEMA_CHANGE",
+      "operation": null,
+      "authorization_required": "SCHEMA_APPROVAL",
+      "risk": "HIGH",
+      "reason": "L'incoerenza del vocabolario di stato appartiene allo schema.",
+      "proposed_action": "Proporre un vocabolario di stato canonico separatamente."
+    },
+    "N03": {
+      "classification": "SCHEMA_CHANGE",
+      "operation": null,
+      "authorization_required": "SCHEMA_APPROVAL",
+      "risk": "HIGH",
+      "reason": "L'incoerenza dei nomi dei campi-fonte appartiene allo schema.",
+      "proposed_action": "Proporre una normalizzazione di schema separatamente."
+    },
+    "N04": {
+      "classification": "SCHEMA_CHANGE",
+      "operation": null,
+      "authorization_required": "SCHEMA_APPROVAL",
+      "risk": "HIGH",
+      "reason": "Aggiungere campi-fonte alle entità modifica il modello dati.",
+      "proposed_action": "Richiedere approvazione preventiva per la modifica di schema."
+    }
+  }
+}
