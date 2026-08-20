@@ -105,3 +105,53 @@ Estrazione limitata per collaudo e validazione:
 ```
 
 L'export verso monade resta separato e non viene eseguito dal launcher.
+
+## Pipeline operativa con Run Ledger
+
+`gmv_pipeline.py` esegue estrazione/ingest, audit, piano di remediation e
+finalizzazione dentro un Run immutabile e verificabile. Non modifica Notion,
+non applica remediation e non esporta verso monade. Il ledger predefinito è
+`~/.gmv_core/runs`; può essere sostituito con `--ledger-root`.
+
+Esecuzione su un file normalizzato già disponibile:
+
+```bash
+python3 gmv_pipeline.py --rows rows.json --config config.json
+```
+
+Esecuzione con estrazione Notion read-only:
+
+```bash
+python3 gmv_pipeline.py --extract --config config.json \
+  --token-file ~/.config/area35-qa/notion_token
+```
+
+Codici di uscita:
+
+- `0`: pipeline completata, nessun BLOCKER;
+- `1`: pipeline completata, gate BLOCKER attivo;
+- `2`: errore operativo della pipeline.
+
+Ogni Run contiene `run_manifest.json`, `events.jsonl`, `run_state.json`, log e
+artefatti con hash SHA-256. Un Run terminato non resta in `_active`.
+
+Per classificare Run abbandonati e verificare i checkpoint:
+
+```bash
+python3 gmv_recovery.py
+python3 gmv_recovery.py --run-id GMV-YYYYMMDDTHHMMSSZ-XXXX
+```
+
+Il recovery è deliberatamente solo ispettivo: segnala il punto di ripresa ma
+non rilancia automaticamente la pipeline. Un ledger corrotto o un Run
+inesistente produce exit `2` e `DO_NOT_RESUME`.
+
+Verifica locale:
+
+```bash
+python3 -m unittest discover -s tests -v
+ruff check gmv_run_ledger.py gmv_pipeline.py gmv_recovery.py tests
+```
+
+Le correzioni del draft e i gap intenzionalmente non implementati sono
+documentati in `CORRECTIONS.md`.
