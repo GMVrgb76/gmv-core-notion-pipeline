@@ -1,0 +1,25 @@
+{
+  "contract_version": "1.0.0",
+  "prefixes": {
+    "COR": "Core",
+    "PER": "Person",
+    "PLG": "Plugin",
+    "RES": "Resource",
+    "SRV": "Service",
+    "SYS": "System"
+  },
+  "current_typed_oids": [
+    ["COR-000001", "Core"],
+    ["PER-000001", "Person"],
+    ["PLG-000001", "Plugin"],
+    ["PLG-000002", "Plugin"],
+    ["PLG-000003", "Plugin"],
+    ["PLG-000004", "Plugin"],
+    ["RES-000001", "Resource"],
+    ["SRV-000001", "Service"],
+    ["SRV-000002", "Service"],
+    ["SRV-000003", "Service"],
+    ["SRV-000004", "Service"],
+    ["SYS-000001", "System"]
+  ]
+}

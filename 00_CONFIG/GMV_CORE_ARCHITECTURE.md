@@ -1,0 +1,337 @@
+# GMV CORE ARCHITECTURE
+
+Versione: 0.1\
+Data: 2026-07-02\
+Stato: Documento fondativo operativo
+
+------------------------------------------------------------------------
+
+## 1. Principio generale
+
+GMV Core è il nucleo operativo locale del GMV Master System.
+
+-   Il Mac mini esegue.
+-   Dropbox conserva.
+-   Il Core indicizza, struttura, aggiorna e produce output.
+
+------------------------------------------------------------------------
+
+## 2. Regola fondamentale
+
+Nessun motore deve dipendere direttamente da Dropbox.
+
+Dropbox è archivio, sorgente documentale e destinazione di backup/sync.
+Il runtime vive sul disco locale del Mac mini.
+
+------------------------------------------------------------------------
+
+## 3. Struttura locale
+
+``` text
+~/.gmv_core/
+├── 00_CONFIG
+├── 01_RUNTIME
+├── 02_INDEXES
+├── 03_STATE
+├── 04_LOGS
+├── 05_OUTPUT
+├── 06_CACHE
+├── 07_IMPORT
+├── 08_BACKUP_LOCAL
+├── 09_DATABASE
+├── 10_API
+├── 11_PLUGINS
+└── 12_SCHEDULER
+```
+
+------------------------------------------------------------------------
+
+## 4. GMV Object Architecture
+
+Il sistema ragiona per entità, non per file.
+
+Object Types:
+
+-   Persone
+-   Artisti
+-   Opere
+-   Immobili
+-   Progetti
+-   Società
+-   Deal
+-   Documenti
+-   Eventi
+-   Task
+-   Mercati
+-   Contatti
+-   Fonti
+
+I documenti rappresentano le fonti associate alle entità.
+
+------------------------------------------------------------------------
+
+## Object Identity (OID)
+
+Ogni Object possiede un Object ID (OID) permanente e immutabile.
+
+L'OID rappresenta la vera identità del sistema.
+
+Nomi, titoli, percorsi, documenti e attributi possono cambiare; l'OID rimane invariato e garantisce la continuità di relazioni, timeline e stato.
+
+Tutti i riferimenti interni del GMV Core devono utilizzare l'OID.
+
+
+## 5. Database
+
+Database SQLite separati:
+
+-   people.db
+-   artists.db
+-   artworks.db
+-   properties.db
+-   projects.db
+-   companies.db
+-   deals.db
+-   documents.db
+-   tasks.db
+-   events.db
+-   market.db
+-   calendar.db
+-   mail.db
+
+Regole:
+
+-   SQLite contiene fatti strutturati.
+-   Markdown contiene spiegazioni e decisioni.
+-   Dropbox conserva gli originali.
+-   Cache contiene dati rigenerabili.
+
+------------------------------------------------------------------------
+
+## 6. Stato operativo
+
+Directory:
+
+``` text
+~/.gmv_core/03_STATE/
+```
+
+File iniziali:
+
+-   PROJECT_STATE.json
+-   PERSON_STATE.json
+-   ARTIST_STATE.json
+-   PROPERTY_STATE.json
+-   OBJECT_STATE.json
+-   DEAL_STATE.json
+-   TASK_STATE.json
+-   SYSTEM_STATE.json
+
+------------------------------------------------------------------------
+
+## 7. Indici
+
+Directory:
+
+``` text
+~/.gmv_core/02_INDEXES/
+```
+
+Scopo:
+
+-   individuare i documenti;
+-   collegare documenti ed entità;
+-   evitare scansioni complete;
+-   alimentare i database.
+
+------------------------------------------------------------------------
+
+## 8. API Core
+
+Tutti gli engine devono utilizzare un'unica API.
+
+Funzioni previste:
+
+-   gmv.get_person()
+-   gmv.get_artist()
+-   gmv.get_property()
+-   gmv.get_project()
+-   gmv.get_deal()
+-   gmv.get_document()
+-   gmv.search()
+-   gmv.update_state()
+-   gmv.write_output()
+-   gmv.log_event()
+-   gmv.sync_to_dropbox()
+
+------------------------------------------------------------------------
+
+## 9. Plugin
+
+Ogni dominio applicativo è un plugin.
+
+Esempi:
+
+-   area35
+-   market
+-   property
+-   dossier
+-   morningbrief
+-   apprentice
+-   calendar
+-   mail
+-   crypto
+-   mcube
+-   saudi
+-   realestate
+
+------------------------------------------------------------------------
+
+## 10. Scheduler
+
+Lo scheduler coordina:
+
+-   Daily Log
+-   Morning Brief
+-   Indicizzazione
+-   Market Check
+-   Executive Queue
+-   Apprentice
+-   Backup
+
+------------------------------------------------------------------------
+
+## 11. Output
+
+Output locali:
+
+``` text
+~/.gmv_core/05_OUTPUT/
+```
+
+Output persistenti:
+
+``` text
+GMV_MASTER_SYSTEM/05_OUTPUT_FROM_CORE/
+```
+
+------------------------------------------------------------------------
+
+## 12. Import
+
+Directory:
+
+``` text
+~/.gmv_core/07_IMPORT/
+```
+
+La state machine canonica è definita da
+`ADR_DB003_IMPORT_QUEUE_STATE_MACHINE.md`. Gli stati esatti sono:
+
+-   new
+-   processing
+-   classified
+-   approved
+-   retryable_error
+-   rejected
+-   failed
+-   archived
+
+`status` e `review_status` sono campi legacy; `DB-010` implementerà un unico
+campo `state` in una futura migrazione separatamente autorizzata.
+
+------------------------------------------------------------------------
+
+## 13. Backup
+
+Backup locale:
+
+``` text
+~/.gmv_core/08_BACKUP_LOCAL/
+```
+
+Backup Dropbox:
+
+``` text
+GMV_MASTER_SYSTEM/98_BACKUP_FROM_CORE/
+```
+
+------------------------------------------------------------------------
+
+## 14. Sicurezza
+
+-   Credenziali fuori da Dropbox.
+-   File .env locali.
+-   Nessuna password nei log.
+-   Backup dei database.
+-   Runtime separato dall'archivio.
+
+------------------------------------------------------------------------
+
+## 15. Ciclo operativo
+
+1.  FIND THE WORK
+2.  DO IT
+3.  CHECK ITSELF
+4.  REMEMBER
+5.  GO AGAIN
+
+Ogni cinque elementi elaborati:
+
+-   verificare errori;
+-   migliorare regole;
+-   aggiornare standard;
+-   continuare.
+
+------------------------------------------------------------------------
+
+## 16. Framework decisionali
+
+### Cinque cancelli Area35
+
+1.  Valore culturale
+2.  Valore operativo
+3.  Valore economico
+4.  Coerenza identitaria
+5.  Sostenibilità nel tempo
+
+### GMV Recursion Protocol
+
+1.  Questionare il requisito
+2.  Eliminare il superfluo
+3.  Semplificare
+4.  Accelerare
+5.  Automatizzare alla fine
+
+------------------------------------------------------------------------
+
+## 17. Roadmap
+
+### Fase 1
+
+Core locale
+
+### Fase 2
+
+Index Engine
+
+### Fase 3
+
+Object Engine
+
+### Fase 4
+
+Relation Engine
+
+### Fase 5
+
+Reasoning Layer
+
+------------------------------------------------------------------------
+
+## 18. Definizione finale
+
+GMV Core è il kernel locale del GMV Master System.
+
+Il suo compito è trasformare documenti, stato operativo e conoscenza in
+un'infrastruttura interrogabile, persistente ed estensibile.

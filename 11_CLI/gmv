@@ -1,0 +1,411 @@
+#!/bin/bash
+
+set -euo pipefail
+
+command_name="${1:-}"
+
+case "$command_name" in
+
+status)
+shift
+"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/status_service.py" "$@"
+;;
+
+doctor)
+if [ "${2:-}" = "--strict" ]; then
+  shift 2
+  "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/doctor_service.py" "$@"
+  exit $?
+fi
+"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../10_API" && pwd)/doctor_service.py" --legacy
+exit $?
+;;
+
+object)
+sub="${2:-}"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/object_service.py" list
+;;
+
+show)
+OID="${3:-}"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv object show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/object_service.py" show "$OID"
+;;
+
+count)
+"$HOME/.gmv_core/10_API/object_service.py" count
+;;
+
+*)
+echo "GMV OBJECT"
+echo
+echo "Commands:"
+echo "  gmv object list"
+echo "  gmv object show <OID>"
+echo "  gmv object count"
+echo "  gmv relation list"
+echo "  gmv relation count"
+echo "  gmv relation show <OID>"
+echo "  gmv import file <path>"
+;;
+esac
+;;
+
+
+resource)
+sub="${2:-}"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/resource_service.py" list
+;;
+
+show)
+OID="${3:-}"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv resource show <RES-OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/resource_service.py" show "$OID"
+;;
+
+count)
+"$HOME/.gmv_core/10_API/resource_service.py" count
+;;
+
+*)
+echo "GMV RESOURCE"
+echo
+echo "Commands:"
+echo "  gmv resource list"
+echo "  gmv resource show <RES-OID>"
+echo "  gmv resource count"
+;;
+esac
+;;
+
+
+relation)
+sub="${2:-}"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/relation_service.py" list
+;;
+
+count)
+"$HOME/.gmv_core/10_API/relation_service.py" count
+;;
+
+show)
+OID="${3:-}"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv relation show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/relation_service.py" show "$OID"
+;;
+
+*)
+echo "GMV RELATION"
+echo
+echo "Commands:"
+echo "  gmv relation list"
+echo "  gmv relation count"
+echo "  gmv relation show <OID>"
+echo "  gmv import file <path>"
+;;
+esac
+;;
+
+
+event)
+sub="${2:-}"
+
+case "$sub" in
+latest)
+"$HOME/.gmv_core/10_API/event_service.py" latest
+;;
+
+show)
+OID="${3:-}"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv event show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/event_service.py" show "$OID"
+;;
+
+count)
+"$HOME/.gmv_core/10_API/event_service.py" count
+;;
+
+*)
+echo "GMV EVENT"
+echo
+echo "Commands:"
+echo "  gmv event latest"
+echo "  gmv event show <OID>"
+echo "  gmv event count"
+;;
+esac
+;;
+
+
+timeline)
+sub="${2:-}"
+
+case "$sub" in
+latest)
+"$HOME/.gmv_core/10_API/timeline_service.py" latest
+;;
+
+show)
+OID="${3:-}"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv timeline show <OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/timeline_service.py" show "$OID"
+;;
+
+*)
+echo "GMV TIMELINE"
+echo
+echo "Commands:"
+echo "  gmv timeline latest"
+echo "  gmv timeline show <OID>"
+;;
+esac
+;;
+
+
+import)
+sub="${2:-}"
+
+case "$sub" in
+file)
+TARGET="${3:-}"
+if [ -z "$TARGET" ]; then
+  echo "Usage: gmv import file <path>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/import_service.py" file "$TARGET"
+;;
+
+queue)
+"$HOME/.gmv_core/10_API/import_service.py" queue
+;;
+
+pending)
+"$HOME/.gmv_core/10_API/import_service.py" pending
+;;
+
+*)
+echo "GMV IMPORT"
+echo
+echo "Commands:"
+echo "  gmv import file <path>"
+echo "  gmv import queue"
+echo "  gmv import pending"
+;;
+esac
+;;
+
+queue)
+sub="${2:-}"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/queue_service.py" list
+;;
+
+pending)
+"$HOME/.gmv_core/10_API/queue_service.py" pending
+;;
+
+show)
+IMPORT_ID="${3:-}"
+if [ -z "$IMPORT_ID" ]; then
+  echo "Usage: gmv queue show <import_id>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/queue_service.py" show "$IMPORT_ID"
+;;
+
+*)
+echo "GMV QUEUE"
+echo
+echo "Commands:"
+echo "  gmv queue list"
+echo "  gmv queue pending"
+echo "  gmv queue show <import_id>"
+;;
+esac
+;;
+
+search)
+QUERY="${*:2}"
+if [ -z "$QUERY" ]; then
+  echo "Usage: gmv search <query>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/search_service.py" "$QUERY"
+;;
+
+snapshot)
+sub="${2:-}"
+
+case "$sub" in
+create)
+"$HOME/.gmv_core/10_API/snapshot_service.py" create
+;;
+
+list)
+"$HOME/.gmv_core/10_API/snapshot_service.py" list
+;;
+
+inspect|verify)
+TARGET="${3:-}"
+if [ -z "$TARGET" ]; then
+  echo "Usage: gmv snapshot $sub <BACKUP_PATH>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/backup_service.py" "$sub" "$TARGET"
+;;
+
+restore-check)
+BACKUP="${3:-}"
+TARGET="${4:-}"
+CORE="${5:-}"
+if [ -z "$BACKUP" ] || [ -z "$TARGET" ]; then
+  echo "Usage: gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET> [CORE_PATH]"
+  exit 2
+fi
+if [ -n "$CORE" ]; then
+  "$HOME/.gmv_core/10_API/backup_service.py" restore-check "$BACKUP" "$TARGET" --core "$CORE"
+else
+  "$HOME/.gmv_core/10_API/backup_service.py" restore-check "$BACKUP" "$TARGET"
+fi
+;;
+
+*)
+echo "GMV SNAPSHOT"
+echo
+echo "Commands:"
+echo "  gmv snapshot create"
+echo "  gmv snapshot list"
+echo "  gmv snapshot inspect <BACKUP_PATH>"
+echo "  gmv snapshot verify <BACKUP_PATH>"
+echo "  gmv snapshot restore-check <BACKUP_PATH> <ISOLATED_TARGET> [CORE_PATH]"
+;;
+esac
+;;
+
+service)
+sub="${2:-}"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/service_service.py" list
+;;
+
+runs)
+"$HOME/.gmv_core/10_API/service_service.py" runs
+;;
+
+show)
+OID="${3:-}"
+if [ -z "$OID" ]; then
+  echo "Usage: gmv service show <SRV-OID>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/service_service.py" show "$OID"
+;;
+
+*)
+echo "GMV SERVICE"
+echo
+echo "Commands:"
+echo "  gmv service list"
+echo "  gmv service runs"
+echo "  gmv service show <SRV-OID>"
+;;
+esac
+;;
+
+plugin)
+sub="${2:-}"
+
+case "$sub" in
+list)
+"$HOME/.gmv_core/10_API/plugin_service.py" list
+;;
+
+services)
+"$HOME/.gmv_core/10_API/plugin_service.py" services
+;;
+
+show)
+IDENTIFIER="${3:-}"
+if [ -z "$IDENTIFIER" ]; then
+  echo "Usage: gmv plugin show <PLG-OID or slug>"
+  exit 2
+fi
+"$HOME/.gmv_core/10_API/plugin_service.py" show "$IDENTIFIER"
+;;
+
+*)
+echo "GMV PLUGIN"
+echo
+echo "Commands:"
+echo "  gmv plugin list"
+echo "  gmv plugin services"
+echo "  gmv plugin show <PLG-OID or slug>"
+;;
+esac
+;;
+
+*)
+echo "GMV CLI"
+echo
+echo "Commands:"
+echo "  gmv status"
+echo "  gmv doctor"
+echo "  gmv service list"
+echo "  gmv service runs"
+echo "  gmv service show <SRV-OID>"
+echo "  gmv plugin list"
+echo "  gmv plugin services"
+echo "  gmv plugin show <PLG-OID or slug>"
+echo "  gmv object list"
+echo "  gmv object show <OID>"
+echo "  gmv object count"
+echo "  gmv resource list"
+echo "  gmv resource show <RES-OID>"
+echo "  gmv resource count"
+echo "  gmv relation list"
+echo "  gmv relation count"
+echo "  gmv relation show <OID>"
+echo "  gmv event latest"
+echo "  gmv event show <OID>"
+echo "  gmv event count"
+echo "  gmv timeline latest"
+echo "  gmv timeline show <OID>"
+echo "  gmv search <query>"
+echo "  gmv queue list"
+echo "  gmv queue pending"
+echo "  gmv queue show <import_id>"
+echo "  gmv snapshot create"
+echo "  gmv snapshot list"
+echo "  gmv import file <path>"
+echo "  gmv import queue"
+echo "  gmv import pending"
+;;
+esac
