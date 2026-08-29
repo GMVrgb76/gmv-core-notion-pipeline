@@ -61,6 +61,26 @@ def test_two_corroborating_web_sources_verify_local_and_pass_gate(tmp_path):
     assert verified[0]["status"] == "VERIFIED"
     assert evidence.gate("NEW_ENTITY", verified, {"opere"}) == "READY_FOR_NOTION"
 
+def test_known_limitation_query_id_as_sole_discriminator_undercounts_sources(tmp_path):
+    """Documented trade-off, not a bug to fix here: normalize_source_url discards the
+    query string entirely, so two genuinely different pages on a query-id-based site
+    (common on PHP/CMS/forum software, e.g. article.php?id=123 vs ?id=456) collapse to
+    the same source_url. This under-counts real corroboration (a false negative: a
+    well-corroborated claim stays SUPPORTED_BY_WEB longer than necessary) but never
+    over-counts it (never fakes VERIFIED from one real source) — the safe failure
+    direction per this module's explicit design trade-off. A third source from a
+    genuinely different domain still resolves it correctly."""
+    findings = [
+        {"predicate": "opere", "object_raw": "A", "evidence_excerpt": "Articolo 123 su Studio da Bronzino.", "url": "https://news.example.com/article.php?id=123"},
+        {"predicate": "opere", "object_raw": "A", "evidence_excerpt": "Articolo 456, fonte diversa dello stesso sito.", "url": "https://news.example.com/article.php?id=456"},
+    ]
+    claims = web.ingest_web_findings("X", findings, tmp_path)
+    resolved = evidence.resolve_claims(claims, {"artista": []})
+    consolidated = evidence.consolidate_claims(resolved)
+    assert len(consolidated[0]["source_file_ids"]) == 2  # two real sources...
+    verified = web.verify_local(consolidated, tmp_path, min_corroborating_sources=2)
+    assert verified[0]["status"] == "SUPPORTED_BY_WEB"  # ...undercounted as one, not falsely VERIFIED
+
 def test_normalize_source_url_collapses_scheme_www_and_query():
     base = web.normalize_source_url("https://onlysite.example/page")
     assert web.normalize_source_url("http://onlysite.example/page") == base
