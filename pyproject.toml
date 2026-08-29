@@ -1,0 +1,33 @@
+[build-system]
+requires = [
+    "setuptools==82.0.1",
+    "wheel==0.47.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmv-core"
+version = "2.0.0a0"
+description = "Local core of the GMV Master System"
+readme = "README_CORE.md"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[tool.setuptools]
+packages = ["gmv_core"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+gmv_core = ["migration_sql/*.sql"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S603"]
+"01_RUNTIME/knowledge_engine.py" = ["E401"]
+"01_RUNTIME/legacy_inventory.py" = ["E401", "F401"]
+"10_API/gmv_compatibility.py" = ["E401", "F401", "S602"]
+"10_API/import_service.py" = ["S608"]
+"10_API/plugin_manager.py" = ["E401"]
+"gmv_core/repositories/queue.py" = ["S608"]
