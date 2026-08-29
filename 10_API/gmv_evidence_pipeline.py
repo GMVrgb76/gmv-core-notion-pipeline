@@ -23,6 +23,11 @@ from typing import Any
 
 SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".html", ".csv", ".json"}
 TERMINAL_EXTRACTION = {"SUCCESS", "OCR_REQUIRED", "UNSUPPORTED_FORMAT", "FILE_TOO_LARGE", "EXTRACTION_ABORTED_STALE_HASH", "EXTRACTION_FAILED"}
+# A claim in one of these states never satisfies a mandatory field for gate() purposes.
+# SUPPORTED_BY_WEB is here deliberately: web-sourced claims are gate-blocking until
+# gmv_artist_web_retrieve.verify_local promotes them (status becomes VERIFIED) — a single
+# unverified web source must never alone reach READY_FOR_NOTION.
+GATE_BLOCKING_STATUS = {"INFERRED", "MISSING", "CONFLICTING", "SUPPORTED_BY_WEB"}
 
 
 class EvidenceError(RuntimeError): pass
@@ -415,7 +420,7 @@ def consolidate_claims(claims: list[dict]) -> list[dict]:
 def gate(notion_status: str, claims: list[dict], mandatory: set[str]) -> str:
     if notion_status == "AMBIGUOUS": return "REVIEW_REQUIRED"
     by_predicate = {norm(c["predicate"]): c for c in claims}
-    if any(norm(field) not in by_predicate or by_predicate[norm(field)].get("status") in {"INFERRED", "MISSING", "CONFLICTING"} for field in mandatory):
+    if any(norm(field) not in by_predicate or by_predicate[norm(field)].get("status") in GATE_BLOCKING_STATUS for field in mandatory):
         return "INSUFFICIENT_EVIDENCE" if notion_status == "NEW_ENTITY" else "REVIEW_REQUIRED"
     return "REVIEW_REQUIRED" if notion_status == "EXISTS_CONFLICTING" else "READY_FOR_NOTION"
 
