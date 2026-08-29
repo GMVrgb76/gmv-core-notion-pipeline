@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse, json
 import re
 from pathlib import Path
-from gmv_evidence_pipeline import compare_entity, gate, notion_payload, required_fields, write_evidence_bundle, norm
+from gmv_evidence_pipeline import compare_entity, gate, load_index, notion_payload, required_fields, summarize_web_verification, write_evidence_bundle, norm
 __all__ = ["compare_entity", "gate", "notion_payload", "required_fields", "write_evidence_bundle"]
 
 SUPPORTED_CLAIM_STATUS = {"SUPPORTED_BY_ARCHIVE", "VERIFIED", "CONFIRMED", "VALID"}
@@ -104,6 +104,18 @@ def attach_body_adapter(patch, claims, existing_body, file_index):
     patch["body_gate"] = "BODY_PATCH_READY" if (body["counts"]["ADD"] + body["counts"]["PARTIAL_ADD"]) and not body["counts"]["CONFLICT"] else "BODY_REVIEW_REQUIRED"
     return patch
 
+def merged_index_rows(evidence_root: Path) -> dict:
+    """FILE_INDEX.jsonl (Dropbox archive) merged with WEB_INDEX.jsonl (web retrieval),
+    the latter normalized to the same {"paths": [...]} shape the former already has —
+    so build_incremental_patch/_body_source resolve locators for either provenance
+    without any change to their own logic. A web row's one "path" is its URL. Safe to
+    call for archive-only artists: load_index returns {} for a missing WEB_INDEX.jsonl."""
+    index = load_index(evidence_root / "index" / "FILE_INDEX.jsonl")
+    for file_id, row in load_index(evidence_root / "index" / "WEB_INDEX.jsonl").items():
+        index[file_id] = {**row, "paths": [row["url"]]}
+    return index
+
+
 def build_incremental_patch(entity_name: str, entity_type: str, claims: list[dict], current_rows: dict,
                             config: dict, index_rows: dict[str, dict]) -> dict:
     """Build a canonical-property incremental patch; never performs a Notion write."""
@@ -162,16 +174,15 @@ def main() -> int:
     rows, cfg = json.loads(a.rows.read_text()), json.loads(a.config.read_text())
     status, _ = compare_entity(a.entity_name, a.entity_type, rows); required = required_fields(cfg, a.entity_type)
     if a.run_dir:
-        index_path = a.run_dir.parent / "state" / "index" / "FILE_INDEX.jsonl"
-        index = {}
-        if index_path.exists():
-            for line in index_path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    row = json.loads(line); index[row["file_id"]] = row
+        index = merged_index_rows(a.run_dir.parent / "state")
         output = build_incremental_patch(a.entity_name, a.entity_type, claims, rows, cfg, index)
         current = next(r for r in rows.get(a.entity_type.lower(), []) if norm(r.get("titolo", "")) == norm(a.entity_name))
         output = attach_body_adapter(output, claims, current.get("corpo", ""), index)
-        output["bundle"] = str(write_evidence_bundle(a.run_dir, a.entity_name, a.entity_type, claims, status, required))
+        source_paths = {file_id: row.get("paths", []) for file_id, row in index.items()}
+        web_file_ids = {file_id for file_id, row in index.items() if row.get("source_type") == "WEB"}
+        verification = summarize_web_verification(claims, web_file_ids)
+        output["bundle"] = str(write_evidence_bundle(a.run_dir, a.entity_name, a.entity_type, claims, status, required,
+                                                       source_paths=source_paths, verification=verification))
         bundle_path = Path(output["bundle"])
         (bundle_path / "NOTION_PATCH.json").write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         (bundle_path / "body.proposed_markdown").write_text(output["body"]["proposed_markdown"] + "\n", encoding="utf-8")

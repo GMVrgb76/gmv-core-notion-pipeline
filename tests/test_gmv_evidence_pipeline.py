@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -33,6 +34,64 @@ def test_post_resolution_consolidation_and_pending():
     assert len(claims) == 1 and claims[0]["source_file_ids"] == ["sha256:a", "sha256:b"]
     payload = evidence.notion_payload("artista", "Federico Garibaldi", claims, "NEW_ENTITY", {"participated_in"})
     assert payload["gate"] == "READY_FOR_NOTION" and payload["dry_run"] is True
+
+def test_consolidate_claims_status_precedence_is_order_independent():
+    """A still-pending web claim must never hold back a predicate the archive already
+    establishes, regardless of which raw claim consolidate_claims sees first."""
+    def raw(file_id, status):
+        return {"file_id": file_id, "subject_raw": "Federico Garibaldi", "predicate": "opere", "object_raw": "Through",
+                "evidence_excerpt": file_id, "status": status}
+    rows = {"artista": [{"id": "n1", "titolo": "Federico Garibaldi"}], "mostra": [{"id": "n2", "titolo": "Through"}]}
+    web_then_archive = evidence.consolidate_claims(evidence.resolve_claims(
+        [raw("sha256:web", "SUPPORTED_BY_WEB"), raw("sha256:archive", "SUPPORTED_BY_ARCHIVE")], rows))
+    archive_then_web = evidence.consolidate_claims(evidence.resolve_claims(
+        [raw("sha256:archive", "SUPPORTED_BY_ARCHIVE"), raw("sha256:web", "SUPPORTED_BY_WEB")], rows))
+    assert web_then_archive[0]["status"] == "SUPPORTED_BY_ARCHIVE"
+    assert archive_then_web[0]["status"] == "SUPPORTED_BY_ARCHIVE"
+    assert evidence.gate("NEW_ENTITY", web_then_archive, {"opere"}) == "READY_FOR_NOTION"
+
+def test_known_limitation_supported_status_silently_outranks_disputed_on_merge():
+    """Documented trade-off, not a bug to fix here: if two raw claims resolve to the
+    EXACT same (subject, predicate, object) but one is flagged DISPUTED and another is
+    SUPPORTED_BY_ARCHIVE/VERIFIED/etc., consolidate_claims keeps only the higher-
+    precedence "supported" status — the DISPUTED flag on that specific citation is lost
+    from the merged claim, not preserved as a side-signal. Raised by gmv-code-reviewer
+    as a plausible-risk architectural note (not reproduced against real data); tracked
+    here so the behavior is intentional and visible, not an unspecified accident."""
+    def raw(file_id, status):
+        return {"file_id": file_id, "subject_raw": "Federico Garibaldi", "predicate": "opere", "object_raw": "Through",
+                "evidence_excerpt": file_id, "status": status}
+    rows = {"artista": [{"id": "n1", "titolo": "Federico Garibaldi"}], "mostra": [{"id": "n2", "titolo": "Through"}]}
+    consolidated = evidence.consolidate_claims(evidence.resolve_claims(
+        [raw("sha256:disputed", "DISPUTED"), raw("sha256:archive", "SUPPORTED_BY_ARCHIVE")], rows))
+    assert consolidated[0]["status"] == "SUPPORTED_BY_ARCHIVE"
+    assert set(consolidated[0]["source_file_ids"]) == {"sha256:disputed", "sha256:archive"}
+
+def test_better_status_known_pairs_outside_the_common_archive_web_case():
+    # DISPUTED (contradicted) must never lose to UNVERIFIED (merely unconfirmed) regardless of order.
+    assert evidence._better_status("UNVERIFIED", "DISPUTED") == "DISPUTED"
+    assert evidence._better_status("DISPUTED", "UNVERIFIED") == "DISPUTED"
+
+def test_better_status_unrecognized_status_never_wins_against_a_known_one():
+    assert evidence._better_status("SOME_NEW_LLM_STATUS", "SUPPORTED_BY_ARCHIVE") == "SUPPORTED_BY_ARCHIVE"
+    assert evidence._better_status("SUPPORTED_BY_ARCHIVE", "SOME_NEW_LLM_STATUS") == "SUPPORTED_BY_ARCHIVE"
+
+def test_resolve_cli_extra_claims_merges_before_resolving(tmp_path, capsys):
+    archive = [{"file_id": "sha256:a", "subject_raw": "Federico Garibaldi", "predicate": "opere", "object_raw": "Through", "evidence_excerpt": "a"}]
+    web = [{"file_id": "sha256:b", "subject_raw": "Federico Garibaldi", "predicate": "formazione", "object_raw": "Accademia", "evidence_excerpt": "b", "status": "SUPPORTED_BY_WEB"}]
+    (tmp_path / "claims.json").write_text(evidence.canonical(archive), encoding="utf-8")
+    (tmp_path / "extra.json").write_text(evidence.canonical(web), encoding="utf-8")
+    (tmp_path / "rows.json").write_text(evidence.canonical({"artista": [{"id": "n1", "titolo": "Federico Garibaldi"}], "mostra": [{"id": "n2", "titolo": "Through"}]}), encoding="utf-8")
+    argv = ["gmv_evidence_pipeline.py", "resolve", str(tmp_path / "claims.json"), "--rows", str(tmp_path / "rows.json"), "--extra-claims", str(tmp_path / "extra.json")]
+    original_argv = sys.argv
+    sys.argv = argv
+    try:
+        assert evidence.main() == 0
+    finally:
+        sys.argv = original_argv
+    output = json.loads(capsys.readouterr().out)
+    predicates = {c["predicate"] for c in output["claims"]}
+    assert predicates == {"opere", "formazione"}
 
 def test_bundle_is_local_and_has_dry_run_payload(tmp_path):
     claims = [{"claim_id":"claim:x", "predicate":"nome", "source_file_ids":["sha256:x"], "source_excerpts":["Federico"]}]
