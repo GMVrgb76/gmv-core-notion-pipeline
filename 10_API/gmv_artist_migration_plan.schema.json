@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GMV Artist Migration Plan v0.1",
+  "type": "object",
+  "required": ["schema_version", "artist", "paths", "policy", "items", "summary"],
+  "properties": {
+    "schema_version": {"const": "gmv.artist-migration-plan.v0.1"},
+    "artist": {"type": "object", "required": ["source_name", "destination_name"], "additionalProperties": false},
+    "paths": {"type": "object", "required": ["source_root", "template_root", "destination_root", "destination_artist_root"], "additionalProperties": false},
+    "policy": {
+      "type": "object",
+      "properties": {
+        "unknown_destination": {"const": "09_TEMP_IMPORT"},
+        "preserve_original_filenames": {"const": true},
+        "source_delete": {"const": false},
+        "allow_new_categories": {"const": false}
+      },
+      "required": ["unknown_destination", "preserve_original_filenames", "source_delete", "allow_new_categories"],
+      "additionalProperties": false
+    },
+    "items": {"type": "array"},
+    "summary": {"type": "object", "required": ["source_files", "canonical_moves", "temp_import_moves"], "additionalProperties": false}
+  },
+  "additionalProperties": false
+}
