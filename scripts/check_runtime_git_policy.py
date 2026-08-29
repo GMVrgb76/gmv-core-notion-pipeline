@@ -20,6 +20,7 @@ PROTECTED_PATHS = (
     PurePosixPath("07_IMPORT"),
     PurePosixPath("08_BACKUP_LOCAL"),
     PurePosixPath("09_DATABASE"),
+    PurePosixPath("runs"),
 )
 FIXTURE_MARKER = "gmv-policy-test-fixture"
 SENSITIVE_PATTERNS = (

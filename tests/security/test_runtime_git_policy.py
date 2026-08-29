@@ -13,6 +13,7 @@ import check_runtime_git_policy as POLICY  # noqa: E402
 def test_runtime_paths_are_protected_and_fixtures_are_not() -> None:
     assert POLICY.is_protected_path("09_DATABASE/GMV.db")
     assert POLICY.is_protected_path("04_LOGS/service.log")
+    assert POLICY.is_protected_path("runs/GMV-TEST/events.jsonl")
     assert POLICY.is_protected_path(".DS_Store")
     assert not POLICY.is_protected_path("tests/fixtures/current_schema.sql")
 

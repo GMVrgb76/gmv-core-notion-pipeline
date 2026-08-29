@@ -259,6 +259,71 @@ fi
 "$HOME/.gmv_core/10_API/search_service.py" "$QUERY"
 ;;
 
+folder-report)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_folder_report.py" "$@"
+;;
+
+migrate-plan)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_artist_migrate_plan.py" "$@"
+;;
+
+migrate-apply)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_artist_migrate_apply.py" "$@"
+;;
+
+artist-import)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_artist_import.py" "$@"
+;;
+
+artist-normalize-plan)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_artist_normalize_plan.py" "$@"
+;;
+
+evidence)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+if [ "${1:-}" = "candidate" ] || [ "${1:-}" = "notion-plan" ]; then
+  shift
+  "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_notion_candidate.py" "$@"
+else
+  "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_evidence_pipeline.py" "$@"
+fi
+;;
+
 snapshot)
 sub="${2:-}"
 
@@ -399,6 +464,16 @@ echo "  gmv event count"
 echo "  gmv timeline latest"
 echo "  gmv timeline show <OID>"
 echo "  gmv search <query>"
+echo "  gmv folder-report <source> [--master <path>] [-o <report.md>]"
+echo "  gmv migrate-plan <source_folder> --report <folder_report.md> --template <canon_template_path> --artist <name> --destination-root <path> [-o <plan.yaml>]"
+echo "  gmv migrate-apply <plan.yaml>"
+echo "  gmv artist-import <source_artist_folder> [--artist <name>] [--template <path>] [--destination-root <path>] [--qa-root <path>]"
+echo "  gmv artist-normalize-plan <artist_folder> [--template <path>] [--model <name>] [--timeout <seconds>] [--batch-size <n>]"
+echo "  gmv evidence scan <dropbox_root> [--evidence-root <path>]"
+echo "  gmv evidence extract <dropbox_root> [--evidence-root <path>]"
+echo "  gmv evidence analyze <extraction_record.json> --model <ollama-model>"
+echo "  gmv evidence resolve <semantic.json> --rows <rows.json>"
+echo "  gmv evidence candidate <entity-name> --entity-type <type> --claims <claims.json> --rows <rows.json> --config <config.json> [--run-dir <run>]"
 echo "  gmv queue list"
 echo "  gmv queue pending"
 echo "  gmv queue show <import_id>"
