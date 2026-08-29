@@ -1,11 +1,16 @@
 import importlib.util
+import shutil
 import sys
 from pathlib import Path
+
+import pytest
 
 SPEC = importlib.util.spec_from_file_location("evidence", Path(__file__).parents[1] / "10_API" / "gmv_evidence_pipeline.py")
 evidence = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(evidence)
 sys.path.insert(0, str(Path(__file__).parents[1] / "10_API"))
 import gmv_notion_candidate as candidate
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 def test_index_move_and_extract_hash_guard(tmp_path):
     source = tmp_path / "dropbox"; source.mkdir(); (source / "a.txt").write_text("Federico Garibaldi", encoding="utf8")
@@ -82,6 +87,52 @@ def test_adaptive_split_recursive_and_provenance(monkeypatch, tmp_path):
     assert len(leaves) > 2 and all(n["input_chars"] <= 8000 for n in leaves)
     assert all(c["leaf_chunk_id"] for c in out["claims"])
     monkeypatch.setattr(evidence, "ollama_extract", original)
+
+SOFFICE_MISSING = not (shutil.which("soffice") or shutil.which("libreoffice"))
+
+@pytest.mark.skipif(SOFFICE_MISSING, reason="soffice not installed")
+def test_doc_extraction_via_libreoffice(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "bio.doc").write_bytes((FIXTURES / "sample.doc").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "SUCCESS"
+    assert record["extractor"] == "doc_text_libreoffice"
+    # exact prefix, not `in`: catches a stray leading BOM (﻿) that
+    # LibreOffice's txt:Text filter always writes and that plain .strip() does not remove.
+    assert record["text"].startswith("Federico Garibaldi")
+
+@pytest.mark.skipif(SOFFICE_MISSING, reason="soffice not installed")
+def test_doc_extraction_of_empty_document_requires_ocr(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "empty.doc").write_bytes((FIXTURES / "empty.doc").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    assert evidence.extract(state, source)[0]["extraction_status"] == "OCR_REQUIRED"
+
+def test_doc_extraction_fails_explicitly_without_libreoffice(monkeypatch, tmp_path):
+    monkeypatch.setattr(evidence.shutil, "which", lambda _name: None)
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "bio.doc").write_bytes((FIXTURES / "sample.doc").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    assert evidence.extract(state, source)[0]["extraction_status"] == "EXTRACTION_FAILED"
+
+def test_doc_extractor_version_bump_invalidates_pre_fix_unsupported_cache(tmp_path):
+    """A .doc scanned before this fix would have a cached UNSUPPORTED_FORMAT
+    record under the old extractor_version — that stale record must not shadow
+    the new extractor, or the fix is invisible for already-processed archives."""
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "bio.doc").write_bytes((FIXTURES / "sample.doc").read_bytes())
+    state = tmp_path / "state"; rows = evidence.scan(source, state)
+    _, cache = evidence.paths(state)
+    stale_record_path = cache / "extracted" / f"{rows[0]['sha256']}-0.1.json"
+    evidence.write_json(stale_record_path, {"file_id": rows[0]["file_id"], "extraction_status": "UNSUPPORTED_FORMAT"})
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] != "UNSUPPORTED_FORMAT"
+
+def test_unsupported_format_still_rejected(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir(); (source / "a.zip").write_bytes(b"PK\x03\x04")
+    state = tmp_path / "state"; evidence.scan(source, state)
+    assert evidence.extract(state, source)[0]["extraction_status"] == "UNSUPPORTED_FORMAT"
 
 def test_adaptive_minimum_exhausted(monkeypatch, tmp_path):
     def truncated(record, **kwargs):
