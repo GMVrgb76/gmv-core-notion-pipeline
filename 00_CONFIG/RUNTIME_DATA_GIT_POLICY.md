@@ -34,7 +34,8 @@ The following repository-root paths must have no tracked files:
 - `06_CACHE/`;
 - `07_IMPORT/`;
 - `08_BACKUP_LOCAL/`;
-- `09_DATABASE/`.
+- `09_DATABASE/`;
+- `runs/` (Run Ledger manifest, eventi, log e artefatti operativi).
 
 Sanitized fixtures under `tests/fixtures/` remain tracked. They must contain no
 live rows, credentials, private paths, or external message/document bodies.

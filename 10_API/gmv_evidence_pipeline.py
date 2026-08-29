@@ -12,7 +12,10 @@ import json
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unicodedata
 import urllib.error
 import urllib.request
@@ -21,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".html", ".csv", ".json"}
+SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".doc", ".html", ".csv", ".json"}
 TERMINAL_EXTRACTION = {"SUCCESS", "OCR_REQUIRED", "UNSUPPORTED_FORMAT", "FILE_TOO_LARGE", "EXTRACTION_ABORTED_STALE_HASH", "EXTRACTION_FAILED"}
 # A claim in one of these states never satisfies a mandatory field for gate() purposes.
 # SUPPORTED_BY_WEB is here deliberately: web-sourced claims are gate-blocking until
@@ -30,7 +33,9 @@ TERMINAL_EXTRACTION = {"SUCCESS", "OCR_REQUIRED", "UNSUPPORTED_FORMAT", "FILE_TO
 GATE_BLOCKING_STATUS = {"INFERRED", "MISSING", "CONFLICTING", "SUPPORTED_BY_WEB"}
 
 
-class EvidenceError(RuntimeError): pass
+class EvidenceError(RuntimeError):
+    def __init__(self, code: str, *, detail: str = ""):
+        super().__init__(code); self.detail = detail
 
 
 SEMANTIC_OUTPUT_SCHEMA = {
@@ -154,10 +159,27 @@ def _extract(path: Path) -> tuple[str, str]:
             from docx import Document
             return "\n".join(p.text for p in Document(str(path)).paragraphs), "docx_text"
         except ImportError as exc: raise EvidenceError("EXTRACTION_FAILED") from exc
+    if ext == ".doc":
+        soffice = shutil.which("soffice") or shutil.which("libreoffice")
+        if not soffice: raise EvidenceError("EXTRACTION_FAILED", detail="soffice/libreoffice binary not found on PATH")
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                subprocess.run([soffice, "--headless", "--convert-to", "txt:Text", "--outdir", tmp, str(path)],
+                               capture_output=True, timeout=60, check=True)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", "replace")
+                raise EvidenceError("EXTRACTION_FAILED", detail=stderr[:2000] or type(exc).__name__) from exc
+            out_path = Path(tmp) / f"{path.stem}.txt"
+            if not out_path.is_file(): raise EvidenceError("EXTRACTION_FAILED", detail="soffice did not produce the expected .txt output")
+            # utf-8-sig strips the UTF-8 BOM that "txt:Text" always prepends; without it an
+            # empty/non-textual .doc silently passes the `if not text` OCR_REQUIRED gate below.
+            text = out_path.read_text(encoding="utf-8-sig", errors="strict").strip()
+            if not text: raise EvidenceError("OCR_REQUIRED")
+            return text, "doc_text_libreoffice"
     raise EvidenceError("UNSUPPORTED_FORMAT")
 
 
-def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50_000_000, extractor_version: str = "0.1") -> list[dict]:
+def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50_000_000, extractor_version: str = "0.2") -> list[dict]:
     index_path, cache = paths(evidence_root); index = load_index(index_path); out = []
     root = dropbox_root.expanduser().resolve()
     for fid, row in index.items():
@@ -177,6 +199,7 @@ def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50
                           "text": text, "metadata": {}}
             except EvidenceError as exc:
                 record = {"file_id": fid, "extraction_status": str(exc)}
+                if exc.detail: record["error_detail"] = exc.detail
             except (OSError, UnicodeError) as exc:
                 record = {"file_id": fid, "extraction_status": "EXTRACTION_FAILED", "error": type(exc).__name__}
         write_json(record_path, record); out.append(record)
