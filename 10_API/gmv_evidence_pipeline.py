@@ -405,13 +405,37 @@ def resolve_claims(raw_claims: list[dict], notion_rows: dict[str, list[dict]], a
     return result
 
 
+# Most-authoritative first. Every status literal actually assigned to a claim anywhere
+# in this codebase (grepped, not guessed) must appear here. Used to merge a group's
+# status deterministically when raw claims of mixed provenance (e.g. archive + web)
+# land on the same subject/predicate/object: an already-supported/verified claim must
+# win regardless of which raw claim consolidate_claims happens to see first, so a still-
+# pending web claim can never accidentally hold back a predicate the archive already
+# establishes (or vice versa).
+STATUS_PRECEDENCE = ["VERIFIED", "CONFIRMED", "VALID", "SUPPORTED_BY_ARCHIVE", "SUPPORTED_BY_WEB",
+                     "DISPUTED", "UNVERIFIED", "INFERRED", "CONFLICTING", "MISSING"]
+
+
+def _better_status(a: str, b: str) -> str:
+    """A status outside STATUS_PRECEDENCE (the semantic-extraction LLM's `status` field
+    is free text, not an enum) always loses to a recognized one, so an unrecognized
+    string can never silently win by being first — it only wins against another
+    unrecognized string, which is an inherently low-stakes tie broken deterministically
+    in argument order."""
+    rank = {status: i for i, status in enumerate(STATUS_PRECEDENCE)}
+    unknown = len(STATUS_PRECEDENCE)
+    return a if rank.get(a, unknown) <= rank.get(b, unknown) else b
+
+
 def consolidate_claims(claims: list[dict]) -> list[dict]:
     grouped: dict[str, dict] = {}
     for c in claims:
         if c.get("resolution_status") != "RESOLVED": continue
         key = [c["resolved_subject_id"], norm(c["predicate"]), c["resolved_object_id"], c.get("qualifiers", {})]
         cid = "claim:" + hashlib.sha256(canonical(key).encode()).hexdigest()
-        target = grouped.setdefault(cid, {"claim_id": cid, "subject": c["subject_raw"], "predicate": c["predicate"], "object": c["object_raw"], "qualifiers": c.get("qualifiers", {}), "source_file_ids": [], "source_excerpts": [], "status": c.get("status", "SUPPORTED_BY_ARCHIVE")})
+        status = c.get("status", "SUPPORTED_BY_ARCHIVE")
+        target = grouped.setdefault(cid, {"claim_id": cid, "subject": c["subject_raw"], "predicate": c["predicate"], "object": c["object_raw"], "qualifiers": c.get("qualifiers", {}), "source_file_ids": [], "source_excerpts": [], "status": status})
+        target["status"] = _better_status(target["status"], status)
         if c["file_id"] not in target["source_file_ids"]: target["source_file_ids"].append(c["file_id"])
         if c["evidence_excerpt"] not in target["source_excerpts"]: target["source_excerpts"].append(c["evidence_excerpt"])
     return list(grouped.values())
@@ -443,8 +467,28 @@ def notion_payload(entity_type: str, name: str, claims: list[dict], notion_statu
             "dry_run": True}
 
 
+def summarize_web_verification(claims: list[dict], web_file_ids: set[str]) -> dict:
+    """Deterministic fold over already-processed claims (never re-runs verify_local):
+    reports how many web-sourced claims are still SUPPORTED_BY_WEB (pending,
+    gate-blocking) vs VERIFIED, so write_evidence_bundle's verification.json reflects
+    the real outcome instead of a static placeholder.
+
+    Must stay honestly NOT_EXECUTED for the common case (an archive-only artist, no web
+    retrieval ever run): `status == "VERIFIED"` alone is not proof of web corroboration
+    — VERIFIED is also a legal status for an archive-sourced claim — so a claim only
+    counts here if at least one of its source_file_ids is actually a web snapshot
+    (present in web_file_ids, i.e. WEB_INDEX.jsonl)."""
+    web_claims = [c for c in claims if any(fid in web_file_ids for fid in c.get("source_file_ids", []))]
+    if not web_claims:
+        return {"status": "NOT_EXECUTED", "reason": "no web-sourced claims present"}
+    pending = [c["predicate"] for c in web_claims if c.get("status") == "SUPPORTED_BY_WEB"]
+    verified = [c["predicate"] for c in web_claims if c.get("status") == "VERIFIED"]
+    return {"status": "EXECUTED", "verified_predicates": verified, "pending_predicates": pending}
+
+
 def write_evidence_bundle(run_dir: Path, entity_name: str, entity_type: str, claims: list[dict], notion_status: str,
-                          required: set[str], source_paths: dict[str, list[str]] | None = None) -> Path:
+                          required: set[str], source_paths: dict[str, list[str]] | None = None,
+                          verification: dict | None = None) -> Path:
     """Write a local, inspectable dry-run bundle; it never calls Notion."""
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", entity_name).strip("_") or "unnamed"
     bundle = run_dir / "entities" / safe_name
@@ -456,7 +500,7 @@ def write_evidence_bundle(run_dir: Path, entity_name: str, entity_type: str, cla
     write_json(bundle / "claims.json", claims)
     write_json(bundle / "sources.json", list(unique_sources.values()))
     write_json(bundle / "notion_match.json", {"status": notion_status})
-    write_json(bundle / "verification.json", {"status": "NOT_EXECUTED", "reason": "local verifier adapter pending"})
+    write_json(bundle / "verification.json", verification or {"status": "NOT_EXECUTED", "reason": "local verifier adapter pending"})
     write_json(bundle / "NOTION_PAYLOAD.json", payload)
     lines = [f"# Evidence — {entity_name}", "", f"Gate: `{payload['gate']}`", "", "## Claims", ""]
     lines.extend(f"- `{claim['claim_id']}` — {claim['predicate']} — sources: {', '.join(claim['source_file_ids'])}" for claim in claims)
@@ -472,6 +516,7 @@ def main() -> int:
     ext_p = sub.add_parser("extract"); ext_p.add_argument("root", type=Path); ext_p.add_argument("--max-file-bytes", type=int, default=50_000_000)
     analyze_p = sub.add_parser("analyze"); analyze_p.add_argument("record", type=Path); analyze_p.add_argument("--endpoint", default="http://localhost:11434"); analyze_p.add_argument("--model", required=True); analyze_p.add_argument("--artist", default="unknown"); analyze_p.add_argument("--timeout", type=int, default=180); analyze_p.add_argument("--max-chunk-chars", type=int, default=8000); analyze_p.add_argument("--ollama-context", type=int, default=8192); analyze_p.add_argument("--num-predict", type=int, default=2048); analyze_p.add_argument("--min-adaptive-chunk-chars", type=int, default=500); analyze_p.add_argument("--max-adaptive-depth", type=int, default=4)
     resolve_p = sub.add_parser("resolve"); resolve_p.add_argument("claims", type=Path); resolve_p.add_argument("--rows", type=Path, required=True); resolve_p.add_argument("--aliases", type=Path)
+    resolve_p.add_argument("--extra-claims", type=Path, action="append", default=[], help="Additional raw-claims JSON to merge before resolving (e.g. gmv_artist_web_retrieve.py ingest output)")
     args = p.parse_args()
     try:
         if args.command == "scan": output = scan(args.root, args.evidence_root)
@@ -480,6 +525,9 @@ def main() -> int:
         else:
             claim_document = read_json(args.claims, {})
             raw = claim_document.get("claims", []) if isinstance(claim_document, dict) else claim_document
+            for extra_path in args.extra_claims:
+                extra_document = read_json(extra_path, {})
+                raw = raw + (extra_document.get("claims", []) if isinstance(extra_document, dict) else extra_document)
             output = {"resolved": resolve_claims(raw, read_json(args.rows, {}), read_json(args.aliases, {}) if args.aliases else {}), "claims": []}
             output["claims"] = consolidate_claims(output["resolved"])
         print(json.dumps(output, ensure_ascii=False, indent=2)); return 0
