@@ -118,18 +118,18 @@ def merged_index_rows(evidence_root: Path) -> dict:
 
 def build_incremental_patch(entity_name: str, entity_type: str, claims: list[dict], current_rows: dict,
                             config: dict, index_rows: dict[str, dict]) -> dict:
-    """Build a canonical-property incremental patch; never performs a Notion write."""
+    """Build a canonical-property patch; never performs a Notion write.
+
+    Supports both fully-resolved entities already in Notion (operation UPDATE, with the
+    current values kept) and new entities absent from Notion (operation CREATE, no
+    existing_notion_id): the CREATE case no longer aborts on
+    EXISTING_PAGE_ID_UNRESOLVED and produces the same inspectable patch/bundle shape.
+    """
     typ = entity_type.lower(); spec = config["entita"][typ]
     matches = [r for r in current_rows.get(typ, []) if norm(r.get("titolo", "")) == norm(entity_name)]
-    if len(matches) != 1:
-        raise ValueError("EXISTING_PAGE_ID_UNRESOLVED" if not matches else "EXISTING_PAGE_ID_AMBIGUOUS")
-    current = matches[0]; page_id = current.get("id")
-    keep_properties = {}
-    for key, meta in spec.get("campi", {}).items():
-        keep_properties[meta["notion"]] = current.get("campi", {}).get(key)
-    keep_relations = {}
-    for key, meta in spec.get("relazioni", {}).items():
-        keep_relations[meta["notion"]] = current.get("relazioni", {}).get(key, [])
+    if len(matches) > 1:
+        raise ValueError("EXISTING_PAGE_ID_AMBIGUOUS")
+    current = matches[0] if matches else None
     field_by_name = {}
     for key, meta in spec.get("campi", {}).items():
         field_by_name[norm(key)] = ("property", key, meta)
@@ -157,14 +157,25 @@ def build_incremental_patch(entity_name: str, entity_type: str, claims: list[dic
             continue
         kind, key, meta = target; value = claim.get("object")
         if kind == "property":
-            old = current.get("campi", {}).get(key)
-            action = "ADD" if old in (None, "", [], {}) else ("KEEP" if str(old) == str(value) else "UPDATE")
+            old = current.get("campi", {}).get(key) if current else None
+            action = ("ADD" if current is None or old in (None, "", [], {})
+                      else ("KEEP" if str(old) == str(value) else "UPDATE"))
             if action != "KEEP": operations.append({"action": action, "claim_id": claim.get("claim_id"), "property": meta["notion"], "value": value})
         else:
-            old = current.get("relazioni", {}).get(key, [])
+            old = current.get("relazioni", {}).get(key, []) if current else []
             if value in old: continue
             operations.append({"action": "CONFLICT", "claim_id": claim.get("claim_id"), "property": meta["notion"], "reason": "RELATION_TARGET_ID_NOT_RESOLVED"})
-    return {"entity_type": entity_type.upper(), "operation": "UPDATE", "existing_notion_id": page_id,
+    if current is None:
+        return {"entity_type": entity_type.upper(), "operation": "CREATE", "existing_notion_id": None,
+                "keep": {"properties": {}, "relations": {}},
+                "operations": operations, "provenance": provenance, "dry_run": True}
+    keep_properties = {}
+    for key, meta in spec.get("campi", {}).items():
+        keep_properties[meta["notion"]] = current.get("campi", {}).get(key)
+    keep_relations = {}
+    for key, meta in spec.get("relazioni", {}).items():
+        keep_relations[meta["notion"]] = current.get("relazioni", {}).get(key, [])
+    return {"entity_type": entity_type.upper(), "operation": "UPDATE", "existing_notion_id": current.get("id"),
             "keep": {"properties": keep_properties, "relations": keep_relations},
             "operations": operations, "provenance": provenance, "dry_run": True}
 
@@ -176,8 +187,8 @@ def main() -> int:
     if a.run_dir:
         index = merged_index_rows(a.run_dir.parent / "state")
         output = build_incremental_patch(a.entity_name, a.entity_type, claims, rows, cfg, index)
-        current = next(r for r in rows.get(a.entity_type.lower(), []) if norm(r.get("titolo", "")) == norm(a.entity_name))
-        output = attach_body_adapter(output, claims, current.get("corpo", ""), index)
+        current = next((r for r in rows.get(a.entity_type.lower(), []) if norm(r.get("titolo", "")) == norm(a.entity_name)), None)
+        output = attach_body_adapter(output, claims, current.get("corpo", "") if current else "", index)
         source_paths = {file_id: row.get("paths", []) for file_id, row in index.items()}
         web_file_ids = {file_id for file_id, row in index.items() if row.get("source_type") == "WEB"}
         verification = summarize_web_verification(claims, web_file_ids)

@@ -129,3 +129,77 @@ def test_main_run_dir_flow_archive_only_reports_verification_not_executed(tmp_pa
     bundle = run_dir / "entities" / "Federico_Garibaldi"
     verification = evidence.read_json(bundle / "verification.json", None)
     assert verification == {"status": "NOT_EXECUTED", "reason": "no web-sourced claims present"}
+
+
+def _empty_rows():
+    return {"artista": []}
+
+
+def test_build_incremental_patch_create_case_builds_adds(tmp_path):
+    """A new entity (no matching Notion row) must NOT raise EXISTING_PAGE_ID_UNRESOLVED:
+    it produces a CREATE patch whose supported claims are ADD operations."""
+    (tmp_path / "index").mkdir(parents=True)
+    evidence.save_index(tmp_path / "index" / "FILE_INDEX.jsonl", {"sha256:bio": {"file_id": "sha256:bio", "paths": ["bio.doc"]}})
+    index = candidate.merged_index_rows(tmp_path)
+    claims = [
+        {"claim_id": "claim:nome", "predicate": "nome", "object": "Riccardo Paternò Castello",
+         "status": "VERIFIED", "source_file_ids": ["sha256:bio"]},
+        {"claim_id": "claim:opere", "predicate": "opere", "object": "Studio da Bronzino",
+         "status": "VERIFIED", "source_file_ids": ["sha256:bio"]},
+        {"claim_id": "claim:futuro", "predicate": "a che ora", "object": "x",
+         "status": "VERIFIED", "source_file_ids": ["sha256:bio"]},
+    ]
+    patch = candidate.build_incremental_patch("Riccardo Paternò Castello", "artista", claims, _empty_rows(), CONFIG, index)
+    assert patch["operation"] == "CREATE"
+    assert patch["existing_notion_id"] is None
+    adds = {op.get("property") for op in patch["operations"] if op["action"] == "ADD"}
+    assert adds == {"Nome", "Opere"}
+    conflicts = {op["reason"] for op in patch["operations"] if op["action"] == "CONFLICT"}
+    assert "PREDICATE_NOT_IN_ARTISTA_SCHEMA" in conflicts
+    assert len([op for op in patch["operations"] if op["action"] == "CONFLICT"]) == 1
+
+
+def test_main_run_dir_flow_create_entity_writes_full_bundle(tmp_path, capsys):
+    """End-to-end CREATE through main() with --run-dir: the exact case from the
+    Paternò Castello validation that used to crash on EXISTING_PAGE_ID_UNRESOLVED.
+    Must produce EVIDENCE.md, NOTION_PATCH.json and verification.json with a
+    READY_FOR_NOTION gate — no Notion/Dropbox write."""
+    entity_name = "Riccardo Paternò Castello"
+    run_dir = tmp_path / "run"
+    state = tmp_path / "state"
+    (state / "index").mkdir(parents=True)
+    evidence.save_index(state / "index" / "FILE_INDEX.jsonl", {"sha256:bio": {"file_id": "sha256:bio", "paths": ["bio.doc"]}})
+    evidence.save_index(state / "index" / "WEB_INDEX.jsonl", {"sha256:web1": {"file_id": "sha256:web1", "url": "https://a.example/page", "source_type": "WEB"}})
+    claims = [
+        {"claim_id": "claim:nome", "subject": entity_name, "predicate": "nome", "object": entity_name,
+         "status": "VERIFIED", "source_file_ids": ["sha256:web1"], "source_excerpts": ["web"]},
+        {"claim_id": "claim:opere", "subject": entity_name, "predicate": "opere", "object": "Studio da Bronzino",
+         "status": "VERIFIED", "source_file_ids": ["sha256:bio"], "source_excerpts": ["bio"]},
+    ]
+    (tmp_path / "claims.json").write_text(json.dumps(claims), encoding="utf-8")
+    (tmp_path / "rows.json").write_text(json.dumps(_empty_rows()), encoding="utf-8")
+    (tmp_path / "config.json").write_text(json.dumps(CONFIG), encoding="utf-8")
+
+    argv = ["gmv_notion_candidate.py", entity_name, "--entity-type", "artista",
+            "--claims", str(tmp_path / "claims.json"), "--rows", str(tmp_path / "rows.json"),
+            "--config", str(tmp_path / "config.json"), "--run-dir", str(run_dir)]
+    original_argv = sys.argv
+    sys.argv = argv
+    try:
+        assert candidate.main() == 0
+    finally:
+        sys.argv = original_argv
+    capsys.readouterr()
+
+    bundle = run_dir / "entities" / "Riccardo_Patern_Castello"
+    assert (bundle / "EVIDENCE.md").read_text(encoding="utf-8").startswith("# Evidence — " + entity_name)
+    assert (bundle / "body.proposed_markdown").is_file()
+    payload = evidence.read_json(bundle / "NOTION_PAYLOAD.json", None)
+    assert payload["operation"] == "CREATE"
+    assert payload["gate"] == "READY_FOR_NOTION"
+    patch = evidence.read_json(bundle / "NOTION_PATCH.json", None)
+    assert patch["operation"] == "CREATE"
+    assert patch["existing_notion_id"] is None
+    assert {op.get("property") for op in patch["operations"] if op["action"] == "ADD"} == {"Nome", "Opere"}
+    verification = evidence.read_json(bundle / "verification.json", None)
+    assert verification == {"status": "EXECUTED", "verified_predicates": ["nome"], "pending_predicates": []}
