@@ -23,6 +23,7 @@ PROTECTED_PATHS = (
     PurePosixPath("runs"),
 )
 FIXTURE_MARKER = "gmv-policy-test-fixture"
+QUOTED_STRING = re.compile(r"""(['"])(?:(?!\1).)*\1""")
 SENSITIVE_PATTERNS = (
     (
         "personal_absolute_path",
@@ -55,14 +56,50 @@ def is_protected_path(raw_path: str) -> bool:
     return any(path == prefix or prefix in path.parents for prefix in PROTECTED_PATHS)
 
 
+def _call_is_a_plain_lookup(line: str, open_paren: int) -> bool:
+    """True only if the call has at most one quoted-string argument (a plain
+    `get("KEY")`/`read_text(encoding="utf-8")`-shaped lookup). A second quoted
+    argument is the `get(key, "hardcoded-fallback")` shape — a real, common way to
+    hide a literal secret behind an otherwise-safe-looking accessor call, so that
+    must still be flagged, not whitelisted just because *a* call is present."""
+    depth = 0
+    for index in range(open_paren, len(line)):
+        char = line[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                arguments = line[open_paren + 1:index]
+                return len(QUOTED_STRING.findall(arguments)) <= 1
+    return len(QUOTED_STRING.findall(line[open_paren + 1:])) <= 1  # unbalanced/multiline call
+
+
 def scan_text(text: str, path: str) -> list[Finding]:
     findings = []
     for line_number, line in enumerate(text.splitlines(), start=1):
         if FIXTURE_MARKER in line:
             continue
         for kind, pattern in SENSITIVE_PATTERNS:
-            if pattern.search(line):
+            # finditer, not search: a line can carry more than one `keyword = value`
+            # (e.g. a safe `token = os.environ.get(...)` followed by a second, real
+            # literal assignment later on the same line) — checking only the first
+            # match would let a later literal secret slip through undetected.
+            for match in pattern.finditer(line):
+                # credential_assignment's value pattern has no way to require a string
+                # literal (the value may or may not be quoted), so a line like
+                # `token = os.environ.get("X")` or `token = path.read_text(...)`
+                # matches too: the unquoted greedy run just stops at the "(" of the
+                # call. That is the correct, secure way to obtain a secret (never a
+                # hardcoded literal) *unless* the call itself embeds a second literal
+                # as a fallback/default argument — so only skip a call-shaped match
+                # when it's a plain single-argument lookup, not any call whatsoever.
+                end = match.end()
+                if (kind == "credential_assignment" and line[end:end + 1] == "("
+                        and _call_is_a_plain_lookup(line, end)):
+                    continue
                 findings.append(Finding(kind, path, line_number))
+                break
     return findings
 
 
