@@ -204,3 +204,89 @@ def test_adaptive_minimum_exhausted(monkeypatch, tmp_path):
         assert str(exc) == "ADAPTIVE_CHUNK_MINIMUM_EXHAUSTED"
     else:
         assert False
+
+
+def _fake_extract_fixed(record, **kwargs):
+    return {"file_id": record["file_id"], "entities": [{"name": "A", "evidence_excerpt": "e"}],
+            "claims": [{"subject_raw": "A", "predicate": "p", "object_raw": "o", "evidence_excerpt": "e"}],
+            "_runtime": {"done_reason": "stop"}}
+
+
+def test_analyze_writes_semantic_output_and_marks_valid(monkeypatch, tmp_path):
+    monkeypatch.setattr(evidence, "ollama_extract", _fake_extract_fixed)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    out = evidence.semantic_extract_batch([record], tmp_path, artist="A", endpoint="x", model="m")
+    sem = tmp_path / "semantic" / "abc123-0.2.sem.json"
+    assert sem.exists()
+    data = evidence.read_json(sem, None)
+    # The per-file .sem.json carries exactly the same (enriched) content as the aggregate stdout.
+    assert data == out
+    assert data["entities"] == [{"name": "A", "evidence_excerpt": "e"}]
+    assert data["claims"][0]["subject_raw"] == "A"
+    manifest = evidence.load_analyze_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"
+
+
+def test_analyze_resume_skips_valid_files_without_ollama(monkeypatch, tmp_path):
+    def _raise_if_called(record, **kwargs):
+        raise AssertionError("ollama_extract must not be called on resumed file")
+    calls = []
+    def _spy(*a, **kw):
+        calls.append(a)
+        return _raise_if_called(*a, **kw)
+    evidence.mark_analyzed(tmp_path, "sha256:abc123", "valid", artist="A", model="m", timeout=60)
+    sem = tmp_path / "semantic" / "abc123-0.2.sem.json"
+    sem.parent.mkdir(parents=True, exist_ok=True)
+    sentinel = {"entities": [{"name": "SENTINEL"}], "claims": []}
+    sem.write_text(evidence.canonical(sentinel) + "\n", encoding="utf-8")
+    monkeypatch.setattr(evidence, "ollama_extract", _spy)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    out = evidence.semantic_extract_batch([record], tmp_path, artist="A", endpoint="x", model="m", resume=True)
+    assert calls == []
+    assert sem.read_text(encoding="utf-8").strip() == evidence.canonical(sentinel).strip()
+    manifest = evidence.load_analyze_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"
+    assert out == {"entities": [], "claims": []}
+
+
+def test_analyze_retry_limit_then_failed(monkeypatch, tmp_path):
+    # (a) transient-timeout twice then success with retry_limit=3 -> success, 3 calls.
+    records = []
+    def _flaky(record, **kwargs):
+        records.append(record)
+        n = len(records)
+        if n < 3:
+            raise evidence.EvidenceError("TIMEOUT")
+        return {"file_id": record["file_id"], "entities": [], "claims": [], "_runtime": {"done_reason": "stop"}}
+    monkeypatch.setattr(evidence, "ollama_extract", _flaky)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    out = evidence.semantic_extract_batch([record], tmp_path, artist="A", endpoint="x", model="m", retry_limit=3)
+    assert len(records) == 3
+    manifest = evidence.load_analyze_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"
+
+    # (b) always TIMEOUT, retry_limit=2 -> batch raises, manifest "failed", exactly 2 calls.
+    calls = []
+    def _always_timeout(record, **kwargs):
+        calls.append(record)
+        raise evidence.EvidenceError("TIMEOUT")
+    monkeypatch.setattr(evidence, "ollama_extract", _always_timeout)
+    record2 = {"file_id": "sha256:def456", "extraction_status": "SUCCESS", "text": "some text"}
+    try:
+        evidence.semantic_extract_batch([record2], tmp_path, artist="A", endpoint="x", model="m", retry_limit=2)
+    except evidence.EvidenceError as exc:
+        assert str(exc) == "TIMEOUT"
+    else:
+        assert False
+    assert len(calls) == 2
+    manifest2 = evidence.load_analyze_manifest(tmp_path)
+    assert manifest2["sha256:def456"]["status"] == "failed"
+
+
+def test_analyze_manifest_survives_no_trailing_newline(tmp_path):
+    path = tmp_path / "semantic" / "analyze_manifest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = '{"sha256:abc123": {"status": "valid", "artist": "A", "model": "m", "timeout": 60}}'
+    path.write_text(body, encoding="utf-8")
+    manifest = evidence.load_analyze_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"

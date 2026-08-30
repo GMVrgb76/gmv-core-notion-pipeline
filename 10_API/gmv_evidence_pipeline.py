@@ -35,8 +35,10 @@ GATE_BLOCKING_STATUS = {"INFERRED", "MISSING", "CONFLICTING", "SUPPORTED_BY_WEB"
 
 class EvidenceError(RuntimeError):
     def __init__(self, code: str, *, detail: str = ""):
-        super().__init__(code); self.detail = detail
+        super().__init__(code); self.detail = detail; self.code = code
 
+
+SEMANTIC_OUTPUT_VERSION = "0.2"
 
 SEMANTIC_OUTPUT_SCHEMA = {
     "type": "object", "required": ["entities", "claims"],
@@ -80,6 +82,45 @@ def write_json(path: Path, value: Any) -> None:
 
 def read_json(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+
+
+def semantic_output_path(fid: str | None, evidence_root: Path) -> Path | None:
+    """Return the canonical .sem.json path for a file_id, or None if the fid
+    does not follow the sha256:<hex> convention."""
+    if not fid or ":" not in fid:
+        return None
+    prefix, sha256 = fid.split(":", 1)
+    if prefix != "sha256" or not sha256:
+        return None
+    return evidence_root / "semantic" / f"{sha256}-{SEMANTIC_OUTPUT_VERSION}.sem.json"
+
+
+def load_analyze_manifest(evidence_root: Path) -> dict:
+    """Read analyze_manifest.json; missing file or parse error -> {} (never raise)."""
+    path = evidence_root / "semantic" / "analyze_manifest.json"
+    try:
+        return read_json(path, {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def mark_analyzed(evidence_root: Path, fid: str, status: str, *,
+                  artist: str, model: str, timeout: int,
+                  updated_at: str | None = None) -> None:
+    """Write/rewrite the analyze_manifest.json as a single JSON object."""
+    if status not in {"valid", "failed"}:
+        raise ValueError(f"invalid status: {status}")
+    if updated_at is None:
+        updated_at = now()
+    manifest = load_analyze_manifest(evidence_root)
+    manifest[fid] = {
+        "status": status,
+        "artist": artist,
+        "model": model,
+        "timeout": timeout,
+        "updated_at": updated_at,
+    }
+    write_json(evidence_root / "semantic" / "analyze_manifest.json", manifest)
 
 
 def norm(value: str) -> str:
@@ -335,15 +376,22 @@ def semantic_extract_batch(records: list[dict], evidence_root: Path, *, artist: 
                            model: str, timeout: int = 180, max_chunk_chars: int = 8000,
                            context: int = 8192, num_predict: int = 2048,
                            think: bool = False, min_adaptive_chunk_chars: int = 500,
-                           max_adaptive_depth: int = 4, log_path: Path | None = None) -> dict:
-    """Sequential, bounded semantic extraction with one health-checked retry."""
+                           max_adaptive_depth: int = 4, log_path: Path | None = None,
+                           resume: bool = False, retry_limit: int = 1) -> dict:
+    """Sequential, bounded semantic extraction with optional resume and retry."""
     all_entities, all_claims = [], []
     log_path = log_path or (evidence_root / "semantic" / "runtime.jsonl")
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = load_analyze_manifest(evidence_root)
     attempts_manifest = []; nodes_manifest = []
+    skipped = 0
+    # Per-record tracking, reset for each record; process_node appends here.
+    record_entities: list[dict] = []
+    record_claims: list[dict] = []
     def log_node(event: dict) -> None:
         with log_path.open("a", encoding="utf-8") as handle: handle.write(canonical(event) + "\n")
     def process_node(node: dict, depth: int = 0) -> None:
+        nonlocal record_entities, record_claims
         node_id = str(node.get("chunk_id", node.get("chunk_index", "0")))
         parent_id = node.get("parent_chunk_id")
         input_chars = len(node.get("text", ""))
@@ -355,6 +403,7 @@ def semantic_extract_batch(records: list[dict], evidence_root: Path, *, artist: 
                 claim["extraction_claim_ref"] = f"{node['file_id']}#{node_id}:{i}"
                 claim["leaf_chunk_id"] = node_id; claim["original_chunk_id"] = str(node.get("original_chunk_id", node_id))
             all_entities.extend(result.get("entities", [])); all_claims.extend(result.get("claims", []))
+            record_entities.extend(result.get("entities", [])); record_claims.extend(result.get("claims", []))
             nodes_manifest.append({"artist": artist, "file_id": node.get("file_id"), "chunk_id": node_id, "parent_chunk_id": parent_id,
                 "depth": depth, "input_chars": input_chars, "estimated_tokens": (input_chars + 3)//4,
                 "outcome": "SUCCESS", "failure_class": None, "done_reason": result.get("_runtime", {}).get("done_reason"),
@@ -387,9 +436,43 @@ def semantic_extract_batch(records: list[dict], evidence_root: Path, *, artist: 
             raise
     try:
         for record in records:
-            for index, chunk in enumerate(deterministic_chunks(record, max_chunk_chars)):
-                chunk["chunk_id"] = str(record.get("chunk_id", index)); chunk["original_chunk_id"] = str(record.get("original_chunk_id", index))
-                process_node(chunk)
+            fid = record.get("file_id")
+            # Resume: skip files already marked valid in the manifest.
+            if resume and fid and manifest.get(fid, {}).get("status") == "valid":
+                skipped += 1
+                continue
+            record_entities = []
+            record_claims = []
+            last_error = None
+            for attempt in range(max(retry_limit, 1)):
+                record_entities = []
+                record_claims = []
+                try:
+                    for index, chunk in enumerate(deterministic_chunks(record, max_chunk_chars)):
+                        chunk["chunk_id"] = str(record.get("chunk_id", index)); chunk["original_chunk_id"] = str(record.get("original_chunk_id", index))
+                        process_node(chunk)
+                    # Record succeeded — persist per-file .sem.json, then mark valid.
+                    out_path = semantic_output_path(fid, evidence_root)
+                    if out_path is not None:
+                        out_path.parent.mkdir(parents=True, exist_ok=True)
+                        write_json(out_path, {"entities": record_entities, "claims": record_claims})
+                        mark_analyzed(evidence_root, fid, "valid", artist=artist, model=model, timeout=timeout)
+                    break
+                except EvidenceError as exc:
+                    last_error = exc
+                    if exc.code in {"TIMEOUT", "OLLAMA_UNAVAILABLE"} and attempt < retry_limit - 1:
+                        continue
+                    # Non-retryable or retries exhausted — mark failed, then re-raise.
+                    out_path = semantic_output_path(fid, evidence_root)
+                    if fid and out_path is not None:
+                        mark_analyzed(evidence_root, fid, "failed", artist=artist, model=model, timeout=timeout)
+                    raise
+            else:
+                # Defensive: all retries exhausted without a final raise.
+                out_path = semantic_output_path(fid, evidence_root)
+                if fid and out_path is not None:
+                    mark_analyzed(evidence_root, fid, "failed", artist=artist, model=model, timeout=timeout)
+                raise last_error
     except EvidenceError as exc:
         write_json(evidence_root / "semantic" / "run_manifest.json", {"artist": artist, "model": model, "context": context,
             "num_ctx": context, "num_predict": num_predict, "thinking": think, "timeout": timeout,
@@ -537,14 +620,14 @@ def main() -> int:
     sub = p.add_subparsers(dest="command", required=True)
     scan_p = sub.add_parser("scan"); scan_p.add_argument("root", type=Path)
     ext_p = sub.add_parser("extract"); ext_p.add_argument("root", type=Path); ext_p.add_argument("--max-file-bytes", type=int, default=50_000_000)
-    analyze_p = sub.add_parser("analyze"); analyze_p.add_argument("record", type=Path); analyze_p.add_argument("--endpoint", default="http://localhost:11434"); analyze_p.add_argument("--model", required=True); analyze_p.add_argument("--artist", default="unknown"); analyze_p.add_argument("--timeout", type=int, default=180); analyze_p.add_argument("--max-chunk-chars", type=int, default=8000); analyze_p.add_argument("--ollama-context", type=int, default=8192); analyze_p.add_argument("--num-predict", type=int, default=2048); analyze_p.add_argument("--min-adaptive-chunk-chars", type=int, default=500); analyze_p.add_argument("--max-adaptive-depth", type=int, default=4)
+    analyze_p = sub.add_parser("analyze"); analyze_p.add_argument("record", type=Path); analyze_p.add_argument("--endpoint", default="http://localhost:11434"); analyze_p.add_argument("--model", required=True); analyze_p.add_argument("--artist", default="unknown"); analyze_p.add_argument("--timeout", type=int, default=180); analyze_p.add_argument("--max-chunk-chars", type=int, default=8000); analyze_p.add_argument("--ollama-context", type=int, default=8192); analyze_p.add_argument("--num-predict", type=int, default=2048); analyze_p.add_argument("--min-adaptive-chunk-chars", type=int, default=500); analyze_p.add_argument("--max-adaptive-depth", type=int, default=4); analyze_p.add_argument("--retry-limit", type=int, default=1, help="Max attempts per file for transient TIMEOUT/OLLAMA_UNAVAILABLE errors"); analyze_p.add_argument("--resume", action="store_true", default=False, help="Skip files already marked valid in analyze_manifest.json")
     resolve_p = sub.add_parser("resolve"); resolve_p.add_argument("claims", type=Path); resolve_p.add_argument("--rows", type=Path, required=True); resolve_p.add_argument("--aliases", type=Path)
     resolve_p.add_argument("--extra-claims", type=Path, action="append", default=[], help="Additional raw-claims JSON to merge before resolving (e.g. gmv_artist_web_retrieve.py ingest output)")
     args = p.parse_args()
     try:
         if args.command == "scan": output = scan(args.root, args.evidence_root)
         elif args.command == "extract": output = extract(args.evidence_root, args.root, max_file_bytes=args.max_file_bytes)
-        elif args.command == "analyze": output = semantic_extract_batch([read_json(args.record, {})], args.evidence_root, artist=args.artist, endpoint=args.endpoint, model=args.model, max_chunk_chars=args.max_chunk_chars, timeout=args.timeout, context=args.ollama_context, num_predict=args.num_predict, min_adaptive_chunk_chars=args.min_adaptive_chunk_chars, max_adaptive_depth=args.max_adaptive_depth)
+        elif args.command == "analyze": output = semantic_extract_batch([read_json(args.record, {})], args.evidence_root, artist=args.artist, endpoint=args.endpoint, model=args.model, max_chunk_chars=args.max_chunk_chars, timeout=args.timeout, context=args.ollama_context, num_predict=args.num_predict, min_adaptive_chunk_chars=args.min_adaptive_chunk_chars, max_adaptive_depth=args.max_adaptive_depth, resume=args.resume, retry_limit=args.retry_limit)
         else:
             claim_document = read_json(args.claims, {})
             raw = claim_document.get("claims", []) if isinstance(claim_document, dict) else claim_document

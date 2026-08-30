@@ -471,7 +471,7 @@ echo "  gmv artist-import <source_artist_folder> [--artist <name>] [--template <
 echo "  gmv artist-normalize-plan <artist_folder> [--template <path>] [--model <name>] [--timeout <seconds>] [--batch-size <n>]"
 echo "  gmv evidence scan <dropbox_root> [--evidence-root <path>]"
 echo "  gmv evidence extract <dropbox_root> [--evidence-root <path>]"
-echo "  gmv evidence analyze <extraction_record.json> --model <ollama-model>"
+echo "  gmv evidence analyze <extraction_record.json> --model <ollama-model> [--resume] [--retry-limit <n>]"
 echo "  gmv evidence resolve <semantic.json> --rows <rows.json>"
 echo "  gmv evidence candidate <entity-name> --entity-type <type> --claims <claims.json> --rows <rows.json> --config <config.json> [--run-dir <run>]"
 echo "  gmv queue list"
