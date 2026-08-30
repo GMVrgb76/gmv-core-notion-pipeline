@@ -87,9 +87,12 @@ editoriali sono in `campi`, i metadati in `servizio`, le fonti usano
 `fonte::<Nome property>`, la fine mostra è `servizio.data_end` e il testo pagina è
 `corpo`. L'estrattore usa soltanto la libreria standard Python e non scrive su Notion.
 
-Il token va predisposto localmente nel file
-`~/.config/area35-qa/notion_token` (oppure indicato con `--token-file`); non viene mai
-stampato né incluso nei report.
+Il token viene risolto in modo unico da `credentials.get_token()` (env → file → errore
+esplicito): prima la variabile d'ambiente `NOTION_TOKEN`, poi il file locale
+`~/.config/area35-qa/notion_token` (o quello indicato con `--token-file`). Se nessuna
+sorgente lo fornisce lo script termina con errore esplicito. La sorgente effettivamente
+usata è riportata su stderr (`[info] token Notion letto da env|file`); il token non
+viene mai stampato né incluso nei report. Lo stesso helper è usato da `adapter_notion.py`.
 
 Esecuzione su fixture o `rows.json` già disponibile:
 

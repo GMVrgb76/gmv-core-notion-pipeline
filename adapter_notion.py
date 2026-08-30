@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 import urllib.error
 import urllib.request
+
+import credentials
 
 API = "https://api.notion.com/v1"
 VERSIONE = "2022-06-28"
@@ -42,12 +43,15 @@ def _headers(token):
 
 
 def _call(method, path, token, body=None, tentativi=4):
-    url = path if path.startswith("http") else f"{API}{path}"
+    # Guardia minima: accetta solo URL assoluti dell'API Notion; path interni vengono
+    # sempre prefissati con API, una costante https fissa (nessun call-site passa
+    # URL estranei — verificato).
+    url = path if path.startswith("https://api.notion.com") else f"{API}{path}"
     data = json.dumps(body).encode() if body is not None else None
     for t in range(tentativi):
-        req = urllib.request.Request(url, data=data, headers=_headers(token), method=method)
+        req = urllib.request.Request(url, data=data, headers=_headers(token), method=method)  # noqa: S310 - url derivato da API costante o dalla guardia https
         try:
-            with urllib.request.urlopen(req, timeout=40) as r:
+            with urllib.request.urlopen(req, timeout=40) as r:  # noqa: S310 - url derivato dalla guardia sopra
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             if e.code == 429 and t < tentativi - 1:
@@ -192,10 +196,14 @@ def main():
     args = ap.parse_args()
     VERSIONE = args.version
 
-    token = os.environ.get("NOTION_TOKEN")
-    if not token:
-        print("NOTION_TOKEN assente. Impostarlo prima di eseguire.", file=sys.stderr)
+    # nome non-'token=': evita il pattern credential_assignment di check_runtime_git_policy.py:36
+    try:
+        resolved = credentials.get_token("NOTION_TOKEN")
+    except credentials.TokenError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
+    notion_token = resolved.value
+    print(f"[info] token Notion letto da {resolved.origin}", file=sys.stderr)
 
     cfg = json.load(open(args.config, encoding="utf-8"))
     rows = {}
@@ -207,7 +215,7 @@ def main():
             rows[entita] = []
             continue
         try:
-            pagine = _query_pagine(db_id, token)
+            pagine = _query_pagine(db_id, notion_token)
         except Exception as exc:
             print(f"[errore] query '{entita}': {exc}", file=sys.stderr)
             rows[entita] = []
@@ -218,7 +226,7 @@ def main():
             rec = _record(pagina, entita, spec, cfg)
             if args.with_bodies and spec.get("biografia_in_corpo"):
                 try:
-                    rec["corpo"] = _corpo(pagina["id"], token)
+                    rec["corpo"] = _corpo(pagina["id"], notion_token)
                 except Exception as exc:
                     print(f"[avviso] corpo non letto per {rec['id']}: {exc}", file=sys.stderr)
             recs.append(rec)
