@@ -193,6 +193,57 @@ def test_unsupported_format_still_rejected(tmp_path):
     state = tmp_path / "state"; evidence.scan(source, state)
     assert evidence.extract(state, source)[0]["extraction_status"] == "UNSUPPORTED_FORMAT"
 
+def test_scan_excludes_10_md_processed_files_recursively(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "09_TEMP_IMPORT").mkdir()
+    (source / "09_TEMP_IMPORT" / "bio.pdf").write_bytes(b"%PDF-1.4 not real pdf bytes")
+    md_dir = source / "10_MD_PROCESSED_FILES"; md_dir.mkdir()
+    (md_dir / "09_TEMP_IMPORT__bio.pdf.md").write_text("# AnyDoc Markdown\ncontent", encoding="utf-8")
+    state = tmp_path / "state"; rows = evidence.scan(source, state)
+    all_paths = [p for r in rows for p in r["paths"]]
+    assert "09_TEMP_IMPORT/bio.pdf" in all_paths
+    assert not any("10_MD_PROCESSED_FILES" in p for p in all_paths)
+
+def test_anydoc_md_used_when_present_root_is_artist_folder(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "09_TEMP_IMPORT").mkdir()
+    (source / "09_TEMP_IMPORT" / "bio.pdf").write_bytes(b"%PDF-1.4 not real pdf bytes")
+    md_dir = source / "10_MD_PROCESSED_FILES"; md_dir.mkdir()
+    (md_dir / "09_TEMP_IMPORT__bio.pdf.md").write_text("# AnyDoc Markdown\ncontent", encoding="utf-8")
+    state = tmp_path / "state"; rows = evidence.scan(source, state)
+    # scan() (not modified here) also indexes the AnyDoc .md file itself as a
+    # separate source document, so the target record is looked up by its
+    # known source path rather than assumed to be first in the list.
+    target_fid = next(r["file_id"] for r in rows if r["paths"] == ["09_TEMP_IMPORT/bio.pdf"])
+    records = {r["file_id"]: r for r in evidence.extract(state, source)}
+    record = records[target_fid]
+    assert record["extraction_status"] == "SUCCESS"
+    assert record["extractor"] == "anydoc_md"
+    assert record["text"] == "# AnyDoc Markdown\ncontent"
+
+def test_anydoc_md_absent_falls_back_to_legacy_extractor(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "note.txt").write_text("Federico Garibaldi", encoding="utf-8")
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "SUCCESS"
+    assert record["extractor"] == "text"
+
+def test_anydoc_md_path_root_is_artist_folder(tmp_path):
+    root = tmp_path / "artist"
+    md_dir = root / "10_MD_PROCESSED_FILES"; md_dir.mkdir(parents=True)
+    (md_dir / "09_TEMP_IMPORT__bio.pdf.md").write_text("x", encoding="utf-8")
+    found = evidence._anydoc_md_path(root, "09_TEMP_IMPORT/bio.pdf")
+    assert found == md_dir / "09_TEMP_IMPORT__bio.pdf.md"
+
+def test_anydoc_md_path_root_is_01_artists_parent(tmp_path):
+    root = tmp_path / "01_ARTISTS"
+    artist_dir = root / "PATERNO_CASTELLO_Riccardo"
+    md_dir = artist_dir / "10_MD_PROCESSED_FILES"; md_dir.mkdir(parents=True)
+    (md_dir / "09_TEMP_IMPORT__bio.pdf.md").write_text("x", encoding="utf-8")
+    found = evidence._anydoc_md_path(root, "PATERNO_CASTELLO_Riccardo/09_TEMP_IMPORT/bio.pdf")
+    assert found == md_dir / "09_TEMP_IMPORT__bio.pdf.md"
+
 def test_adaptive_minimum_exhausted(monkeypatch, tmp_path):
     def truncated(record, **kwargs):
         raise evidence.OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={"done_reason":"length", "eval_count":2048}, raw_output="x")

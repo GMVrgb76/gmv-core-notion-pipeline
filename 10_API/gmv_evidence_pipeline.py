@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".doc", ".html", ".csv", ".json"}
@@ -163,6 +163,7 @@ def scan(dropbox_root: Path, evidence_root: Path) -> list[dict]:
         if path.is_symlink() or not path.is_file(): continue
         try:
             rel = path.relative_to(dropbox_root).as_posix()
+            if "10_MD_PROCESSED_FILES" in Path(rel).parts: continue
             digest = sha256_file(path)
             fid = f"sha256:{digest}"
             discovered.setdefault(fid, set()).add(rel)
@@ -220,6 +221,19 @@ def _extract(path: Path) -> tuple[str, str]:
     raise EvidenceError("UNSUPPORTED_FORMAT")
 
 
+def _anydoc_md_path(root: Path, relpath: str) -> Path | None:
+    """Look up a pre-generated AnyDoc Markdown for a scanned relative path.
+    Tries `root` as the artist folder first, then `root` as the parent of
+    artist folders (first path segment treated as the artist directory)."""
+    parts = PurePosixPath(relpath).parts
+    candidate = root / "10_MD_PROCESSED_FILES" / ("__".join(parts) + ".md")
+    if candidate.is_file(): return candidate
+    if len(parts) >= 2:
+        candidate = root / parts[0] / "10_MD_PROCESSED_FILES" / ("__".join(parts[1:]) + ".md")
+        if candidate.is_file(): return candidate
+    return None
+
+
 def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50_000_000, extractor_version: str = "0.2") -> list[dict]:
     index_path, cache = paths(evidence_root); index = load_index(index_path); out = []
     root = dropbox_root.expanduser().resolve()
@@ -234,7 +248,11 @@ def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50
             record = {"file_id": fid, "extraction_status": "FILE_TOO_LARGE"}
         else:
             try:
-                text, extractor = _extract(path)
+                md_path = _anydoc_md_path(root, row["paths"][0])
+                if md_path is not None:
+                    text, extractor = md_path.read_text(encoding="utf-8"), "anydoc_md"
+                else:
+                    text, extractor = _extract(path)
                 record = {"file_id": fid, "extraction_status": "SUCCESS", "extractor": extractor,
                           "extractor_version": extractor_version, "text_hash": hashlib.sha256(text.encode()).hexdigest(),
                           "text": text, "metadata": {}}
