@@ -1,0 +1,281 @@
+{
+  "_nota": "Sezioni derivate dalle pagine template reali di Area35 Archive su Notion (ARTIST/EXHIBITION/PERSON/ISTITUZIONE/OPERA/SPONSOR TEMPLATE), lette il 2026-09-01. discovery_hints propone un tipo per entita' menzionate ma non ancora in Notion: non le crea da solo, va confermato. relation_hints instrada una claim verso la relazione giusta quando il suo oggetto combacia con un'entita' nota o candidata. field_hints mappa un predicato a un campo atomico solo quando l'oggetto e' un valore semplice, mai per oggetti composti.",
+  "generation_priority": [
+    "artista",
+    "mostra",
+    "persona",
+    "istituzione",
+    "opera",
+    "sponsor"
+  ],
+  "entita": {
+    "artista": {
+      "struttura_pagina": [
+        {
+          "titolo": "IDENTITÀ",
+          "formato": "testo"
+        },
+        {
+          "titolo": "PROFILO ARTISTICO",
+          "formato": "testo"
+        },
+        {
+          "titolo": "BIOGRAFIA",
+          "formato": "tabella_anno_evento"
+        },
+        {
+          "titolo": "MOSTRE PRINCIPALI",
+          "formato": "relazione",
+          "relazione": "mostre"
+        },
+        {
+          "titolo": "RELAZIONE CON AREA35",
+          "formato": "testo"
+        },
+        {
+          "titolo": "OPERE",
+          "formato": "relazione",
+          "relazione": "opere"
+        },
+        {
+          "titolo": "DOCUMENTAZIONE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "FONTI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "STATO EDITORIALE",
+          "formato": "testo"
+        }
+      ],
+      "field_hints": {},
+      "relation_hints": {
+        "mostre": [
+          {
+            "predicate": "is the author of",
+            "anchor": "object"
+          }
+        ]
+      }
+    },
+    "mostra": {
+      "struttura_pagina": [
+        {
+          "titolo": "DATI IDENTIFICATIVI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "LA MOSTRA",
+          "formato": "testo"
+        },
+        {
+          "titolo": "CONCEPT CURATORIALE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "PERCORSO ESPOSITIVO",
+          "formato": "testo"
+        },
+        {
+          "titolo": "ARTISTI",
+          "formato": "relazione",
+          "relazione": "artisti"
+        },
+        {
+          "titolo": "OPERE ESPOSTE",
+          "formato": "relazione",
+          "relazione": "opere"
+        },
+        {
+          "titolo": "DOCUMENTAZIONE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "FONTI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "STATO EDITORIALE",
+          "formato": "testo"
+        }
+      ],
+      "field_hints": {},
+      "relation_hints": {
+        "artisti": [
+          {
+            "predicate": "is the author of",
+            "anchor": "subject"
+          }
+        ]
+      }
+    },
+    "persona": {
+      "struttura_pagina": [
+        {
+          "titolo": "RUOLO NELLA STORIA DI AREA35",
+          "formato": "testo"
+        },
+        {
+          "titolo": "RELAZIONI STRUTTURATE DIRETTAMENTE DOCUMENTATE",
+          "formato": "relazione",
+          "relazione": "artisti"
+        },
+        {
+          "titolo": "CRONOLOGIA ESSENZIALE",
+          "formato": "tabella_anno_evento"
+        },
+        {
+          "titolo": "EVIDENZE E FONTI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "STATO DI VERIFICA",
+          "formato": "testo"
+        },
+        {
+          "titolo": "SVILUPPI FUTURI",
+          "formato": "testo"
+        }
+      ],
+      "field_hints": {},
+      "relation_hints": {}
+    },
+    "istituzione": {
+      "struttura_pagina": [
+        {
+          "titolo": "IDENTITÀ",
+          "formato": "testo"
+        },
+        {
+          "titolo": "RUOLO NELLA STORIA AREA35",
+          "formato": "testo"
+        },
+        {
+          "titolo": "MOSTRE E PRODUZIONI COLLEGATE",
+          "formato": "relazione",
+          "relazione": "mostre"
+        },
+        {
+          "titolo": "ARTISTI E PERSONE COLLEGATE",
+          "formato": "relazione",
+          "relazione": "artisti"
+        },
+        {
+          "titolo": "EVIDENZE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "LACUNE E CONFLITTI",
+          "formato": "testo"
+        }
+      ],
+      "field_hints": {},
+      "relation_hints": {}
+    },
+    "opera": {
+      "struttura_pagina": [
+        {
+          "titolo": "IDENTIFICAZIONE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "DATI MATERIALI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "RELAZIONE CON AREA35",
+          "formato": "testo"
+        },
+        {
+          "titolo": "MOSTRE",
+          "formato": "relazione",
+          "relazione": "mostre"
+        },
+        {
+          "titolo": "PERSONE COLLEGATE",
+          "formato": "relazione",
+          "relazione": "persone"
+        },
+        {
+          "titolo": "DESCRIZIONE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "IMMAGINI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "DOCUMENTAZIONE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "FONTI",
+          "formato": "testo"
+        },
+        {
+          "titolo": "CONFLITTI E LACUNE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "STATO EDITORIALE",
+          "formato": "testo"
+        }
+      ],
+      "field_hints": {
+        "uses technique": "tecnica"
+      },
+      "relation_hints": {}
+    },
+    "sponsor": {
+      "struttura_pagina": [
+        {
+          "titolo": "IDENTITÀ DEL SOSTENITORE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "CONTRIBUTO",
+          "formato": "testo"
+        },
+        {
+          "titolo": "ENTITÀ COLLEGATE",
+          "formato": "relazione",
+          "relazione": "mostre"
+        },
+        {
+          "titolo": "EVIDENZE",
+          "formato": "testo"
+        },
+        {
+          "titolo": "RISERVATEZZA",
+          "formato": "testo"
+        },
+        {
+          "titolo": "LACUNE E CONFLITTI",
+          "formato": "testo"
+        }
+      ],
+      "requires_existing_link": [
+        "persona",
+        "istituzione"
+      ],
+      "field_hints": {},
+      "relation_hints": {}
+    }
+  },
+  "discovery_hints": {
+    "mostra": [
+      {
+        "predicate": "is the author of",
+        "anchor": "object"
+      }
+    ],
+    "persona": [
+      {
+        "predicate": "is the author of the text for",
+        "anchor": "subject"
+      }
+    ]
+  }
+}
