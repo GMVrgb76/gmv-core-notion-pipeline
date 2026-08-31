@@ -269,6 +269,16 @@ fi
 "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_folder_report.py" "$@"
 ;;
 
+run)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_run.py" "$@"
+;;
+
 migrate-plan)
 shift
 CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
