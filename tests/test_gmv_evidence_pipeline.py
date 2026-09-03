@@ -359,6 +359,35 @@ def test_pdf_native_text_layer_unaffected_by_ocr_fallback(monkeypatch, tmp_path)
     assert record["extractor"] == "pdf_text"
     assert "Federico Garibaldi" in record["text"]
 
+def test_pdf_corrupt_stream_fails_explicitly_instead_of_crashing(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "bad.pdf").write_bytes((FIXTURES / "corrupt.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "EXTRACTION_FAILED"
+    assert "Stream has ended unexpectedly" in record["error_detail"]
+
+def test_pdf_empty_file_fails_explicitly_instead_of_crashing(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "empty.pdf").write_bytes((FIXTURES / "empty.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "EXTRACTION_FAILED"
+
+def test_pdf_corrupt_file_does_not_strand_subsequent_files(tmp_path):
+    """Before the fix, PdfReader raising PyPdfError on a malformed PDF was
+    uncaught and crashed extract()'s whole loop -- every file that came after
+    the corrupt one in dict iteration order silently never got processed,
+    on every run, not just once. A corrupt file must only fail itself."""
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "a_bad.pdf").write_bytes((FIXTURES / "corrupt.pdf").read_bytes())
+    (source / "z_good.pdf").write_bytes((FIXTURES / "text_sample.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    records = {r["file_id"]: r for r in evidence.extract(state, source)}
+    assert len(records) == 2
+    statuses = {r["extraction_status"] for r in records.values()}
+    assert statuses == {"EXTRACTION_FAILED", "SUCCESS"}
+
 def test_adaptive_minimum_exhausted(monkeypatch, tmp_path):
     def truncated(record, **kwargs):
         raise evidence.OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={"done_reason":"length", "eval_count":2048}, raw_output="x")

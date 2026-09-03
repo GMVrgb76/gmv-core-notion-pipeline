@@ -224,11 +224,17 @@ def _extract(path: Path) -> tuple[str, str]:
     if ext == ".pdf":
         try:
             from pypdf import PdfReader
+            from pypdf.errors import PyPdfError
             pages = PdfReader(str(path)).pages
             text = "\n".join(page.extract_text() or "" for page in pages).strip()
             if text: return text, "pdf_text"
             return _paddleocr_extract(path, num_pages=len(pages))
         except ImportError as exc: raise EvidenceError("EXTRACTION_FAILED") from exc
+        # A malformed/truncated/empty PDF (corrupt upload, 0-byte file, etc.) must not
+        # crash the whole extract() loop and silently strand every file that comes
+        # after it in iteration order — surface it per-file instead, like every other
+        # extraction failure here.
+        except PyPdfError as exc: raise EvidenceError("EXTRACTION_FAILED", detail=str(exc)[:2000]) from exc
     if ext == ".docx":
         try:
             from docx import Document
