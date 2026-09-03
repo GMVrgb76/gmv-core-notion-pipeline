@@ -3,6 +3,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -243,6 +244,120 @@ def test_anydoc_md_path_root_is_01_artists_parent(tmp_path):
     (md_dir / "09_TEMP_IMPORT__bio.pdf.md").write_text("x", encoding="utf-8")
     found = evidence._anydoc_md_path(root, "PATERNO_CASTELLO_Riccardo/09_TEMP_IMPORT/bio.pdf")
     assert found == md_dir / "09_TEMP_IMPORT__bio.pdf.md"
+
+def test_pdf_ocr_fallback_used_when_no_text_layer_and_no_anydoc_md(monkeypatch, tmp_path):
+    fake_venv = tmp_path / "fake_venv_python"; fake_venv.write_text("")
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", fake_venv)
+    monkeypatch.setattr(evidence.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="RSVP evento data indirizzo artista", stderr=""))
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "SUCCESS"
+    assert record["extractor"] == "pdf_text_paddleocr"
+    assert record["text"] == "RSVP evento data indirizzo artista"
+
+def test_pdf_ocr_fallback_not_used_when_anydoc_md_present(monkeypatch, tmp_path):
+    def fail_if_called(*a, **k): raise AssertionError("subprocess.run should not be called when an AnyDoc .md already exists")
+    monkeypatch.setattr(evidence.subprocess, "run", fail_if_called)
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "09_TEMP_IMPORT").mkdir()
+    (source / "09_TEMP_IMPORT" / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    md_dir = source / "10_MD_PROCESSED_FILES"; md_dir.mkdir()
+    (md_dir / "09_TEMP_IMPORT__scan.pdf.md").write_text("# AnyDoc Markdown\ncontent", encoding="utf-8")
+    state = tmp_path / "state"; rows = evidence.scan(source, state)
+    target_fid = next(r["file_id"] for r in rows if r["paths"] == ["09_TEMP_IMPORT/scan.pdf"])
+    records = {r["file_id"]: r for r in evidence.extract(state, source)}
+    assert records[target_fid]["extractor"] == "anydoc_md"
+
+def test_pdf_ocr_fallback_missing_venv_fails_explicitly(monkeypatch, tmp_path):
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", tmp_path / "does_not_exist" / "python3")
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "EXTRACTION_FAILED"
+    assert "GMV_OCR_PADDLEOCR.md" in record["error_detail"]
+
+def test_pdf_ocr_fallback_subprocess_failure_captures_stderr(monkeypatch, tmp_path):
+    fake_venv = tmp_path / "fake_venv_python"; fake_venv.write_text("")
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", fake_venv)
+    def fake_run(cmd, **kwargs):
+        raise evidence.subprocess.CalledProcessError(1, cmd, stderr="paddleocr crashed: out of memory")
+    monkeypatch.setattr(evidence.subprocess, "run", fake_run)
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "EXTRACTION_FAILED"
+    assert "paddleocr crashed" in record["error_detail"]
+
+def test_pdf_ocr_fallback_timeout_fails_explicitly(monkeypatch, tmp_path):
+    fake_venv = tmp_path / "fake_venv_python"; fake_venv.write_text("")
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", fake_venv)
+    def fake_run(cmd, **kwargs):
+        raise evidence.subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+    monkeypatch.setattr(evidence.subprocess, "run", fake_run)
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    assert evidence.extract(state, source)[0]["extraction_status"] == "EXTRACTION_FAILED"
+
+def test_pdf_ocr_fallback_empty_result_requires_ocr(monkeypatch, tmp_path):
+    fake_venv = tmp_path / "fake_venv_python"; fake_venv.write_text("")
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", fake_venv)
+    monkeypatch.setattr(evidence.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="   \n", stderr=""))
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    assert evidence.extract(state, source)[0]["extraction_status"] == "OCR_REQUIRED"
+
+def test_pdf_ocr_timeout_scales_with_page_count(monkeypatch, tmp_path):
+    from pypdf import PdfWriter
+    writer = PdfWriter()
+    for _ in range(5): writer.add_blank_page(width=200, height=200)
+    multi_page_pdf = tmp_path / "scan5.pdf"
+    with open(multi_page_pdf, "wb") as f: writer.write(f)
+    fake_venv = tmp_path / "fake_venv_python"; fake_venv.write_text("")
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", fake_venv)
+    captured = {}
+    def fake_run(cmd, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return SimpleNamespace(stdout="text", stderr="")
+    monkeypatch.setattr(evidence.subprocess, "run", fake_run)
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan5.pdf").write_bytes(multi_page_pdf.read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    evidence.extract(state, source)
+    expected = evidence.PADDLEOCR_TIMEOUT_BASE_SECONDS + evidence.PADDLEOCR_TIMEOUT_PER_PAGE_SECONDS * 5
+    assert captured["timeout"] == min(expected, evidence.PADDLEOCR_TIMEOUT_MAX_SECONDS)
+
+def test_pdf_extractor_version_bump_invalidates_pre_fix_ocr_required_cache(monkeypatch, tmp_path):
+    """A scanned PDF with no AnyDoc .md, processed before this fix, would have a cached
+    OCR_REQUIRED record under extractor_version 0.2 — that stale record must not shadow
+    the new PaddleOCR fallback, or the fix is invisible for already-scanned archives."""
+    fake_venv = tmp_path / "fake_venv_python"; fake_venv.write_text("")
+    monkeypatch.setattr(evidence, "PADDLEOCR_VENV_PYTHON", fake_venv)
+    monkeypatch.setattr(evidence.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="recovered text", stderr=""))
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "scan.pdf").write_bytes((FIXTURES / "scanned_blank.pdf").read_bytes())
+    state = tmp_path / "state"; rows = evidence.scan(source, state)
+    _, cache = evidence.paths(state)
+    stale_record_path = cache / "extracted" / f"{rows[0]['sha256']}-0.2.json"
+    evidence.write_json(stale_record_path, {"file_id": rows[0]["file_id"], "extraction_status": "OCR_REQUIRED"})
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] != "OCR_REQUIRED"
+    assert record["extractor"] == "pdf_text_paddleocr"
+
+def test_pdf_native_text_layer_unaffected_by_ocr_fallback(monkeypatch, tmp_path):
+    def fail_if_called(*a, **k): raise AssertionError("subprocess.run should not be called for a PDF with a native text layer")
+    monkeypatch.setattr(evidence.subprocess, "run", fail_if_called)
+    source = tmp_path / "dropbox"; source.mkdir()
+    (source / "bio.pdf").write_bytes((FIXTURES / "text_sample.pdf").read_bytes())
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extractor"] == "pdf_text"
+    assert "Federico Garibaldi" in record["text"]
 
 def test_adaptive_minimum_exhausted(monkeypatch, tmp_path):
     def truncated(record, **kwargs):
