@@ -26,6 +26,17 @@ from typing import Any
 
 SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".doc", ".html", ".csv", ".json"}
 TERMINAL_EXTRACTION = {"SUCCESS", "OCR_REQUIRED", "UNSUPPORTED_FORMAT", "FILE_TOO_LARGE", "EXTRACTION_ABORTED_STALE_HASH", "EXTRACTION_FAILED"}
+
+# PaddleOCR runs in an isolated venv (paddlepaddle/paddleocr are incompatible with
+# this repo's python3.14 .venv) invoked as a subprocess, same shape as the .doc ->
+# LibreOffice branch below. Setup: 10_API/GMV_OCR_PADDLEOCR.md.
+PADDLEOCR_VENV_PYTHON = Path.home() / ".gmv_core" / ".venv-paddleocr" / "bin" / "python3"
+PADDLEOCR_SCRIPT = Path(__file__).parent / "ocr_paddleocr_pdf.py"
+PADDLEOCR_LANG = "it"
+PADDLEOCR_DPI = 200
+PADDLEOCR_TIMEOUT_BASE_SECONDS = 60
+PADDLEOCR_TIMEOUT_PER_PAGE_SECONDS = 45
+PADDLEOCR_TIMEOUT_MAX_SECONDS = 1800
 # A claim in one of these states never satisfies a mandatory field for gate() purposes.
 # SUPPORTED_BY_WEB is here deliberately: web-sourced claims are gate-blocking until
 # gmv_artist_web_retrieve.verify_local promotes them (status becomes VERIFIED) — a single
@@ -185,6 +196,27 @@ def scan(dropbox_root: Path, evidence_root: Path) -> list[dict]:
     return [old[k] for k in sorted(discovered)]
 
 
+def _paddleocr_extract(path: Path, *, num_pages: int) -> tuple[str, str]:
+    """OCR fallback for scanned PDFs with no text layer and no AnyDoc markdown.
+    Shells out to an isolated python3.11 venv (see PADDLEOCR_VENV_PYTHON) running
+    ocr_paddleocr_pdf.py, mirroring the .doc -> soffice subprocess pattern below."""
+    if not PADDLEOCR_VENV_PYTHON.is_file():
+        raise EvidenceError("EXTRACTION_FAILED",
+            detail=f"PaddleOCR venv not found at {PADDLEOCR_VENV_PYTHON} — see 10_API/GMV_OCR_PADDLEOCR.md")
+    timeout = min(PADDLEOCR_TIMEOUT_BASE_SECONDS + PADDLEOCR_TIMEOUT_PER_PAGE_SECONDS * max(num_pages, 1),
+                  PADDLEOCR_TIMEOUT_MAX_SECONDS)
+    try:
+        proc = subprocess.run(
+            [str(PADDLEOCR_VENV_PYTHON), str(PADDLEOCR_SCRIPT), str(path), "--lang", PADDLEOCR_LANG, "--dpi", str(PADDLEOCR_DPI)],
+            capture_output=True, text=True, timeout=timeout, check=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", "replace")
+        raise EvidenceError("EXTRACTION_FAILED", detail=(stderr or type(exc).__name__)[:2000]) from exc
+    text = proc.stdout.strip()
+    if not text: raise EvidenceError("OCR_REQUIRED")
+    return text, "pdf_text_paddleocr"
+
+
 def _extract(path: Path) -> tuple[str, str]:
     ext = path.suffix.lower()
     if ext in {".txt", ".md", ".html", ".csv", ".json"}:
@@ -192,9 +224,10 @@ def _extract(path: Path) -> tuple[str, str]:
     if ext == ".pdf":
         try:
             from pypdf import PdfReader
-            text = "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages).strip()
-            if not text: raise EvidenceError("OCR_REQUIRED")
-            return text, "pdf_text"
+            pages = PdfReader(str(path)).pages
+            text = "\n".join(page.extract_text() or "" for page in pages).strip()
+            if text: return text, "pdf_text"
+            return _paddleocr_extract(path, num_pages=len(pages))
         except ImportError as exc: raise EvidenceError("EXTRACTION_FAILED") from exc
     if ext == ".docx":
         try:
@@ -234,7 +267,7 @@ def _anydoc_md_path(root: Path, relpath: str) -> Path | None:
     return None
 
 
-def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50_000_000, extractor_version: str = "0.2") -> list[dict]:
+def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50_000_000, extractor_version: str = "0.3") -> list[dict]:
     index_path, cache = paths(evidence_root); index = load_index(index_path); out = []
     root = dropbox_root.expanduser().resolve()
     for fid, row in index.items():
