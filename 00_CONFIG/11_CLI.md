@@ -136,6 +136,17 @@ gmv backup
 gmv restore
 gmv version
 
+gmv status include, oltre ai controlli storici su database/queue/backup, un check
+di sola lettura sulla pipeline evidence/Notion ("pipeline.evidence"): scandisce
+`~/.gmv_core/03_STATE/evidence/<artist_slug>/` (override: `--evidence-roots-dir`)
+cercando, per ciascuna sottocartella con un `index/FILE_INDEX.jsonl`, i file
+scansionati, l'esito di estrazione (`cache/extracted/*.json`) e il manifest di
+analisi (`semantic/analyze_manifest.json`). Non scrive mai nulla. Se non è ancora
+stato eseguito alcun `gmv run`/`gmv evidence` per un dato artista, riporta PASS
+(non è un errore, è lo stato atteso prima del primo run). Per questo motivo
+`gmv run --evidence-root` dovrebbe puntare, per convenzione, sotto
+`~/.gmv_core/03_STATE/evidence/<artist_slug>/`.
+
 ⸻
 
 13. Output
