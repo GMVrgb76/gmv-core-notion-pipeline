@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "10_API"))
 import status_service as STATUS  # noqa: E402
 from health_service import HealthResult  # noqa: E402
 import backup_service  # noqa: E402
+import gmv_evidence_pipeline as evidence  # noqa: E402
 
 
 def _database(tmp_path: Path, *, pending: bool = False) -> Path:
@@ -158,3 +159,27 @@ def test_stale_operational_record_is_visible_in_cli(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "DEGRADED|degraded|service.freshness.fixture|stale since" in result.stdout
+
+
+def test_pipeline_evidence_check_absent_evidence_dir_is_pass(tmp_path: Path) -> None:
+    _database(tmp_path)
+    result = _run(tmp_path, "--json", "--now", "2026-07-06T12:00:00+00:00")
+    payload = json.loads(result.stdout)
+    check = next(c for c in payload["checks"] if c["name"] == "pipeline.evidence")
+    assert check["status"] == "PASS"
+    assert "not been executed yet" in check["message"]
+
+
+def test_pipeline_evidence_check_surfaces_real_evidence_root(tmp_path: Path) -> None:
+    _database(tmp_path)
+    evidence_root = tmp_path / ".gmv_core" / "03_STATE" / "evidence" / "garibaldi"
+    source = evidence_root / "_source"; source.mkdir(parents=True)
+    (source / "bio.txt").write_text("Federico Garibaldi", encoding="utf-8")
+    evidence.scan(source, evidence_root)
+    evidence.extract(evidence_root, source)
+
+    result = _run(tmp_path, "--json", "--now", "2026-07-06T12:00:00+00:00")
+    payload = json.loads(result.stdout)
+    check = next(c for c in payload["checks"] if c["name"] == "pipeline.evidence")
+    assert check["status"] == "PASS"
+    assert "1 artist(s), 1 file(s) scanned" in check["message"]

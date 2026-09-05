@@ -19,6 +19,7 @@ from health_service import (
     overall_state,
     run_with_timeout,
 )
+from pipeline_status import pipeline_results
 
 CORE_ROOT = Path(__file__).resolve().parents[1]
 if str(CORE_ROOT) not in sys.path:
@@ -63,6 +64,7 @@ def collect_status(
     now: datetime,
     stale_after_seconds: int,
     backup_root: Path | None = None,
+    evidence_roots_dir: Path | None = None,
 ) -> list[HealthResult]:
     results = collect_health(
         database,
@@ -72,6 +74,7 @@ def collect_status(
         backup_root=backup_root,
     )
     results.append(_queue_result(database))
+    results.extend(pipeline_results(evidence_roots_dir or Path.home() / ".gmv_core" / "03_STATE" / "evidence"))
     return results
 
 
@@ -102,6 +105,11 @@ def main(arguments: list[str] | None = None) -> int:
         type=Path,
         default=Path.home() / ".gmv_backups",
     )
+    parser.add_argument(
+        "--evidence-roots-dir",
+        type=Path,
+        default=Path.home() / ".gmv_core" / "03_STATE" / "evidence",
+    )
     parser.add_argument("--now", type=datetime.fromisoformat)
     parser.add_argument("--stale-after-seconds", type=int, default=86400)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
@@ -115,6 +123,7 @@ def main(arguments: list[str] | None = None) -> int:
                 now=observed_at,
                 stale_after_seconds=options.stale_after_seconds,
                 backup_root=options.backup_root,
+                evidence_roots_dir=options.evidence_roots_dir,
             ),
             options.timeout_seconds,
         )
