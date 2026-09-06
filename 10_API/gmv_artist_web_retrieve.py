@@ -21,12 +21,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import urllib.parse
 from pathlib import Path
 
 from gmv_evidence_pipeline import (
-    EvidenceError, GATE_BLOCKING_STATUS, load_index, now, paths, required_fields, save_index, write_json, norm,
+    EvidenceError, GATE_BLOCKING_STATUS, all_fields, load_index, now, paths, save_index, write_json, norm,
 )
 
 REQUIRED_FINDING_FIELDS = ("predicate", "object_raw", "evidence_excerpt", "url")
@@ -47,21 +48,52 @@ def normalize_source_url(url: str) -> str:
     return urllib.parse.urlunsplit(("", netloc, parsed.path.rstrip("/"), "", ""))
 
 
-def build_retrieval_requests(entity_name: str, entity_type: str, claims: list[dict], required: set[str]) -> list[dict]:
+def build_retrieval_requests(entity_name: str, entity_type: str, claims: list[dict], fields: set[str]) -> list[dict]:
     """Deterministic gap detection, no network access. Reuses gate()'s own bad-status
     vocabulary so a predicate stuck on SUPPORTED_BY_WEB (retrieved but not yet
-    corroborated) is requested again, not silently treated as already satisfied."""
+    corroborated) is requested again, not silently treated as already satisfied.
+
+    One combined request per entity, not one per missing field: a single good
+    source (a biography page, a gallery bio) typically covers several fields at
+    once, so the interactive session should search broadly and extract as much
+    as a source actually offers, rather than run one narrow query per field."""
     by_predicate = {norm(c["predicate"]): c for c in claims}
-    requests = []
-    for field in sorted(required):
-        claim = by_predicate.get(norm(field))
-        if claim is None or claim.get("status") in GATE_BLOCKING_STATUS:
-            requests.append({"entity_name": entity_name, "entity_type": entity_type, "predicate": field,
-                              "query": f"{entity_name} {field.replace('_', ' ')}"})
-    return requests
+    missing = sorted(
+        field for field in fields
+        if by_predicate.get(norm(field)) is None or by_predicate[norm(field)].get("status") in GATE_BLOCKING_STATUS
+    )
+    if not missing:
+        return []
+    return [{"entity_name": entity_name, "entity_type": entity_type, "missing_fields": missing, "query": entity_name}]
 
 
-def ingest_web_findings(entity_name: str, findings: list[dict], evidence_root: Path) -> list[dict]:
+def normalize_web_object_value(tipo: str, object_raw: str) -> str:
+    """Best-effort canonicalization so two sources phrasing the same fact
+    differently corroborate instead of silently creating two separate,
+    never-merging claims. Only 'anno' fields are touched -- deliberately
+    conservative, not a general fuzzy-text matcher.
+
+    tipo == 'anno': extracts the first 4-digit year found (1000-2099) and
+    normalizes to that alone -- a range like "between 1910 and 1922"
+    normalizes to "1910", favoring under-precision over fabricating false
+    certainty. The original wording always survives untouched in
+    evidence_excerpt, so a human reviewing the bundle still sees the real
+    uncertainty; only the machine-comparable object_raw is canonicalized.
+
+    Uses digit lookaround, not \\b: a plain word-boundary regex fails right
+    after a letter prefix like "c1910" (letter and digit are both \\w, so
+    there is no boundary between them) and would silently skip ahead to the
+    WRONG year in a range like "c1910-2006" (matching the death year instead
+    of the birth year) -- verified against this exact real case."""
+    if tipo == "anno":
+        match = re.search(r"(?<!\d)(1[0-9]{3}|20[0-9]{2})(?!\d)", object_raw)
+        if match:
+            return match.group(1)
+    return object_raw
+
+
+def ingest_web_findings(entity_name: str, findings: list[dict], evidence_root: Path, *,
+                        field_types: dict[str, str] | None = None) -> list[dict]:
     """Records findings the interactive session already fetched (text, not a URL to
     fetch) as content-addressed web snapshots plus raw claims in the same shape
     ollama_extract() produces, so they flow through the existing
@@ -72,7 +104,15 @@ def ingest_web_findings(entity_name: str, findings: list[dict], evidence_root: P
     file_id is keyed on (url, excerpt) together, not the excerpt alone: two different
     pages that happen to quote identical text must not overwrite each other's
     provenance, and the same page cited twice for different excerpts must not be
-    treated as two independent sources by verify_local (see normalize_source_url)."""
+    treated as two independent sources by verify_local (see normalize_source_url).
+
+    field_types (predicate -> config.json 'tipo', e.g. {"anno_nascita": "anno"}) is
+    optional and defaults to no normalization, preserving prior behavior exactly for
+    any caller that doesn't pass it. When given, normalize_web_object_value()
+    canonicalizes object_raw for known field types (currently just 'anno') before
+    the claim is built, so differently-worded sources for the same fact land on the
+    same resolved_object_id in resolve_claims() and get merged by consolidate_claims()
+    instead of silently never corroborating each other."""
     for finding in findings:
         missing = [key for key in REQUIRED_FINDING_FIELDS if not finding.get(key)]
         if missing: raise EvidenceError(f"WEB_FINDING_MISSING_FIELD:{','.join(missing)}")
@@ -89,7 +129,9 @@ def ingest_web_findings(entity_name: str, findings: list[dict], evidence_root: P
         rows[fid] = {"file_id": fid, "url": finding["url"], "source_url": source_url, "fetched_at": fetched_at, "source_type": "WEB"}
         write_json(cache / "web" / f"{digest}.json", {"file_id": fid, "url": finding["url"],
                    "fetched_at": fetched_at, "text": finding["evidence_excerpt"]})
-        claims.append({"subject_raw": entity_name, "predicate": finding["predicate"], "object_raw": finding["object_raw"],
+        tipo = (field_types or {}).get(finding["predicate"])
+        object_raw = normalize_web_object_value(tipo, finding["object_raw"]) if tipo else finding["object_raw"]
+        claims.append({"subject_raw": entity_name, "predicate": finding["predicate"], "object_raw": object_raw,
                         "evidence_excerpt": finding["evidence_excerpt"], "file_id": fid,
                         "source_type": "WEB", "status": "SUPPORTED_BY_WEB"})
     save_index(index_path, rows)
@@ -123,17 +165,22 @@ def main() -> int:
     req_p.add_argument("--claims", type=Path, required=True); req_p.add_argument("--config", type=Path, required=True)
     ing_p = sub.add_parser("ingest"); ing_p.add_argument("entity_name"); ing_p.add_argument("--findings", type=Path, required=True)
     ing_p.add_argument("--evidence-root", type=Path, required=True)
+    ing_p.add_argument("--config", type=Path); ing_p.add_argument("--entity-type")
     ver_p = sub.add_parser("verify"); ver_p.add_argument("--claims", type=Path, required=True)
     ver_p.add_argument("--evidence-root", type=Path, required=True); ver_p.add_argument("--min-sources", type=int, default=2)
     a = p.parse_args()
     try:
         if a.command == "request":
             doc = json.loads(a.claims.read_text()); claims = doc.get("claims", doc) if isinstance(doc, dict) else doc
-            cfg = json.loads(a.config.read_text()); required = required_fields(cfg, a.entity_type)
-            output = build_retrieval_requests(a.entity_name, a.entity_type, claims, required)
+            cfg = json.loads(a.config.read_text()); fields = all_fields(cfg, a.entity_type)
+            output = build_retrieval_requests(a.entity_name, a.entity_type, claims, fields)
         elif a.command == "ingest":
             doc = json.loads(a.findings.read_text()); findings = doc.get("findings", doc) if isinstance(doc, dict) else doc
-            output = ingest_web_findings(a.entity_name, findings, a.evidence_root)
+            field_types = None
+            if a.config and a.entity_type:
+                cfg = json.loads(a.config.read_text())
+                field_types = {k: v.get("tipo") for k, v in cfg["entita"][a.entity_type.lower()].get("campi", {}).items()}
+            output = ingest_web_findings(a.entity_name, findings, a.evidence_root, field_types=field_types)
         else:
             doc = json.loads(a.claims.read_text()); claims = doc.get("claims", doc) if isinstance(doc, dict) else doc
             output = verify_local(claims, a.evidence_root, min_corroborating_sources=a.min_sources)
