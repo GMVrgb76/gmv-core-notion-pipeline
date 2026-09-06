@@ -197,6 +197,15 @@ La CLI non deve consentire operazioni distruttive senza conferma esplicita o mod
 
 Le operazioni di sola lettura devono essere sempre sicure.
 
+`gmv evidence publish` è il primo comando di questa CLI che scrive davvero su un
+sistema esterno condiviso (Notion), non solo su file locali. Due invarianti,
+non negoziabili senza modificare questo documento: la conferma interattiva prima
+della pubblicazione è sempre obbligatoria, non esiste alcun flag `--yes`/`--force`
+per saltarla; ogni pubblicazione riuscita viene registrata nel log di audit
+hash-concatenato esistente (`10_API/audit_integrity.py`, stesso meccanismo già
+usato da `backup_service.py`), in `04_LOGS/notion_writes.v1.jsonl`, prima di
+segnare il bundle come pubblicato (`PUBLISHED.json`).
+
 ⸻
 
 18. Filosofia
