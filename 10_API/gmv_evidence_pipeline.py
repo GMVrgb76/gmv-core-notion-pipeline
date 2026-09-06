@@ -549,6 +549,13 @@ def required_fields(config: dict, entity_type: str) -> set[str]:
     return {k for k, v in {**spec.get("campi", {}), **spec.get("relazioni", {})}.items() if v.get("obbligatorio")}
 
 
+def all_fields(config: dict, entity_type: str) -> set[str]:
+    """Every campo+relazione key for entity_type's Notion page, mandatory or not --
+    used by web retrieval to check the whole page, not just what gate() requires."""
+    spec = config["entita"][entity_type.lower()]
+    return set(spec.get("campi", {}).keys()) | set(spec.get("relazioni", {}).keys())
+
+
 def resolve_claims(raw_claims: list[dict], notion_rows: dict[str, list[dict]], aliases: dict[str, str] | None = None) -> list[dict]:
     """Deterministic exact/alias resolution; ambiguous values remain pending."""
     aliases = aliases or {}; candidates: dict[str, list[str]] = {}

@@ -9,15 +9,34 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "10_API"))
 import gmv_evidence_pipeline as evidence
 import gmv_artist_web_retrieve as web
 
-def test_request_lists_only_unmet_or_unverified_predicates():
+def test_request_returns_one_combined_request_with_missing_fields():
     claims = [
         {"predicate": "nato a", "status": "SUPPORTED_BY_ARCHIVE"},
         {"predicate": "opere", "status": "SUPPORTED_BY_WEB"},
     ]
     requests = web.build_retrieval_requests("Riccardo Paternò Castello", "artista", claims, {"nato a", "opere", "formazione"})
-    predicates = {r["predicate"] for r in requests}
-    assert predicates == {"opere", "formazione"}
-    assert "nato a" not in predicates
+    assert len(requests) == 1
+    assert requests[0]["missing_fields"] == ["formazione", "opere"]
+    assert requests[0]["query"] == "Riccardo Paternò Castello"
+    assert "nato a" not in requests[0]["missing_fields"]
+
+def test_request_returns_empty_when_nothing_missing():
+    claims = [{"predicate": "nato a", "status": "SUPPORTED_BY_ARCHIVE"}]
+    requests = web.build_retrieval_requests("X", "artista", claims, {"nato a"})
+    assert requests == []
+
+def test_request_uses_all_fields_not_just_obbligatorio():
+    """all_fields() (gmv_evidence_pipeline.py) has no obbligatorio filter -- confirms
+    the CLI wiring change (request now uses all_fields, not required_fields) actually
+    surfaces optional fields like anno_nascita, not just mandatory ones like nome."""
+    cfg = {"entita": {"artista": {"campi": {
+        "nome": {"notion": "Nome", "obbligatorio": True},
+        "anno_nascita": {"notion": "Anno di nascita", "obbligatorio": False, "tipo": "anno"},
+    }, "relazioni": {}}}}
+    fields = evidence.all_fields(cfg, "artista")
+    assert fields == {"nome", "anno_nascita"}
+    requests = web.build_retrieval_requests("X", "artista", [], fields)
+    assert requests[0]["missing_fields"] == ["anno_nascita", "nome"]
 
 def test_ingest_produces_gate_blocking_claims_and_content_addressed_snapshot(tmp_path):
     findings = [{"predicate": "opere", "object_raw": "Studio da Bronzino", "evidence_excerpt": "Ritratto, studio da Bronzino.", "url": "https://example.org/rpc"}]
@@ -160,3 +179,43 @@ def test_ingest_validates_whole_batch_before_writing_any_file(tmp_path):
 def test_verify_local_leaves_archive_claims_untouched(tmp_path):
     claims = [{"status": "SUPPORTED_BY_ARCHIVE", "source_file_ids": ["sha256:x"]}]
     assert web.verify_local(claims, tmp_path) == claims
+
+def test_normalize_web_object_value_extracts_year_from_range():
+    assert web.normalize_web_object_value("anno", "born between 1910 and 1922") == "1910"
+    assert web.normalize_web_object_value("anno", "c1910-2006") == "1910"
+    assert web.normalize_web_object_value("anno", "1910") == "1910"
+
+def test_normalize_web_object_value_passes_through_non_anno_tipo():
+    assert web.normalize_web_object_value("testo", "Utopia, Northern Territory") == "Utopia, Northern Territory"
+    assert web.normalize_web_object_value(None, "1910") == "1910"
+
+def test_normalize_web_object_value_passes_through_when_no_year_found():
+    assert web.normalize_web_object_value("anno", "unknown") == "unknown"
+
+def test_ingest_normalizes_year_fields_so_differently_phrased_sources_corroborate(tmp_path):
+    """The real case found on Minnie Pwerle: Wikipedia says 'born between 1910 and
+    1922', Japingka Gallery says 'c1910' -- without normalization these silently
+    never merge into one corroborated fact."""
+    findings = [
+        {"predicate": "anno_nascita", "object_raw": "c1910", "evidence_excerpt": "Minnie Pwerle (c1910-2006)...", "url": "https://a"},
+        {"predicate": "anno_nascita", "object_raw": "born between 1910 and 1922", "evidence_excerpt": "born between 1910 and 1922...", "url": "https://b"},
+    ]
+    claims = web.ingest_web_findings("Minnie Pwerle", findings, tmp_path, field_types={"anno_nascita": "anno"})
+    assert {c["object_raw"] for c in claims} == {"1910"}
+    resolved = evidence.resolve_claims(claims, {"artista": []})
+    consolidated = evidence.consolidate_claims(resolved)
+    assert len(consolidated) == 1
+    assert len(consolidated[0]["source_file_ids"]) == 2
+    verified = web.verify_local(consolidated, tmp_path, min_corroborating_sources=2)
+    assert verified[0]["status"] == "VERIFIED"
+
+def test_ingest_without_field_types_keeps_current_behavior(tmp_path):
+    findings = [
+        {"predicate": "anno_nascita", "object_raw": "c1910", "evidence_excerpt": "a", "url": "https://a"},
+        {"predicate": "anno_nascita", "object_raw": "born between 1910 and 1922", "evidence_excerpt": "b", "url": "https://b"},
+    ]
+    claims = web.ingest_web_findings("Minnie Pwerle", findings, tmp_path)
+    assert {c["object_raw"] for c in claims} == {"c1910", "born between 1910 and 1922"}
+    resolved = evidence.resolve_claims(claims, {"artista": []})
+    consolidated = evidence.consolidate_claims(resolved)
+    assert len(consolidated) == 2
