@@ -329,6 +329,12 @@ fi
 if [ "${1:-}" = "candidate" ] || [ "${1:-}" = "notion-plan" ]; then
   shift
   "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_notion_candidate.py" "$@"
+elif [ "${1:-}" = "multi-candidate" ]; then
+  shift
+  "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_notion_multi_candidate.py" "$@"
+elif [ "${1:-}" = "review" ]; then
+  shift
+  "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_review_server.py" "$@"
 elif [ "${1:-}" = "publish" ]; then
   shift
   "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_notion_publish.py" "$@"

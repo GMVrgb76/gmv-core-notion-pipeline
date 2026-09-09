@@ -76,6 +76,38 @@ def test_publish_bundle_refuses_when_gate_is_not_ready_for_notion(tmp_path, monk
     assert rc == 4
 
 
+def test_publish_bundle_aborts_when_duplicate_title_found_on_create_and_never_calls_apply(tmp_path, monkeypatch):
+    bundle = _write_bundle(tmp_path, operation="CREATE", existing_notion_id=None)
+    _patch_notion_plumbing(monkeypatch)
+    monkeypatch.setattr(gnp, "fetch_database_schema", lambda client, db: {"Nome": "title"})
+    monkeypatch.setattr(gnp, "find_existing_page_id", lambda client, db, prop, name: "existing-page-id")
+    def fail_if_called(*a, **k): raise AssertionError("must not call apply_patch when a duplicate title is found")
+    monkeypatch.setattr(gnp, "apply_patch", fail_if_called)
+    rc = gnp.publish_bundle(bundle, config_path=_config(tmp_path))
+    assert rc == 5
+
+
+def test_publish_bundle_proceeds_when_no_duplicate_title_found_on_create(tmp_path, monkeypatch):
+    bundle = _write_bundle(tmp_path, operation="CREATE", existing_notion_id=None)
+    _patch_notion_plumbing(monkeypatch)
+    monkeypatch.setattr(gnp, "fetch_database_schema", lambda client, db: {"Nome": "title"})
+    monkeypatch.setattr(gnp, "find_existing_page_id", lambda client, db, prop, name: None)
+    rc = gnp.publish_bundle(bundle, config_path=_config(tmp_path), input_fn=lambda p: "y", clock=CLOCK,
+                             audit_path=tmp_path / "audit.jsonl")
+    assert rc == 0
+
+
+def test_publish_bundle_skip_staleness_check_also_bypasses_duplicate_title_guard(tmp_path, monkeypatch):
+    bundle = _write_bundle(tmp_path, operation="CREATE", existing_notion_id=None)
+    _patch_notion_plumbing(monkeypatch)
+    monkeypatch.setattr(gnp, "fetch_database_schema", lambda client, db: {"Nome": "title"})
+    def fail_if_called(*a, **k): raise AssertionError("must not query for a duplicate when --skip-staleness-check is passed")
+    monkeypatch.setattr(gnp, "find_existing_page_id", fail_if_called)
+    rc = gnp.publish_bundle(bundle, config_path=_config(tmp_path), skip_staleness_check=True,
+                             input_fn=lambda p: "y", clock=CLOCK, audit_path=tmp_path / "audit.jsonl")
+    assert rc == 0
+
+
 def test_publish_bundle_aborts_on_staleness_and_never_calls_apply(tmp_path, monkeypatch):
     bundle = _write_bundle(tmp_path)
     _patch_notion_plumbing(monkeypatch, staleness={"stale": True, "diffs": [{"property": "Nome", "bundle_value": "a", "live_value": "b"}]})

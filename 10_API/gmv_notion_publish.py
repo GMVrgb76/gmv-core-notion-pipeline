@@ -24,7 +24,7 @@ if str(CORE_ROOT) not in sys.path:
 
 import credentials
 from notion_extract import Notion
-from notion_publish import check_staleness, fetch_database_schema, plan_requests, apply_patch
+from notion_publish import check_staleness, fetch_database_schema, find_existing_page_id, plan_requests, apply_patch
 
 from audit_integrity import append as audit_append
 
@@ -153,6 +153,16 @@ def publish_bundle(
         print(str(exc), file=sys.stderr)
         return 2
     client = Notion(resolved.value, notion_version)
+    schema = fetch_database_schema(client, database_id)
+
+    if bundle.patch.get("existing_notion_id") is None and not skip_staleness_check:
+        title_property = next((name for name, typ in schema.items() if typ == "title"), None)
+        if title_property:
+            duplicate_id = find_existing_page_id(client, database_id, title_property, bundle.entity_name)
+            if duplicate_id:
+                print(f"esiste già una pagina Notion intitolata {bundle.entity_name!r}: {duplicate_id}")
+                print("rigenera il candidato per ottenere una patch di UPDATE, oppure passa --skip-staleness-check per creare comunque una pagina duplicata")
+                return 5
 
     staleness = check_staleness(client, bundle.patch)
     if staleness.get("stale") and not skip_staleness_check:
@@ -162,7 +172,6 @@ def publish_bundle(
         print("rigenera il candidato, oppure passa --skip-staleness-check per procedere comunque")
         return 5
 
-    schema = fetch_database_schema(client, database_id)
     requests, skipped_ops = plan_requests(database_id, bundle.patch, schema, bundle.body_markdown)
     print(render_review_screen(bundle, requests, skipped_ops, staleness))
 

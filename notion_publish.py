@@ -123,6 +123,18 @@ def fetch_live_properties(client: Notion, page_id: str) -> dict:
     return {name: prop_value(prop) for name, prop in props.items()}
 
 
+def find_existing_page_id(client: Notion, database_id: str, title_property: str, title: str) -> str | None:
+    """Live, exact-match check used only to guard a CREATE against producing a
+    duplicate page: does a page with this literal title already exist in the
+    database right now? Not a fuzzy/normalized dedupe -- a near-miss title
+    still requires a human to notice and resolve manually via the warning
+    this triggers upstream."""
+    result = client.call("POST", f"/databases/{database_id}/query",
+                          {"filter": {"property": title_property, "title": {"equals": title}}})
+    results = result.get("results", [])
+    return results[0]["id"] if results else None
+
+
 def check_staleness(client: Notion, patch: dict) -> dict:
     if patch.get("existing_notion_id") is None:
         return {"stale": False, "diffs": [], "reason": "CREATE has no live page to compare"}
