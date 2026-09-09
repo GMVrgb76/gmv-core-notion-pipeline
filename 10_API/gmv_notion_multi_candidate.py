@@ -44,7 +44,8 @@ import sys
 from pathlib import Path
 
 from gmv_evidence_pipeline import (
-    EvidenceError, compare_entity, gate, norm, read_json, required_fields, write_json,
+    EvidenceError, compare_entity, gate, norm, notion_field_name, notion_relation_name,
+    read_json, required_fields, write_json,
 )
 
 RELATION_TYPE_MAP = {
@@ -177,24 +178,81 @@ def route_claim(claim: dict, entity_type: str, page_templates: dict, rows: dict,
 def build_entity_patch(name: str, entity_type: str, claims: list[dict], rows: dict,
                         config: dict, page_templates: dict, discovered_index: dict[str, dict]) -> dict:
     status, existing = compare_entity(name, entity_type, rows)
+    existing_campi = (existing or {}).get("campi", {})
+    existing_relazioni = (existing or {}).get("relazioni", {})
     operations, gate_claims = [], []
     for claim in claims:
         route = route_claim(claim, entity_type, page_templates, rows, discovered_index)
         if route["layer"] == "relation":
-            operations.append({"action": "RELATE", "claim_id": claim.get("claim_id"),
-                               "relation": route["relation_key"], "target": route["target"]})
-            resolved = route["target"]["resolved"]
-            gate_claims.append({"predicate": route["relation_key"],
-                                "status": claim.get("status") if resolved else "MISSING"})
+            relation_key, target = route["relation_key"], route["target"]
+            property_name = notion_relation_name(config, entity_type, relation_key)
+            # No relation-writer exists anywhere in this codebase today --
+            # Notion relation properties are full-list-replace, and nothing
+            # here merges against an existing relation list. RELATE always
+            # stays CONFLICT, resolved or not, exactly like
+            # build_incremental_patch's own unconditional relation CONFLICT
+            # in gmv_notion_candidate.py.
+            if property_name is None:
+                reason = "RELATION_NOT_IN_ENTITY_SCHEMA"
+            elif not target["resolved"]:
+                reason = "RELATION_TARGET_ID_NOT_RESOLVED"
+            else:
+                reason = "RELATION_WRITE_NOT_SUPPORTED"
+            operations.append({"action": "CONFLICT", "claim_id": claim.get("claim_id"),
+                               "property": property_name, "relation": relation_key,
+                               "reason": reason, "target": target})
+            gate_claims.append({"predicate": relation_key,
+                                "status": claim.get("status") if target["resolved"] else "MISSING"})
         elif route["layer"] == "field":
-            operations.append({"action": "SET_FIELD", "claim_id": claim.get("claim_id"),
-                               "field": route["campo"], "value": route["value"]})
-            gate_claims.append({"predicate": route["campo"], "status": claim.get("status")})
+            campo_key = route["campo"]
+            property_name = notion_field_name(config, entity_type, campo_key)
+            if property_name is None:
+                operations.append({"action": "CONFLICT", "claim_id": claim.get("claim_id"),
+                                   "reason": "FIELD_NOT_IN_ENTITY_SCHEMA"})
+                claim_status = "MISSING"
+            else:
+                # Never blindly overwrite: an entity discovered as
+                # already-existing (matched_existing_row) can already carry a
+                # real, different value for this field. KEEP silently if
+                # unchanged, ADD only if genuinely empty, otherwise CONFLICT
+                # (never applied) -- more conservative than
+                # build_incremental_patch's own UPDATE-on-mismatch for
+                # properties, a deliberate choice while this discovery path
+                # is still only validated on one real artist.
+                old_value = existing_campi.get(campo_key)
+                if old_value in (None, "", [], {}):
+                    operations.append({"action": "ADD", "claim_id": claim.get("claim_id"),
+                                       "property": property_name, "value": route["value"]})
+                    claim_status = claim.get("status")
+                elif str(old_value) == str(route["value"]):
+                    claim_status = claim.get("status")
+                else:
+                    operations.append({"action": "CONFLICT", "claim_id": claim.get("claim_id"),
+                                       "property": property_name, "reason": "FIELD_VALUE_MISMATCH"})
+                    claim_status = "MISSING"
+            gate_claims.append({"predicate": campo_key, "status": claim_status})
     required = required_fields(config, entity_type) if entity_type in config.get("entita", {}) else set()
     final_gate = gate(status, gate_claims, required)
+    # AMBIGUOUS (more than one existing row with this title) must never be
+    # treated as "no existing row" -- a naive existing-is-None check would
+    # propose CREATE and risk a duplicate page; leave operation undecided,
+    # the REVIEW_REQUIRED gate above already blocks it from being published.
+    operation = None if status == "AMBIGUOUS" else ("CREATE" if existing is None else "UPDATE")
+    keep = {"properties": {}, "relations": {}}
+    if entity_type in config.get("entita", {}):
+        spec = config["entita"][entity_type]
+        for key, meta in spec.get("campi", {}).items():
+            keep["properties"][meta["notion"]] = existing_campi.get(key)
+        for key, meta in spec.get("relazioni", {}).items():
+            keep["relations"][meta["notion"]] = existing_relazioni.get(key, [])
     return {"entity_type": entity_type.upper(), "name": name, "notion_status": status,
-            "existing_notion_id": (existing or {}).get("id"), "operations": operations,
-            "gate": final_gate, "dry_run": True}
+            "operation": operation, "existing_notion_id": (existing or {}).get("id"),
+            "keep": keep, "operations": operations, "gate": final_gate,
+            # Multi-entity body routing (build_entity_body) is a single
+            # fallback section, not the section-routed, semantically-checked
+            # logic candidate.py's attach_body_adapter uses -- always require
+            # manual review before any body text from this path is published.
+            "body_gate": "BODY_REVIEW_REQUIRED", "dry_run": True}
 
 
 def build_entity_body(name: str, entity_type: str, claims: list[dict], page_templates: dict) -> str:
@@ -223,6 +281,13 @@ def write_entity_bundle(run_dir: Path, patch: dict, body_markdown: str, claims: 
     write_json(bundle / "claims.json", claims)
     write_json(bundle / "PATCH.json", patch)
     (bundle / "body.proposed_markdown").write_text(body_markdown, encoding="utf-8")
+    # NOTION_PATCH.json + NOTION_PAYLOAD.json: same shape gmv_notion_candidate.py
+    # writes, so this bundle is publishable via the existing, unmodified
+    # gmv_notion_publish.py -- load_bundle() only ever looks for these two
+    # filenames, never PATCH.json (kept above for this module's own callers/tests).
+    publish_patch = {**patch, "body": {"proposed_markdown": body_markdown}}
+    write_json(bundle / "NOTION_PATCH.json", publish_patch)
+    write_json(bundle / "NOTION_PAYLOAD.json", {"gate": patch["gate"]})
     lines = [f"# {patch['name']} ({patch['entity_type']})", "",
              f"Notion status: `{patch['notion_status']}`  ", f"Gate: `{patch['gate']}`  ",
              f"Operazioni proposte: {len(patch['operations'])}", ""]

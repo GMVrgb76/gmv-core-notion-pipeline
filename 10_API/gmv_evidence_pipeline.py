@@ -556,6 +556,23 @@ def all_fields(config: dict, entity_type: str) -> set[str]:
     return set(spec.get("campi", {}).keys()) | set(spec.get("relazioni", {}).keys())
 
 
+def notion_field_name(config: dict, entity_type: str, campo_key: str) -> str | None:
+    """Real Notion property name for a campo key, per config.json -- the same
+    lookup gmv_notion_candidate.py's build_incremental_patch does inline via
+    its own field_by_name dict, exposed here so gmv_notion_multi_candidate.py
+    resolves a routed field to the same real Notion property instead of
+    writing its own abstract campo key into a patch nothing downstream can
+    apply. Returns None if config.json doesn't define this campo for this
+    entity_type -- the caller must treat that as unresolvable, never guess."""
+    return config.get("entita", {}).get(entity_type.lower(), {}).get("campi", {}).get(campo_key, {}).get("notion")
+
+
+def notion_relation_name(config: dict, entity_type: str, relation_key: str) -> str | None:
+    """Real Notion relation-property name for a relation key, per config.json.
+    Sibling to notion_field_name(); see its docstring."""
+    return config.get("entita", {}).get(entity_type.lower(), {}).get("relazioni", {}).get(relation_key, {}).get("notion")
+
+
 def resolve_claims(raw_claims: list[dict], notion_rows: dict[str, list[dict]], aliases: dict[str, str] | None = None) -> list[dict]:
     """Deterministic exact/alias resolution; ambiguous values remain pending."""
     aliases = aliases or {}; candidates: dict[str, list[str]] = {}

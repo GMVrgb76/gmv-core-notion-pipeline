@@ -112,6 +112,21 @@ def test_check_staleness_reports_diff_when_live_value_changed():
     assert result["diffs"] == [{"property": "Nome", "bundle_value": "Federico", "live_value": "Cambiato"}]
 
 
+# --- find_existing_page_id -----------------------------------------------------
+
+def test_find_existing_page_id_returns_id_when_a_match_exists():
+    client = FakeNotion({("POST", "/databases/db1/query"): {"results": [{"id": "p1"}]}})
+    result = np.find_existing_page_id(client, "db1", "Nome", "Federico Garibaldi")
+    assert result == "p1"
+    assert client.calls == [("POST", "/databases/db1/query",
+                              {"filter": {"property": "Nome", "title": {"equals": "Federico Garibaldi"}}})]
+
+def test_find_existing_page_id_returns_none_when_no_match():
+    client = FakeNotion({("POST", "/databases/db1/query"): {"results": []}})
+    result = np.find_existing_page_id(client, "db1", "Nome", "Federico Garibaldi")
+    assert result is None
+
+
 # --- plan_requests / apply_patch ------------------------------------------------
 
 CREATE_PATCH = {"operation": "CREATE", "existing_notion_id": None,
