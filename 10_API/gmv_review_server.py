@@ -77,9 +77,36 @@ def render_index(run_dir: Path) -> str:
     return "\n".join(lines)
 
 
-def render_entity_page(folder: str, screen_text: str, already_published: bool) -> str:
-    lines = ["<html><body>", '<p><a href="/">&larr; torna all\'elenco</a></p>',
-             f"<pre>{html.escape(screen_text)}</pre>"]
+def read_bundle_context(bundle_dir: Path) -> dict:
+    """Read-only supplementary content already written to the bundle by
+    gmv_notion_multi_candidate.py -- EVIDENCE.md and the proposed body text.
+
+    Needed because publish_bundle() returns very early (before ever calling
+    render_review_screen()) whenever the gate isn't READY_FOR_NOTION or the
+    bundle's body_gate isn't BODY_PATCH_READY (multi-entity bundles always
+    set BODY_REVIEW_REQUIRED, see gmv_notion_multi_candidate.py) -- so its
+    own screen_text alone can be a single rejection line with none of the
+    claims/sources a human actually needs to review. This never re-runs or
+    duplicates publish_bundle's own checks; it only displays files the
+    pipeline already wrote to disk."""
+    evidence_md = bundle_dir / "EVIDENCE.md"
+    body_md = bundle_dir / "body.proposed_markdown"
+    return {
+        "evidence_md": evidence_md.read_text(encoding="utf-8") if evidence_md.is_file() else None,
+        "body_markdown": body_md.read_text(encoding="utf-8") if body_md.is_file() else None,
+    }
+
+
+def render_entity_page(folder: str, screen_text: str, already_published: bool, context: dict) -> str:
+    lines = ["<html><body>", '<p><a href="/">&larr; torna all\'elenco</a></p>']
+    if context.get("evidence_md"):
+        lines.append("<h2>Evidenze</h2>")
+        lines.append(f"<pre>{html.escape(context['evidence_md'])}</pre>")
+    if context.get("body_markdown"):
+        lines.append("<h2>Testo proposto per il corpo pagina</h2>")
+        lines.append(f"<pre>{html.escape(context['body_markdown'])}</pre>")
+    lines.append("<h2>Esito controlli di pubblicazione</h2>")
+    lines.append(f"<pre>{html.escape(screen_text)}</pre>")
     if not already_published:
         lines.append(f'<form method="POST" action="/entity/{html.escape(folder)}/approve">'
                      '<button type="submit">Pubblica</button></form>')
@@ -141,7 +168,8 @@ def make_handler(run_dir: Path, config_path: Path, token_file: str | None, notio
                 screen_text, _rc = preview_bundle(bundle_dir, config_path=config_path,
                                                   token_file=token_file, notion_version=notion_version)
                 already_published = (bundle_dir / "PUBLISHED.json").is_file()
-                self._send_html(render_entity_page(folder, screen_text, already_published))
+                context = read_bundle_context(bundle_dir)
+                self._send_html(render_entity_page(folder, screen_text, already_published, context))
                 return
             self._send_html("not found", 404)
 
