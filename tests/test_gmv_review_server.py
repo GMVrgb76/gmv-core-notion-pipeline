@@ -82,13 +82,45 @@ def test_approve_bundle_calls_publish_bundle_with_an_accepting_input_fn(tmp_path
 
 
 def test_render_entity_page_omits_publish_button_when_already_published():
-    page = srv.render_entity_page("f", "some text", already_published=True)
+    page = srv.render_entity_page("f", "some text", already_published=True, context={})
     assert "<form" not in page
 
 
 def test_render_entity_page_includes_publish_button_when_not_published():
-    page = srv.render_entity_page("f", "some text", already_published=False)
+    page = srv.render_entity_page("f", "some text", already_published=False, context={})
     assert "<form" in page and "/entity/f/approve" in page
+
+
+def test_render_entity_page_shows_evidence_and_body_even_when_screen_text_is_a_bare_rejection():
+    """Regression: publish_bundle() returns immediately (a one-line gate
+    rejection) whenever gate != READY_FOR_NOTION, before ever building the
+    full review screen -- without this, a human reviewing a REVIEW_REQUIRED
+    multi-entity bundle (the common case) would see nothing about what the
+    claims actually say."""
+    context = {"evidence_md": "# Denis Curti\n\nGate: REVIEW_REQUIRED",
+              "body_markdown": "## EVIDENZE E FONTI\n- AttraversaMenti curated by Denis Curti"}
+    page = srv.render_entity_page("f", "gate è 'REVIEW_REQUIRED' — pubblicazione rifiutata",
+                                  already_published=False, context=context)
+    assert "Denis Curti" in page
+    assert "AttraversaMenti" in page
+
+
+def test_render_entity_page_omits_supplementary_sections_when_bundle_has_none():
+    page = srv.render_entity_page("f", "some text", already_published=False, context={})
+    assert "Evidenze" not in page
+    assert "Testo proposto" not in page
+
+
+def test_read_bundle_context_reads_evidence_md_and_body_markdown(tmp_path):
+    (tmp_path / "EVIDENCE.md").write_text("# Titolo evidenze", encoding="utf-8")
+    (tmp_path / "body.proposed_markdown").write_text("## Sezione", encoding="utf-8")
+    context = srv.read_bundle_context(tmp_path)
+    assert context == {"evidence_md": "# Titolo evidenze", "body_markdown": "## Sezione"}
+
+
+def test_read_bundle_context_returns_none_for_missing_files(tmp_path):
+    context = srv.read_bundle_context(tmp_path)
+    assert context == {"evidence_md": None, "body_markdown": None}
 
 
 # --- real HTTP wiring, no real Notion/network calls -------------------------
