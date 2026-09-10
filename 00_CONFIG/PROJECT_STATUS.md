@@ -247,6 +247,9 @@ own report and `PROJECT_STATUS.md` has been updated to match it.
 - `00_CONFIG/STABILIZATION_EXIT_CRITERIA.md` (governance document — exit conditions for the Stabilization phase)
 - `00_CONFIG/STABILIZATION_CLOSED.md` (closure record — Stabilization phase formally closed)
 
+**Other tracked workstreams** (outside REBASE 001 / Post-REBASE 001 / Core Integrity scope — see each document for its own status protocol)
+- `00_CONFIG/EVIDENCE_PIPELINE_STATUS.md` (Dropbox archive → local LLM → Notion candidate/publish pipeline — separate track, lighter-weight status format, does not follow this document's Task Completion Protocol)
+
 Additional pre-existing governance documents (security, retention, backup, versioning, and per-domain architecture references) exist under `00_CONFIG/` outside the scope of REBASE 001 / Post-REBASE 001 and are not indexed here.
 
 ---
