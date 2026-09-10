@@ -1,3 +1,13 @@
+> **Nota (2026-09-10):** questo repository (`gmv-core-notion-pipeline`) è il
+> risultato dell'unificazione di più sistemi, avvenuta in una serie di merge
+> a partire dal 2026-08-29. Questo README descrive solo il validatore QA di
+> Area35 (il progetto originale di questo repository). Per il resto:
+> - `README_CORE.md` — il nucleo GMV Core (CLI `gmv`, `10_API/`, `gmv_core/`).
+> - `00_CONFIG/PROJECT_STATUS.md` — stato operativo della fase Core Integrity.
+> - `00_CONFIG/EVIDENCE_PIPELINE_STATUS.md` — pipeline Dropbox→LLM→Notion
+>   (`gmv evidence scan/extract/analyze/resolve/candidate/multi-candidate/
+>   publish/review`), incluso il comando `gmv` stesso.
+
 # Area35 Archive — validatore QA (grounded su schema reale + monade v1.0)
 
 Validatore delle schede Notion di Area35 in vista della proiezione verso **monade**

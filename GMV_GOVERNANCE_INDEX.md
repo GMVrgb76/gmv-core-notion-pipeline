@@ -25,6 +25,24 @@ The following generic filenames are non-canonical and must not be created as ali
 
 `GMV_PRODUCT_VISION.md` is the canonical product-vision source. `GMV_V2_EXECUTION_ROADMAP.md` is the canonical V2 execution-roadmap source.
 
+## Scope note (added 2026-09-10)
+
+This index only covers the V1/V2 product-vision and sprint-planning
+documents from before Sprint 002 (last updated 2026-07-04). It does **not**
+cover the operational governance system built afterward — ADRs, freeze
+records, suspension records, service specifications, or the active
+operational ledgers. For current project state, use:
+
+| Role | Canonical document |
+|---|---|
+| Current operational status ledger (Core Integrity phase) | `00_CONFIG/PROJECT_STATUS.md` |
+| Evidence pipeline / Notion publish status | `00_CONFIG/EVIDENCE_PIPELINE_STATUS.md` |
+
+`00_CONFIG/PROJECT_STATUS.md` §5 "Document Index" is the more complete,
+currently-maintained index of ADRs, freezes, suspensions, and
+specifications — treat it as authoritative for anything not listed in this
+file's own table above.
+
 ## Agent Rules
 
 1. Use the canonical GMV documents listed in this index.
