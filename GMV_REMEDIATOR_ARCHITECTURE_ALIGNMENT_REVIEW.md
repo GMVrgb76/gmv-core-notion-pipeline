@@ -6,6 +6,16 @@
 **Esito sintetico:** **allineamento parziale; contratto non ancora tecnicamente implementabile in sicurezza**  
 **Remediator:** non sviluppato e non esistente nel sistema osservato
 
+> **Nota correttiva (2026-09-10):** questa affermazione descrive lo stato al
+> momento della revisione (18 agosto 2026) ed è ora superata dai fatti.
+> `gmv_remediator.py` (517 righe, letto-e-basta/`read-only` per design, come
+> raccomandato più sotto) è stato introdotto nello stesso commit di questa
+> review (`1bcd1df`, "feat: add local read-only GMV remediator") ed è coperto
+> da test (`tests/test_gmv_remediator.py`, 247 righe). Il resto dell'analisi
+> qui sotto (bloccanti architetturali, identità incompatibili tra estrattori,
+> ecc.) non è stato riverificato e potrebbe restare valido o meno — questa
+> nota corregge solo l'affermazione "non sviluppato", non l'intera review.
+
 ## 1. Executive summary
 
 L'idea di fondo del contratto è corretta: separare diagnosi, pianificazione, autorizzazione, applicazione e nuovo audit; impedire la creazione di conoscenza non supportata; conservare provenienza e non regressione.
