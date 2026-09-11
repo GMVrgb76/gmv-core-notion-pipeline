@@ -94,7 +94,7 @@ def run(
     )
 
     candidate_script = Path(__file__).parent / "gmv_notion_candidate.py"
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - fixed argv from sys.executable + local script path, no shell
         [sys.executable, str(candidate_script), entity_name,
          "--entity-type", entity_type, "--claims", str(claims_path),
          "--rows", str(notion_rows), "--config", str(notion_config)],

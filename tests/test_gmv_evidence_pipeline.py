@@ -455,7 +455,7 @@ def test_analyze_retry_limit_then_failed(monkeypatch, tmp_path):
         return {"file_id": record["file_id"], "entities": [], "claims": [], "_runtime": {"done_reason": "stop"}}
     monkeypatch.setattr(evidence, "ollama_extract", _flaky)
     record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
-    out = evidence.semantic_extract_batch([record], tmp_path, artist="A", endpoint="x", model="m", retry_limit=3)
+    evidence.semantic_extract_batch([record], tmp_path, artist="A", endpoint="x", model="m", retry_limit=3)
     assert len(records) == 3
     manifest = evidence.load_analyze_manifest(tmp_path)
     assert manifest["sha256:abc123"]["status"] == "valid"

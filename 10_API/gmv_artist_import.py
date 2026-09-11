@@ -39,7 +39,7 @@ def plain_artist_name(value: str) -> str:
 
 
 def run(command: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, input=input_text, text=True, capture_output=True, check=False)
+    return subprocess.run(command, input=input_text, text=True, capture_output=True, check=False)  # noqa: S603 - fixed argv from module constants, no shell
 
 
 def sha256(path: Path) -> str:

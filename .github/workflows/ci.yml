@@ -11,6 +11,12 @@ permissions:
 jobs:
   quality:
     runs-on: macos-latest
+    env:
+      # On the maintainer's own machine ~/.gmv_core *is* the checkout, so
+      # GMV_CORE_ROOT-consuming scripts (e.g. 10_API/gmv_artist_import.py)
+      # resolve correctly without an override. The CI runner has no such
+      # directory, so it must be pointed at this job's actual checkout path.
+      GMV_CORE_ROOT: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

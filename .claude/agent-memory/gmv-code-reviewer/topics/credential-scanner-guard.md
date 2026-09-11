@@ -89,9 +89,10 @@
   heuristic has no minimum-length floor on the second literal, unlike the
   primary `credential_assignment` regex's own `{8,}` threshold, so it flags
   calls where the "fallback" is structurally incapable of being a secret.**
-  `token = self.config.get("key", "")`, `token = os.environ.get("API_TOKEN",
-  "")`, and `authorization = request.headers.get("Authorization", "")` (a
-  very common idiom: default-to-empty-string instead of `None`) all get
+  `token = self.config.get("key", "")` (gmv-policy-test-fixture),
+  `token = os.environ.get("API_TOKEN", "")` (gmv-policy-test-fixture),
+  and `authorization = request.headers.get("Authorization", "")` (gmv-policy-test-fixture)
+  — a very common idiom (default-to-empty-string instead of `None`) — all get
   flagged as `credential_assignment`, purely because they have 2 quoted
   arguments — the tool's own length-based secret heuristic used everywhere
   else is not applied to this nested check. Not currently present anywhere in

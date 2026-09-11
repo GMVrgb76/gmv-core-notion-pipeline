@@ -26,7 +26,7 @@ def _render_pages(pdf_path: Path, tmp_dir: Path, dpi: int) -> list[Path]:
     if not pdftoppm:
         raise RuntimeError("pdftoppm binary not found on PATH (poppler not installed)")
     prefix = tmp_dir / "page"
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - fixed argv from shutil.which + local path, no shell
         [pdftoppm, "-png", "-r", str(dpi), str(pdf_path), str(prefix)],
         capture_output=True, text=True,
     )
