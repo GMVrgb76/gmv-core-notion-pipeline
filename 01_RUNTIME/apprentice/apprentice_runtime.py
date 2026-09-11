@@ -153,14 +153,14 @@ GMV Apprentice Runtime V1.1
 
 ## Capability State
 
-""" + "\n".join(f"- {k}: {v}" for k, v in capabilities.items()) + f"""
+""" + "\n".join(f"- {k}: {v}" for k, v in capabilities.items()) + """
 
 ## Domain Scan
 
 """ + "\n".join(
     f"- {name}: {data.get('total_known_docs', 0)} documenti noti"
     for name, data in scan.items()
-) + f"""
+) + """
 
 ## Cambiamenti rispetto al ciclo precedente
 

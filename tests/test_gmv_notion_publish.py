@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import sys
 from datetime import datetime, timezone
@@ -12,7 +11,8 @@ sys.path.insert(0, str(ROOT))
 import gmv_notion_publish as gnp
 import audit_integrity
 
-CLOCK = lambda: datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+def CLOCK() -> datetime:
+    return datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
 
 
 def _write_bundle(tmp_path, *, gate="READY_FOR_NOTION", operation="CREATE",

@@ -206,7 +206,7 @@ def _paddleocr_extract(path: Path, *, num_pages: int) -> tuple[str, str]:
     timeout = min(PADDLEOCR_TIMEOUT_BASE_SECONDS + PADDLEOCR_TIMEOUT_PER_PAGE_SECONDS * max(num_pages, 1),
                   PADDLEOCR_TIMEOUT_MAX_SECONDS)
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - fixed argv from module constants + local path, no shell
             [str(PADDLEOCR_VENV_PYTHON), str(PADDLEOCR_SCRIPT), str(path), "--lang", PADDLEOCR_LANG, "--dpi", str(PADDLEOCR_DPI)],
             capture_output=True, text=True, timeout=timeout, check=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -245,8 +245,9 @@ def _extract(path: Path) -> tuple[str, str]:
         if not soffice: raise EvidenceError("EXTRACTION_FAILED", detail="soffice/libreoffice binary not found on PATH")
         with tempfile.TemporaryDirectory() as tmp:
             try:
-                subprocess.run([soffice, "--headless", "--convert-to", "txt:Text", "--outdir", tmp, str(path)],
-                               capture_output=True, timeout=60, check=True)
+                subprocess.run(  # noqa: S603 - fixed argv from shutil.which + local path, no shell
+                    [soffice, "--headless", "--convert-to", "txt:Text", "--outdir", tmp, str(path)],
+                    capture_output=True, timeout=60, check=True)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", "replace")
                 raise EvidenceError("EXTRACTION_FAILED", detail=stderr[:2000] or type(exc).__name__) from exc
@@ -315,9 +316,9 @@ def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars:
               "Every claim must contain subject_raw,predicate,object_raw,evidence_excerpt,status. Do not infer.\nTEXT:\n" + text)
     payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
                           "think": think, "options": {"num_ctx": num_ctx, "num_predict": num_predict}}).encode()
-    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate", data=payload, headers={"Content-Type": "application/json"})
+    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate", data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
             envelope = json.load(response)
             raw_output = envelope.get("response", "")
             runtime = {k: envelope.get(k) for k in ("done_reason", "eval_count", "prompt_eval_count", "prompt_eval_duration", "eval_duration")}
@@ -366,8 +367,8 @@ def cached_ollama_extract(record: dict, evidence_root: Path, *, endpoint: str, m
 
 def ollama_health(endpoint: str, timeout: int = 5) -> bool:
     try:
-        request = urllib.request.Request(endpoint.rstrip("/") + "/api/tags")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        request = urllib.request.Request(endpoint.rstrip("/") + "/api/tags")  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
             return response.status == 200
     except (OSError, urllib.error.URLError, TimeoutError):
         return False
@@ -376,14 +377,14 @@ def ollama_health(endpoint: str, timeout: int = 5) -> bool:
 def ollama_warmup(endpoint: str, model: str, *, num_ctx: int = 8192,
                   num_predict: int = 2048, timeout: int = 30, think: bool = False) -> dict:
     """Load the model once; this request is never counted as a semantic attempt."""
-    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate",
+    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate",  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
         data=json.dumps({"model": model, "prompt": "Return {}", "stream": False,
                          "format": "json", "think": think,
                          "options": {"num_ctx": num_ctx, "num_predict": num_predict}}).encode(),
         headers={"Content-Type": "application/json"})
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
             payload = json.load(response)
         return {"outcome": "SUCCESS", "elapsed_seconds": round(time.monotonic() - started, 3),
                 "eval_count": payload.get("eval_count"), "prompt_eval_duration": payload.get("prompt_eval_duration"),

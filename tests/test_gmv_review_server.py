@@ -143,7 +143,7 @@ class _LiveServer:
     def post(self, path):
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=b"", method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 - fixed 127.0.0.1 URL to this test's own local server
                 return resp.status, resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")

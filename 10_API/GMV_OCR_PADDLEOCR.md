@@ -19,7 +19,7 @@ Installazione, un tempo solo, **mai** da eseguire in test o CI (~1GB di download
 diversi minuti, CPU-only su Apple Silicon):
 
 ```bash
-/Users/giacomomarcovalerio/.local/bin/python3.11 -m venv ~/.gmv_core/.venv-paddleocr
+python3.11 -m venv ~/.gmv_core/.venv-paddleocr  # any Python 3.11 interpreter on PATH
 ~/.gmv_core/.venv-paddleocr/bin/python -m pip install --requirement 10_API/requirements-paddleocr.txt
 ```
 

@@ -22,7 +22,6 @@ import sys
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 
 SEV = {"BLOCKER": 0, "MAJOR": 1, "MINOR": 2, "INFO": 3}
 
@@ -71,7 +70,7 @@ def as_list(v):
         if s.startswith("["):
             try:
                 return [x for x in json.loads(s) if not vuoto(x)]
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 pass
         return [p.strip() for p in s.split(",") if p.strip()]
     return [v]

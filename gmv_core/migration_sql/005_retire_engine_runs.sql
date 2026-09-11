@@ -36,7 +36,7 @@ SELECT CASE
                   er.stdout_path,
                   er.stderr_path,
                   er.summary
-              ) = '14cb0faf3f2db75eb4a428eddc9dfadb2d1c02439218fb8667432b2fa0f66a8d'
+              ) = '14cb0faf3f2db75eb4a428eddc9dfadb2d1c02439218fb8667432b2fa0f66a8d' -- pragma: allowlist secret
           )
     )
     OR EXISTS (

@@ -21,7 +21,7 @@ SERVICE_IDENTITIES = {
 # a new reconciliation decision and must fail closed.
 APPROVED_EXCLUDED_ENGINE_RUN_ID = 23
 APPROVED_EXCLUDED_ENGINE_RUN_SHA256 = (
-    "14cb0faf3f2db75eb4a428eddc9dfadb2d1c02439218fb8667432b2fa0f66a8d"
+    "14cb0faf3f2db75eb4a428eddc9dfadb2d1c02439218fb8667432b2fa0f66a8d"  # pragma: allowlist secret
 )
 
 RECORDED_GATE_COUNTS = {(5, 25, 1), (30, 0, 1)}

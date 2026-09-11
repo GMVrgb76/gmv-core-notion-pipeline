@@ -569,7 +569,7 @@ def test_log_contains_only_structural_fields_no_values(tmp_path: Path, monkeypat
         frozenset({(THIS_FILE, "_writer_a", "INSERT", "allowed_tbl")}),
     )
     connection, log_path = _open(tmp_path, "GMV.db", mode="log", with_log=True)
-    secret_value = "gmv-test-fixture-do-not-log-me-0e5f3c2a"  # noqa: S105 (test fixture, not a real secret)
+    secret_value = "gmv-test-fixture-do-not-log-me-0e5f3c2a"  # noqa: S105 (test fixture, not a real secret)  # pragma: allowlist secret
     _writer_a(connection, "INSERT INTO allowed_tbl (v) VALUES (?)", (secret_value,))  # authorized: not logged
     _writer_b(connection, "INSERT INTO other_tbl (v) VALUES (?)", (secret_value,))  # would_deny: logged
 
