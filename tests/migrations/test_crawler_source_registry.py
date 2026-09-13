@@ -125,6 +125,10 @@ def test_explicit_target_nine_creates_table_with_expected_shape(tmp_path: Path) 
         "sha256:" + "a" * 63,  # 63 hex chars instead of 64
         "sha256:" + "A" * 64,  # uppercase not accepted
         "sha256:" + "g" * 64,  # non-hex character
+        "sha256:a" + "A" * 63,  # regression: first char valid hex, rest not --
+        # an earlier version of this CHECK used GLOB '[0-9a-f]' unrepeated,
+        # which SQLite only applies to ONE character position, silently
+        # letting the other 63 through unconstrained. Caught by review.
     ],
 )
 def test_content_hash_rejects_malformed_values(tmp_path: Path, bad_hash: str) -> None:

@@ -29,8 +29,20 @@
 BEGIN IMMEDIATE;
 
 CREATE TABLE crawler_source_registry (
+    -- GLOB '[0-9a-f]' only constrains ONE character position, not a
+    -- repeated run -- SQLite GLOB has no {n} quantifier. Constraining
+    -- length=71 and the 'sha256:' prefix, then asserting the remaining
+    -- 64-character substring contains no character OUTSIDE [0-9a-f]
+    -- anywhere, is the actual full-length check; a prior version of this
+    -- constraint silently validated only the first hex character and
+    -- left the other 63 unconstrained (caught by review before this
+    -- table had any real consumer).
     content_hash TEXT PRIMARY KEY
-        CHECK(content_hash GLOB 'sha256:[0-9a-f]*' AND length(content_hash) = 71),
+        CHECK(
+            substr(content_hash, 1, 7) = 'sha256:'
+            AND length(content_hash) = 71
+            AND substr(content_hash, 8) NOT GLOB '*[^0-9a-f]*'
+        ),
     connector TEXT NOT NULL,
     canonical_locator TEXT NOT NULL,
     resource_oid TEXT,
