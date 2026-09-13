@@ -1,0 +1,199 @@
+{
+  "version": "0.2",
+  "supersedes": "0.1",
+  "authority": "REQUIRED",
+  "scope": "General-purpose ingestion discipline for GMV AI workflows; runtime requirement for SUM to Monad transformation, including the GMV Crawler's VALIDATE EPISTEMICALLY stage.",
+  "principle": "The quality of the system must reside in the rules, not in the interpretive talent of the executor.",
+  "core_rule": "Never increase epistemic strength during ingestion. An executor may preserve or reduce the strength of a source assertion. It must never make an assertion stronger than the evidence supports.",
+  "source": {
+    "v0_1_rules": "Notion page 3b95a429-a028-8145-8c06-fcaf938c5eb3 — 🛡️ Epistemic Ingestion Constitution v0.1 (GPT-16, Lifecycle ACTIVE)",
+    "v0_2_integrations": "Notion page 3b95a429-a028-8189-bf3f-fb433ade1a38 — GMV Knowledge Monad Real Corpus Validation 001 (Federico Garibaldi), Final Adversarial Audit, 2026-08-11"
+  },
+  "note_on_translation": "This file is a 1:1 transcription of the 15 mandatory rules already validated in v0.1 (RCV_001 gates 0-5, Final Adversarial Audit 2026-08-11), plus the 4 integrations that the v0.1 Notion page's own 'Prossima azione' field and the Final Adversarial Audit explicitly identified as due in v0.2. No rule beyond these 19 was introduced during translation.",
+  "note_on_vocabulary_reconciliation": "This file has no consumer yet, so it introduces no live inconsistency, but its status/failure vocabulary (INVALIDATED, EVIDENCE_GAP, ONTOLOGY_CANDIDATE, INGESTION_DISCIPLINE_FAILURE) does not exist anywhere else in this repository and is not yet reconciled with the claim-status vocabulary already live in 10_API/gmv_evidence_pipeline.py (STATUS_PRECEDENCE) and 10_API/gmv_notion_candidate.py (SUPPORTED_CLAIM_STATUS). Whoever writes the first consumer of this file for the crawler's VALIDATE EPISTEMICALLY stage must reconcile the two vocabularies explicitly (mapping or unification), not let them coexist as parallel taxonomies.",
+  "failure_classification": {
+    "INGESTION_DISCIPLINE_FAILURE": "A violation of rules EIC-01 through EIC-12. Not automatically a schema failure.",
+    "REAL_CORPUS_SCHEMA_FAILURE": "May be declared only when supported evidence cannot be represented correctly even after applying this Constitution and the governed ontology process."
+  },
+  "rules": [
+    {
+      "rule_id": "EIC-01",
+      "statement": "Never increase epistemic strength during ingestion. A source may be represented at the same or lower certainty than it expresses, never at higher certainty.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 1 (core rule)"
+    },
+    {
+      "rule_id": "EIC-02",
+      "statement": "Absence of evidence is not contradiction. UNKNOWN, UNVERIFIED and NOT FOUND must never be converted into FALSE, INVALID or DISPUTED without conflicting evidence.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 2"
+    },
+    {
+      "rule_id": "EIC-03",
+      "statement": "A document assertion is not automatically a real-world fact. \"Document D asserts X\" and \"X is true\" are distinct propositions.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 3"
+    },
+    {
+      "rule_id": "EIC-04",
+      "statement": "Drafts, proposals and templates cannot directly create executed legal facts. They may create facts about the document and claims contained within it.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 4"
+    },
+    {
+      "rule_id": "EIC-05",
+      "statement": "Scheduled, proposed, agreed, executed, occurred and completed are distinct states. Never substitute one for another.",
+      "family": "temporal_state",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 5"
+    },
+    {
+      "rule_id": "EIC-06",
+      "statement": "A planned event cannot generate an occurrence-semantic predicate. Example: a scheduled exhibition cannot generate exhibited_at until occurrence is independently evidenced.",
+      "family": "temporal_state",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 6"
+    },
+    {
+      "rule_id": "EIC-07",
+      "statement": "Predicate reuse requires semantic equivalence. Do not reuse a nearby predicate merely to avoid ontology growth.",
+      "family": "ontology_discipline",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 7"
+    },
+    {
+      "rule_id": "EIC-08",
+      "statement": "Entity types must be evidence-supported. If the source establishes an entity but not its class, use a type-neutral identifier and record the typing issue.",
+      "family": "ontology_discipline",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 8"
+    },
+    {
+      "rule_id": "EIC-09",
+      "statement": "Every VALID atom must be defensible from explicit source evidence. If explaining the atom requires adding an unsupported premise, lower its status or model it as a document assertion.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 9"
+    },
+    {
+      "rule_id": "EIC-10",
+      "statement": "Derived GMV Masters are assertions, not primary evidence. They may guide retrieval but cannot alone upgrade uncertain claims to VALID.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 10"
+    },
+    {
+      "rule_id": "EIC-11",
+      "statement": "Unknown temporal endpoints remain unknown. VALID_TO: unknown never means \"still valid today\".",
+      "family": "temporal_state",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 11"
+    },
+    {
+      "rule_id": "EIC-12",
+      "statement": "When two interpretations are possible, choose the less assertive one.",
+      "family": "assertion_strength",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 12"
+    },
+    {
+      "rule_id": "EIC-13",
+      "statement": "Do not solve ontology gaps by changing the ATOM schema. Record candidate predicates/classes separately.",
+      "family": "ontology_discipline",
+      "severity": "DEFECT",
+      "failure_classification": null,
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 13 (outside the rules 1-12 INGESTION_DISCIPLINE_FAILURE classification per the source document's own Failure classification section)"
+    },
+    {
+      "rule_id": "EIC-14",
+      "statement": "Do not maximize atom count. Extract only durable semantic knowledge necessary for downstream state, timeline, relations or public projection.",
+      "family": "atomicity",
+      "severity": "DEFECT",
+      "failure_classification": null,
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 14"
+    },
+    {
+      "rule_id": "EIC-15",
+      "statement": "If uncertain whether a transformation is permitted, do not infer. Record EVIDENCE_GAP or ONTOLOGY_CANDIDATE.",
+      "family": "assertion_strength",
+      "severity": "DEFECT",
+      "failure_classification": null,
+      "source_reference": "Epistemic Ingestion Constitution v0.1, Mandatory rule 15"
+    }
+  ],
+  "v0_2_integrations": [
+    {
+      "rule_id": "EIC-16",
+      "statement": "Atoms that have been emitted and later corrected must never be deleted. They must remain traceable with STATUS=INVALIDATED and END_REASON=CORRECTED, using the lifecycle/provenance fields already present in the ATOM schema.",
+      "family": "lifecycle",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "RCV_001 Final Adversarial Audit, 2026-08-11 — \"Finding vincolante di runtime\" (tombstoning)"
+    },
+    {
+      "rule_id": "EIC-17",
+      "statement": "Object-time and proposition-time are independent dimensions and must be tracked separately. Example: creation year of an artwork instance is distinct from the validity time of a proposition about it.",
+      "family": "temporal_state",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "RCV_001 Gate 4 (Artwork/exemplar granularity) + Final Adversarial Audit runtime-discipline requirements, 2026-08-11"
+    },
+    {
+      "rule_id": "EIC-18",
+      "statement": "WORK and ARTWORK_INSTANCE are distinct entities and must never be merged. Edition size and edition number are separate atomic facts from the work itself.",
+      "family": "atomicity",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "RCV_001 Gate 4 (Artwork/exemplar granularity) + Final Adversarial Audit runtime-discipline requirements, 2026-08-11"
+    },
+    {
+      "rule_id": "EIC-19",
+      "statement": "Document assertions must be atomized at the granularity the source actually supports. Under-atomization that collapses multiple distinct source assertions into one atom is an ingestion-discipline failure, not a stylistic choice.",
+      "family": "atomicity",
+      "severity": "BLOCKING",
+      "failure_classification": "INGESTION_DISCIPLINE_FAILURE",
+      "source_reference": "RCV_001 Final Adversarial Audit, 2026-08-11 — ingestion-discipline failures observed: \"sotto-atomizzazione di document assertions\""
+    }
+  ],
+  "operational_test": {
+    "description": "Before emitting any atom, the executor must be able to answer all seven questions. If any answer indicates epistemic promotion, the atom must be revised, downgraded, or omitted.",
+    "questions": [
+      "What exact source supports this proposition?",
+      "Is the proposition stronger than the source wording?",
+      "Am I converting a plan into an occurrence?",
+      "Am I converting a document claim into a real-world fact?",
+      "Am I resolving ambiguity that the source itself does not resolve?",
+      "Am I reusing a predicate whose meaning is merely adjacent rather than equivalent?",
+      "Would a stricter interpretation produce a less assertive but still useful representation?"
+    ],
+    "source_reference": "Epistemic Ingestion Constitution v0.1, Operational test"
+  },
+  "executor_preferences": {
+    "description": "The executor must prefer the left-hand behavior over the right-hand one in each pair.",
+    "preferences": [
+      "literal support over semantic completion",
+      "explicit uncertainty over inferred certainty",
+      "document-level assertions over unsupported real-world promotion",
+      "type neutrality over premature entity classification",
+      "ontology candidates over semantically inaccurate predicate reuse",
+      "zero atoms over fabricated atoms when source content is unavailable"
+    ],
+    "source_reference": "Epistemic Ingestion Constitution v0.1, Executor behaviour"
+  }
+}
