@@ -49,3 +49,37 @@ confermati anche lì, con lo stesso dettaglio. In più:
   `max_chunk_chars=8000`, `min_adaptive_chunk_chars=500`.
 
 Nessuna lezione di review aggiuntiva accumulata ancora da review reali.
+
+## Lezione verificata 2026-09-13: docstring "riusato, non inventato" va sempre grep-verificata
+
+Un contratto astratto (`10_API/gmv_projection_adapter_contracts.py`) dichiarava
+esplicitamente nel docstring di riusare due vocabolari già vivi nel codice
+(`OperationAction` da `gmv_notion_candidate.py`/`gmv_notion_multi_candidate.py`;
+`Gate` dal `gate()` reale in `gmv_evidence_pipeline.py`). Entrambe le
+affermazioni erano false alla verifica diretta:
+
+- Il vocabolario action per-campo realmente prodotto è `{"ADD","UPDATE",
+  "CONFLICT"}` (mai "CREATE" — quello è solo il valore del campo entity-level
+  `operation`; "KEEP" viene calcolato ma mai scritto in `operations`, è
+  rappresentato per assenza).
+- Il `gate()` vivo restituisce `{"READY_FOR_NOTION","REVIEW_REQUIRED",
+  "INSUFFICIENT_EVIDENCE"}`, non `{"AUTO_ACCEPT","REVIEW_REQUIRED","BLOCKED"}`
+  — solo un valore su tre coincide.
+
+**Lezione generale:** quando un modulo nuovo dichiara "questo vocabolario non
+è inventato, è riusato da X" — non fidarsi della prosa, nemmeno se accurata
+e ben scritta altrove nello stesso file (lo stesso file aveva altre
+affermazioni verificate corrette, es. sui 6 return code di `publish_bundle()`
+e sul gap entity_type IT/EN). Fare sempre `grep -n '"action"'` (o equivalente)
+sui moduli citati come fonte, non fidarsi della sintesi. Un contratto/tipo
+può sbagliare la sua stessa premessa fondante (evitare vocabolari paralleli)
+proprio mentre dichiara di rispettarla.
+
+**Pattern di falsa evidenza da controllare sempre:** un test che dichiara nel
+nome/docstring di "pinnare"/verificare la fedeltà a un modulo esterno, ma che
+in realtà confronta solo `TypeAlias.__args__` (o simili) contro un secondo
+insieme hardcoded nello stesso file di test, senza mai importare o ispezionare
+il modulo esterno citato. Passa sempre, non rileva mai drift dal codice reale
+che dichiara di proteggere — solo drift dal contratto stesso. Verificare
+sempre se il test importa davvero il modulo di riferimento prima di contare
+"test verdi" come evidenza.
