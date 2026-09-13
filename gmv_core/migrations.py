@@ -30,12 +30,15 @@ OID_TYPE_CONSISTENCY_VERSION = 8
 OID_TYPE_CONSISTENCY_RESOURCE = "migration_sql/008_oid_type_consistency.sql"
 CRAWLER_SOURCE_REGISTRY_VERSION = 9
 CRAWLER_SOURCE_REGISTRY_RESOURCE = "migration_sql/009_crawler_source_registry.sql"
+ENTITY_REGISTRY_VERSION = 10
+ENTITY_REGISTRY_RESOURCE = "migration_sql/010_entity_registry.sql"
 CURRENT_SCHEMA_VERSION = OID_TYPE_CONSISTENCY_VERSION
-# CRAWLER_SOURCE_REGISTRY_VERSION is intentionally not CURRENT_SCHEMA_VERSION
-# and not in SUPPORTED_SCHEMA_VERSIONS: the crawler subsystem that owns this
-# table does not exist yet. It is reachable only via an explicit
+# CRAWLER_SOURCE_REGISTRY_VERSION and ENTITY_REGISTRY_VERSION are
+# intentionally not CURRENT_SCHEMA_VERSION and not in
+# SUPPORTED_SCHEMA_VERSIONS: the crawler subsystem that owns these tables
+# does not exist yet. They are reachable only via an explicit
 # target_version, exactly like versions 1-7 are today -- no caller of
-# migrate(db) without an explicit target is affected by its existence.
+# migrate(db) without an explicit target is affected by their existence.
 
 
 def _quoted_identifier(identifier: str) -> str:
@@ -233,6 +236,7 @@ def migrate(
         DOMAIN_CONSTRAINTS_VERSION,
         OID_TYPE_CONSISTENCY_VERSION,
         CRAWLER_SOURCE_REGISTRY_VERSION,
+        ENTITY_REGISTRY_VERSION,
     }
     if target_version not in supported_versions:
         raise MigrationStateError(f"unsupported target schema version: {target_version}")
@@ -338,6 +342,17 @@ def migrate(
                     resource=CRAWLER_SOURCE_REGISTRY_RESOURCE,
                 )
                 current_version = CRAWLER_SOURCE_REGISTRY_VERSION
+            if (
+                target_version >= ENTITY_REGISTRY_VERSION
+                and current_version == CRAWLER_SOURCE_REGISTRY_VERSION
+            ):
+                _apply_migration(
+                    connection,
+                    target=target,
+                    version=ENTITY_REGISTRY_VERSION,
+                    resource=ENTITY_REGISTRY_RESOURCE,
+                )
+                current_version = ENTITY_REGISTRY_VERSION
             return current_version
     except sqlite3.Error as error:
         raise MigrationError(f"could not open migration target {target}: {error}") from error
@@ -359,6 +374,7 @@ def main(arguments: list[str] | None = None) -> int:
             DOMAIN_CONSTRAINTS_VERSION,
             OID_TYPE_CONSISTENCY_VERSION,
             CRAWLER_SOURCE_REGISTRY_VERSION,
+            ENTITY_REGISTRY_VERSION,
         ),
         default=CURRENT_SCHEMA_VERSION,
     )
