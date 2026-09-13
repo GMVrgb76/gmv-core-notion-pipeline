@@ -83,3 +83,34 @@ il modulo esterno citato. Passa sempre, non rileva mai drift dal codice reale
 che dichiara di proteggere — solo drift dal contratto stesso. Verificare
 sempre se il test importa davvero il modulo di riferimento prima di contare
 "test verdi" come evidenza.
+
+## Lezione verificata 2026-09-13 (review gmv_atom_validator.py): overclaim di un solo campo dello schema, e riuso parziale non dichiarato
+
+Un modulo di validazione (`10_API/gmv_atom_validator.py`) dichiarava nel docstring
+di applicare "ontology governance" su due campi (PREDICATE e, dove identity-typed,
+OBJECT_TYPE) contro `GMV_ONTOLOGY_REGISTRY_v0.1.json`. Verifica diretta (`grep -n
+"object_type"`): solo la dichiarazione del campo nel dataclass, nessuna regola lo
+controllava, nessun test lo copriva. Il vocabolario `predicates` del registry era
+davvero consultato; `entity_classes` — necessario per OBJECT_TYPE — non veniva mai
+letto nonostante `_load_ontology_registry()` caricasse l'intero file.
+
+**Lezione generale (rafforza quella del 2026-09-13 precedente):** un overclaim può
+essere parziale, non totale — un modulo può riusare davvero un vocabolario/import
+per un campo (verificato vero) e nello stesso paragrafo dichiarare falsamente di
+applicarlo anche a un secondo campo correlato. Non basta verificare una singola
+affermazione "riusato, non inventato" e fermarsi: quando il docstring elenca più
+campi/controlli nella stessa frase, verificare ciascuno separatamente con grep,
+non assumere che la verifica di uno implichi la veridicità degli altri.
+
+**Seconda lezione, distinta:** quando un modulo dichiara di riusare "la logica di
+normalizzazione/deduplicazione già presente" in un file più vecchio, verificare se
+quel file più vecchio risolve *più di una* funzione di normalizzazione per lo
+stesso problema generale (qui: `area35_validator.py` ha sia `norm()` sia
+`_forma()`, quest'ultima specificamente per riconciliare ordine "Cognome, Nome" vs
+"Nome Cognome" nei duplicati persona/artista). Un modulo nuovo può importare e
+riusare correttamente una delle due funzioni (`norm`, verificato con `is`) mentre
+omette l'altra (`_forma`) senza dichiararlo — producendo un gap di deduplicazione
+concreto (falsi negativi: stesso claim, ordine del nome diverso, fingerprint
+diverso) che il repo aveva già risolto altrove per lo stesso tipo di dato. Cercare
+sempre, nel file citato come fonte di riuso, se esistono più utility correlate
+allo stesso problema, non solo quella effettivamente importata.
