@@ -1,0 +1,277 @@
+{
+  "version": "0.1",
+  "authority": "REQUIRED",
+  "scope": "System-level vocabulary governance for the GMV Knowledge Monad and the GMV Crawler's RESOLVE ENTITIES / NORMALIZE PREDICATES stages. Referenced but not itself defined by GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §4 (Ontology governance) as a separate system-level component.",
+  "governance_rule": "reuse-before-invention. A new entity class or predicate must be registered here as CANDIDATE, with evidence and rationale, before use. It cannot silently enter canonical (CORE/DOMAIN) vocabulary. An ontology gap is not a schema failure (GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §15). Do not reuse a semantically adjacent predicate if it is not semantically equivalent (Epistemic Ingestion Rules EIC-07).",
+  "status_values": {
+    "CORE": "Domain-neutral vocabulary, validated in the original controlled vocabulary v0.1 (synthetic experiments EXP_001-EXP_003R2) and/or the frozen Monad spec. Expected to apply across any GMV vertical, not only Area35 art.",
+    "DOMAIN": "Specific to the Area35 art/curatorial domain. Validated in the same sources as CORE, but not expected to generalize to other GMV verticals without review.",
+    "CANDIDATE": "Proposed, evidenced, but not yet governed. May be promoted to CORE/DOMAIN only by an explicit decision, never silently.",
+    "DEPRECATED": "Superseded by one or more other entries; retained here only so historical references resolve and to prevent silent reintroduction."
+  },
+  "predicate_classes": ["IDENTITY", "ATTRIBUTE", "RELATION", "EVENT", "MEASURE", "EPISTEMIC"],
+  "source": {
+    "controlled_vocabulary_v0_1": "Notion page 3b95a429-a028-81ee-b138-f9891d5429fa — GMV Monad Research & Execution Protocol v1.0, §7 (Controlled vocabulary v0.1)",
+    "entity_granularity_rule": "Notion page 3b95a429-a028-8116-a236-d8867862d077 — GMV_KNOWLEDGE_MONAD_SPEC_v1.0, §7 (Entity granularity: WORK != ARTWORK_INSTANCE) and §3 (Predicate classes, frozen)",
+    "real_corpus_coverage": "GMV Crawler — Specifica di Implementazione v0.2, Correzione 5 (fan-out reale su Garibaldi 2026-09-09: 1 artista, 3 mostre, 1 persona, 2 istituzioni; sponsor codificato ma solo test unitari)",
+    "informal_candidate_source": "GMV Crawler — Documento Base Pre-Plan, §6.5/§6.7 (never empirically validated; entries sourced from here are marked CANDIDATE, not CORE/DOMAIN)"
+  },
+  "note_on_reuse_before_invention_applied_here": "One duplicate-avoidance decision was made while assembling this v0.1 seed and pinned by a cross-check against the live schema, not left implicit: 'evidences' (DOCUMENT -> evidences -> CLAIM, from the informal base pre-plan doc) is registered as an alias of 'source_for' (the predicate actually present in the validated controlled vocabulary v0.1), not as a second predicate for the same relationship.",
+  "note_on_a_correction_made_during_review": "An earlier draft of this file registered INSTITUTION as a bare alias of ORGANIZATION, citing GMV Crawler v0.2 Correzione 5 as support. Independent review found that citation backwards: 00_CONFIG/notion_page_templates.json (entita.istituzione, its own Notion page template) and 10_API/gmv_notion_multi_candidate.py:53 ('istituzioni' -> 'istituzione') show ISTITUZIONE/INSTITUTION is the concept actually implemented, with its own Notion table and a real normalization mapping in production code. ORGANIZATION, by contrast, has never been instantiated anywhere in this repository -- it exists only as a name in the abstract, superseded Research Protocol vocabulary. INSTITUTION is therefore registered below as its own DOMAIN entity class (the same treatment ARTIST gets relative to PERSON, and EXHIBITION relative to EVENT), not folded into ORGANIZATION as an alias.",
+  "entity_classes": [
+    {
+      "class_id": "PERSON",
+      "status": "CORE",
+      "aliases": [],
+      "definition": "An individual human being, distinct from ARTIST (a role a PERSON may hold).",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "ORGANIZATION",
+      "status": "CORE",
+      "aliases": [],
+      "definition": "A collective entity in the domain-neutral sense: company, agency, or similar. Never itself instantiated in this repository's operational code or Notion schema -- kept as CORE only because it is part of the original domain-neutral controlled vocabulary and may be relevant to a future non-art GMV vertical (e.g. GMV Real Estate Knowledge Pipeline). For the Area35 art domain, use INSTITUTION, the entity type that is actually implemented.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "INSTITUTION",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "A cultural/curatorial institution (museum, foundation, public body) within the Area35 domain -- a DOMAIN specialization of ORGANIZATION, the same relationship ARTIST has to PERSON and EXHIBITION has to EVENT. This is the entity type actually implemented: its own Notion page template (00_CONFIG/notion_page_templates.json, entita.istituzione) and a real normalization mapping in production code (10_API/gmv_notion_multi_candidate.py:53, 'istituzioni' -> 'istituzione'). 2 institutions were discovered on the real Garibaldi corpus run, 2026-09-09.",
+      "source_reference": "00_CONFIG/notion_page_templates.json (entita.istituzione); 10_API/gmv_notion_multi_candidate.py:53; 00_CONFIG/EVIDENCE_PIPELINE_STATUS.md"
+    },
+    {
+      "class_id": "PLACE",
+      "status": "CORE",
+      "aliases": [],
+      "definition": "A physical location: city, venue, address.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "EVENT",
+      "status": "CORE",
+      "aliases": [],
+      "definition": "A dated occurrence, distinct from EXHIBITION (a domain-specific specialization).",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "DOCUMENT",
+      "status": "CORE",
+      "aliases": [],
+      "definition": "A source artifact: PDF, contract, catalogue, email, etc. Anchors SOURCE_ID/EVIDENCE_ID provenance.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "ARTIST",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "A PERSON acting in the role of visual artist within the Area35 domain.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "EXHIBITION",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "A specific art exhibition, domain specialization of EVENT.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "PROJECT",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "A bounded body of curatorial or production work not itself an EXHIBITION.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "COLLECTION",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "A grouped set of ARTWORK_INSTANCE entities under common ownership or curatorial framing.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "class_id": "WORK",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "The conceptual/editioned artwork, independent of any single physical exemplar. Edition-level properties (edition_size) belong here, not to ARTWORK_INSTANCE.",
+      "source_reference": "GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7, real-corpus finding WORK_THE_WHITE_CONNECTION_2016"
+    },
+    {
+      "class_id": "ARTWORK_INSTANCE",
+      "status": "DOMAIN",
+      "aliases": [],
+      "definition": "A single physical exemplar of a WORK. Instance-level properties (edition_number, ownership) belong here, not to WORK.",
+      "source_reference": "GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7, real-corpus finding ARTWORK_INSTANCE_WHITE_CONNECTION_1_OF_3"
+    },
+    {
+      "class_id": "ARTWORK",
+      "status": "DEPRECATED",
+      "superseded_by": ["WORK", "ARTWORK_INSTANCE"],
+      "aliases": [],
+      "definition": "Originally the flat entity class for any artwork in the controlled vocabulary v0.1. The real-corpus test (RCV_001 Gate 4) established that this granularity loses information the corpus actually supports (edition size vs. edition number are independently correctable facts). Kept here, deprecated, so any pre-existing reference resolves instead of failing silently -- new work must use WORK or ARTWORK_INSTANCE, never ARTWORK.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7 (original); GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7 (split, binding)"
+    },
+    {
+      "class_id": "SPONSOR",
+      "status": "CANDIDATE",
+      "aliases": [],
+      "definition": "An entity (PERSON or ORGANIZATION) providing financial or material support to a PROJECT/EXHIBITION. Already one of the six target tables in the existing Notion schema and coded in gmv_notion_multi_candidate.py, but that path is exercised only by unit tests -- never validated against real corpus data.",
+      "source_reference": "GMV Crawler v0.2 Correzione 5 (gmv_notion_multi_candidate.py six-table fan-out)"
+    },
+    {
+      "class_id": "CONTRACT",
+      "status": "CANDIDATE",
+      "aliases": [],
+      "definition": "A legal/commercial agreement document. Listed in the informal pre-plan's entity extraction wishlist; never produced or validated in any synthetic experiment, RCV_001 gate, or adversarial audit.",
+      "source_reference": "GMV Crawler — Documento Base Pre-Plan §6.5 (informal, unvalidated)"
+    }
+  ],
+  "predicates": [
+    {
+      "predicate_id": "represented_by",
+      "predicate_class": "RELATION",
+      "status": "CORE",
+      "domain": ["ARTIST", "PERSON"],
+      "range": ["ORGANIZATION", "PERSON"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject is represented, in a gallery/agency sense, by object.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "predicate_id": "participated_in",
+      "predicate_class": "RELATION",
+      "status": "CORE",
+      "domain": ["PERSON", "ARTIST"],
+      "range": ["EVENT", "EXHIBITION", "PROJECT"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject took part in the object event/exhibition/project.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7; example usage in GMV Crawler — Documento Base Pre-Plan §6.7"
+    },
+    {
+      "predicate_id": "related_to",
+      "predicate_class": "RELATION",
+      "status": "CORE",
+      "domain": ["ANY"],
+      "range": ["ANY"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Generic, untyped relation. Deliberately weak: a CANDIDATE predicate proposal must be checked against this list before defaulting to related_to, per Epistemic Ingestion Rules EIC-07 (predicate reuse requires semantic equivalence, not proximity).",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7",
+      "notes": "Discouraged as a default. Prefer a specific predicate; propose a new CANDIDATE predicate before falling back to related_to for anything with a recognizable semantic shape."
+    },
+    {
+      "predicate_id": "located_at",
+      "predicate_class": "RELATION",
+      "status": "CORE",
+      "domain": ["EXHIBITION", "EVENT", "ORGANIZATION"],
+      "range": ["PLACE"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject is physically located at object.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "predicate_id": "source_for",
+      "predicate_class": "RELATION",
+      "status": "CORE",
+      "domain": ["DOCUMENT"],
+      "range": ["ANY"],
+      "aliases": ["evidences"],
+      "inverse": null,
+      "definition": "Subject document is the evidentiary source for the object claim/entity/atom.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7",
+      "notes": "'evidences' (DOCUMENT -> evidences -> CLAIM) appears in the informal base pre-plan doc §6.7 for the same relationship. Registered here as an alias, not a second predicate, per reuse-before-invention. range=ANY is not a governed escape hatch here: CLAIM and ATOM are system-level constructs defined by the ATOM schema (GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §2.3), not entity classes tracked by this registry, so this range cannot be expressed as a closed list of known class_id values without extending this file's own scope. This is a vocabulary coverage gap, not a deliberate design choice like related_to's."
+    },
+    {
+      "predicate_id": "supersedes",
+      "predicate_class": "RELATION",
+      "status": "CORE",
+      "domain": ["ANY"],
+      "range": ["ANY"],
+      "aliases": [],
+      "inverse": "superseded_by",
+      "definition": "Subject atom/claim/evidence is the direct successor of the object. Mirrors the frozen ATOM schema fields SUPERSEDES/SUPERSEDED_BY -- this predicate governs the relation, the ATOM fields govern the per-atom pointer.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7; GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §2.3 (ATOM schema), §9 (lifecycle)"
+    },
+    {
+      "predicate_id": "created_by",
+      "predicate_class": "RELATION",
+      "status": "DOMAIN",
+      "domain": ["WORK", "ARTWORK_INSTANCE"],
+      "range": ["ARTIST"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject work/instance was created by the object artist.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7; example usage in GMV Crawler — Documento Base Pre-Plan §6.7"
+    },
+    {
+      "predicate_id": "exhibited_at",
+      "predicate_class": "RELATION",
+      "status": "DOMAIN",
+      "domain": ["ARTWORK_INSTANCE"],
+      "range": ["EXHIBITION", "PLACE"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject was physically exhibited at the object. Domain is deliberately ARTWORK_INSTANCE only, not WORK: WORK is defined in this same registry as 'independent of any single physical exemplar', and exhibited_at is a physical-occurrence predicate (see notes) -- allowing WORK here would reintroduce, one level down, the granularity collapse that deprecating flat ARTWORK was meant to resolve.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7",
+      "notes": "Occurrence-semantic predicate. Per Epistemic Ingestion Rules EIC-06, a scheduled/planned exhibition cannot generate this predicate until occurrence is independently evidenced."
+    },
+    {
+      "predicate_id": "organized_by",
+      "predicate_class": "RELATION",
+      "status": "DOMAIN",
+      "domain": ["EXHIBITION", "EVENT", "PROJECT"],
+      "range": ["ORGANIZATION", "PERSON"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject was organized by the object.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "predicate_id": "owned_by",
+      "predicate_class": "RELATION",
+      "status": "DOMAIN",
+      "domain": ["ARTWORK_INSTANCE"],
+      "range": ["PERSON", "ORGANIZATION"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject instance is currently owned by the object.",
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+    },
+    {
+      "predicate_id": "edition_of",
+      "predicate_class": "RELATION",
+      "status": "DOMAIN",
+      "domain": ["ARTWORK_INSTANCE"],
+      "range": ["WORK"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject instance belongs to the edition of the object work.",
+      "source_reference": "GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7"
+    },
+    {
+      "predicate_id": "edition_size",
+      "predicate_class": "ATTRIBUTE",
+      "status": "DOMAIN",
+      "domain": ["WORK"],
+      "range": ["integer"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Total number of instances in the edition. An edition-level fact, not an instance-level one.",
+      "source_reference": "GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7"
+    },
+    {
+      "predicate_id": "edition_number",
+      "predicate_class": "ATTRIBUTE",
+      "status": "DOMAIN",
+      "domain": ["ARTWORK_INSTANCE"],
+      "range": ["integer"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "This instance's position within its edition. An instance-level fact, not an edition-level one -- must not be merged with edition_size into a single 'edition' literal (GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §8, atomicity).",
+      "source_reference": "GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7, §8"
+    }
+  ]
+}
