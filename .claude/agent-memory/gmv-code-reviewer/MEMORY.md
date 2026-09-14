@@ -175,3 +175,35 @@ astrazione (qui: gestione token), fare il proprio grep indipendente per il
 tipo di componente realmente rilevante (qui: non "dropbox"/"OAuth"/"secrets
 vault" ma "credential"/"token" a livello di funzione riusabile), non solo
 ripetere i termini che l'autore del modulo ha già cercato.
+
+## Lezione verificata 2026-09-14 (review gmv_crawler_candidate_extractor.py): vocabolario riusato per import ma con semantica d'uso incompatibile con l'originale — variante del pattern "riuso non verificato"
+
+Il modulo importava davvero `STATUS_PRECEDENCE` da `gmv_evidence_pipeline.py` (nessun
+vocabolario inventato ex novo — il grep di superficie "è importato, non duplicato"
+era vero). Ma lo usava come whitelist di rigetto (`if status not in STATUS_PRECEDENCE:
+raise ValueError`), mentre il codice sorgente che lo definisce dichiara esplicitamente
+nel proprio commento che quel campo è "free text, not an enum" e usa la lista solo
+per un ranking tollerante (`_better_status`, mai un raise). Riprodotto empiricamente:
+un solo status fuori whitelist tra più candidati validi fa collassare `tuple(...)`
+dentro una list/generator comprehension e cancella *tutti* i candidati del batch,
+non solo quello con lo status incriminato — un local LLM (gemma-class) emette status
+come free text senza vincolo enum né nel prompt né nello schema JSON (`"status":
+{"type": "string"}`, nessun `enum`), quindi questo non è un edge case ipotetico ma
+il comportamento atteso al primo run reale.
+
+**Lezione generale (estende quella del 2026-09-13 su `gmv_projection_adapter_contracts.py`):**
+non basta verificare che un vocabolario citato come "riusato, non inventato" sia
+davvero importato dal modulo sorgente corretto — bisogna verificare anche che la
+*semantica d'uso* (rigetto rigido vs tolleranza/ranking) coincida con quella che il
+modulo sorgente stesso applica. Un `grep` che conferma l'import è necessario ma non
+sufficiente; leggere anche i commenti/il comportamento reale attorno a quel
+vocabolario nel file sorgente (qui: `_better_status`'s commento esplicito "always
+loses to a recognized one" era la prova diretta della tolleranza intesa). Inoltre:
+quando una validazione di un singolo campo (`status`) vive dentro il `__post_init__`
+di un dataclass costruito in una list/tuple comprehension su più item, un'eccezione
+da un solo item propaga e cancella l'intero batch — verificare sempre se questo
+comportamento all-or-nothing è compatibile con la semantica "per-item" che la spec
+dichiara (qui §10: "il candidato è rifiutato", singolare, non l'intero documento).
+Un test che valida solo il costruttore in isolamento (item singolo) non rileva
+questo effetto collaterale — serve un test esplicito con batch misto (un item
+valido + un item che fallisce la validazione) per dimostrarlo.
