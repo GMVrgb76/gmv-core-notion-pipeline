@@ -1,13 +1,15 @@
-# GMV Crawler — Handoff for continuation (preplan steps 9-16)
+# GMV Crawler — Handoff for continuation (preplan steps 11-16)
 
-Status: steps 1-8 of the crawler's implementation order (spec §33) are
-complete, reviewed, committed, and pushed. This document lets a different
-tool/session (OpenCode, Codex, a fresh Claude Code session, or a human)
-resume from step 9's open decision (see "Step 9 is blocked" below) without
-re-deriving what this and the prior session already verified. Read this
-document fully before touching code — several assumptions in the original
-spec turned out to be false on inspection; this document tells you which
-ones, and how they were corrected.
+Status: steps 1-10 of the crawler's implementation order (spec §33) are
+complete, reviewed, committed, and pushed — including step 9 (Dropbox
+SourceConnector), whose original premise was false (see Correction 2
+below) and required an explicit user decision before it could proceed.
+This document lets a different tool/session (OpenCode, Codex, a fresh
+Claude Code session, or a human) resume from step 11 without re-deriving
+what prior sessions already verified. Read this document fully before
+touching code — several assumptions in the original spec turned out to be
+false on inspection; this document tells you which ones, and how they
+were corrected.
 
 ## Repository state
 
@@ -16,24 +18,33 @@ ones, and how they were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 9 commits ahead of base, in order:
+- 13 commits ahead of base, in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
   4. `fbbcb739` — Projection Adapter contract (step 5)
   5. `9a719578` — Entity Registry migration (step 6)
   6. `a4334505` — Atom validator (step 7)
-  7. `d328028` — this handoff document, first version
-  8. `0dd6c76` — fix: unblock test collection (pre-existing Python-2-syntax
+  7. `d3280282` — this handoff document, first version
+  8. `0dd6c767` — fix: unblock test collection (pre-existing Python-2-syntax
      SyntaxError in `10_API/gmv_artist_normalize_plan.py`, unrelated to the
      crawler, predates this branch's fork point — see "Unrelated bug fixed
      this session" below) and repo git policy (this handoff's own absolute
      path)
-  9. `8327d78` — Monad materializer v1.0 (step 8)
-- Full test suite as of `8327d78`: **851 passed, 10 failed**. The 10
-  failures are pre-existing, sandbox-environment-only gaps, not
-  regressions — verified individually, not fixed (see "Known
-  environment-only failures" below). `ruff check .` clean.
+  9. `8327d786` — Monad materializer v1.0 (step 8)
+  10. `9fa5d999` — docs: handoff update for step 8 completion / step 9 re-verification
+  11. `dc76fb02` — docs: resolve Ombra canonical directory decision (`03_STATE/ombra/`)
+  12. `60543d0d` — feat: Extractors module (step 10)
+  13. `909d3b38` — feat: real Dropbox SourceConnector against Dropbox API v2 (step 9)
+- Full test suite as of `909d3b38`: **903 passed, 0 failed** — the 2
+  previously-documented soffice-portability failures (see "Known
+  environment-only failures" below) are gone as of this run, most likely
+  because PR #18 (`fix/test-collection-and-soffice-portability`) was
+  merged into `main` in the interim; **verify this yourself** (`git log
+  main | grep soffice` or check the PR's status) rather than assuming —
+  do not treat "soffice failures reappeared" in a future container as a
+  regression this branch caused if PR #18 was never actually merged.
+  `ruff check .` clean.
   Re-run before continuing: `<repo-root>/.venv/bin/python -m pytest tests/ -q`
   and `... -m ruff check .` — see "Environment" below on which venv to use.
 
@@ -48,13 +59,23 @@ ones, and how they were corrected.
   requirements-dev.txt`) and used that throughout. Do the same in a new
   session/container rather than assuming any specific path exists.
 - No network/Notion/Dropbox credentials needed for the schema/contract
-  work (steps 1-7). Step 8 (Monad materializer) is the first step with a
-  real write path, but it writes to a caller-supplied local path only —
-  still no network/credentials involved.
+  work (steps 1-7), nor for step 8 (Monad materializer writes to a
+  caller-supplied local path only), nor for step 10 (Extractors run on
+  local bytes). Step 9 (`10_API/gmv_dropbox_connector.py`) is the first
+  step that talks to a real external API and needs a credential:
+  `DROPBOX_ACCESS_TOKEN` (a static access token, read via
+  `credentials.get_token()`). The connector's own test suite never needs
+  a real token (a fake `requests.Session` is injected), but any real
+  invocation against actual Dropbox content — which no step 11+ work has
+  done yet — will need this env var set.
 
 ### Known environment-only failures (do not "fix" without checking your own container first)
 
-10 of the ~861 collected tests fail in this session's sandboxed container
+As of `909d3b38` these failures are **not currently reproducing** (see
+"Repository state" above) — likely because PR #18 was merged. Keeping
+this section because the underlying causes are container-specific, not
+proven fixed for every container, and could reappear in a fresh sandbox:
+up to 10 of the ~903 collected tests can fail in a sandboxed container
 for reasons confirmed to be container setup, not code:
 - 8 in `tests/test_gmv_artist_import.py`: the tool under test shells out to
   an installed copy at `~/.gmv_core/10_API/gmv_folder_report.py`, which
@@ -191,7 +212,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-8), file by file
+## What exists now (steps 1-10), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -214,8 +235,12 @@ All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 | 7 | `tests/test_gmv_atom_validator.py` | Full rule coverage, incl. a test proving a known accepted trade-off (fingerprint collisions on reordered non-person text) rather than hiding it |
 | 8 | `10_API/gmv_monad_materializer.py` | `MonadDocument`/`SourceManifestEntry` (frozen dataclasses), `render_monad_markdown()` (pure function -> canonical `.md` text, §19 skeleton), `materialize_monad()` (validates via `find_materialization_blockers()` — BLOCKER-only gate reusing `validate_atom()` — then writes atomically via `secure_storage.atomic_write_text`). No canonical Monad directory decided; caller supplies `target_path`. PUBLIC text is caller-supplied verbatim, not computed here (that is step 15) |
 | 8 | `tests/test_gmv_monad_materializer.py` | Cross-checks gmv_id/entity_type gates against real migration 010 SQL (not a second hardcoded list), rendering/escaping tests, materialize_monad atomicity/idempotency/permission tests |
+| 9 | `10_API/gmv_dropbox_connector.py` | `DropboxConnector` — real HTTP client (via `requests`) against Dropbox API v2, satisfying `SourceConnector` structurally. Auth: static token via `DROPBOX_ACCESS_TOKEN` (reuses `credentials.get_token()`, not a new mechanism). `content_hash()`/`metadata()` download and compute a real single-pass SHA-256 rather than reusing Dropbox's own differently-algorithmed `content_hash` field (deliberate correctness choice — see module docstring). Network failures normalized to `DropboxConnectorError`. Known v1 gaps, documented not fixed: no streaming for large files (full response body held in memory), no 429/rate-limit backoff |
+| 9 | `tests/test_gmv_dropbox_connector.py` | 21 tests against an injected fake `requests.Session` (no real network calls, no HTTP-mocking dependency added) — pagination, non-file/deleted filtering, Authorization header actually sent, content_hash independence from Dropbox's own field, network-exception wrapping |
+| 10 | `10_API/gmv_crawler_extractor.py` | `ExtractionDocument` + `extract_document()`, a thin wrapper around `gmv_evidence_pipeline.py`'s existing `_extract()` (PDF/DOCX/DOC/TXT/MD/HTML/CSV/JSON incl. PaddleOCR fallback) — reused, not reimplemented. Adds a source_hash staleness gate before extraction |
+| 10 | `tests/test_gmv_crawler_extractor.py` | 21 tests incl. a cross-check against `_extract()`'s real source for every `EvidenceError` code it can raise |
 
-## Working method established this session (follow it for steps 9-16)
+## Working method established this session (follow it for steps 11-16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -279,9 +304,21 @@ Correction-2 assumption made it into the spec in the first place:
 
 ## Open questions / known gaps (do not silently resolve these — surface them)
 
-- **Step 9's premise is broken** (see Correction 2 above) — needs a
-  decision on how the Dropbox `SourceConnector` actually gets built before
-  that step can proceed.
+- **RESOLVED this session.** Step 9's premise was broken (see Correction 2
+  above) — the user chose to write a real `SourceConnector` from scratch
+  against the Dropbox API v2 (vs. an OAuth2 refresh-token flow, or
+  reinterpreting the Skill as callable code). `10_API/gmv_dropbox_connector.py`
+  implements this; see the "What exists now" table above and its own
+  module docstring for the design decisions (static-token auth reusing
+  `credentials.get_token()`, real SHA-256 content_hash instead of
+  Dropbox's own blockwise algorithm). Not yet exercised against a real
+  Dropbox account/token in any session — only against an injected fake
+  session in tests. **New open item this resolution creates:** nothing in
+  the crawler yet constructs a `DropboxConnector` and drives it through
+  `list()`/`metadata()`/`download()` against a real folder — that
+  end-to-end wiring (likely alongside whatever step first needs an actual
+  running crawler loop, not a schema/contract step) has not been done or
+  investigated.
 - **`claim_id` vs `ATOM_ID`/`evidence_id` relationship** — the original
   spec flags this as unresolved ("ho verificato che claim_id vive a monte
   di ogni logica Notion, ma l'equivalenza semantica con evidence_id è
@@ -346,42 +383,26 @@ Correction-2 assumption made it into the spec in the first place:
   `tmp_path` for test isolation, never writing to the repo's real
   `03_STATE/`).
 
-## Remaining steps (§33, 9-16) — status and notes
+## Remaining steps (§33, 11-16) — status and notes
 
 ```
-9.  Dropbox connector = wrapper of    -- BLOCKED on a decision: the
-    gmv-dropbox-import v3                premise is false (see Corrections
-                                          above). Independently
-                                          re-verified this session (not
-                                          just trusted from the prior
-                                          handoff): grepped this repo's
-                                          full git history for
-                                          dropbox-import/dropbox_import
-                                          (zero hits besides this
-                                          handoff's own text and the
-                                          documented corrections), and
-                                          fetched the real Skill file
-                                          directly from Dropbox
-                                          (/GMV_SKILLS/gmv-dropbox-import/
-                                          SKILL.md) via the Dropbox MCP
-                                          connection -- confirmed it is an
-                                          LLM-instruction document
-                                          (AUDIT/ESECUZIONE/NORMALIZZAZIONE
-                                          modes, explicit human-confirmation
-                                          step before any mutation), and its
-                                          actual triage vocabulary does not
-                                          even match the "Certi/Da
-                                          decidere/Non toccare" three-list
-                                          claim the spec makes for it. A
-                                          real SourceConnector
-                                          implementation is needed from
-                                          scratch, or the Skill-based
-                                          workflow needs to be
-                                          reinterpreted as callable code.
-                                          Still not resolved -- surface
-                                          this to the user before
-                                          proceeding, do not decide it
-                                          autonomously.
+9.  Dropbox connector = wrapper of    -- DONE. Not a wrapper (the premise
+    gmv-dropbox-import v3                was false, see Corrections
+                                          above) -- 10_API/gmv_dropbox_
+                                          connector.py is a real client
+                                          against Dropbox API v2, user's
+                                          explicit choice of static-token
+                                          auth over OAuth2 refresh-token.
+                                          Adversarial review found no
+                                          blockers; one real non-blocking
+                                          issue (docstring falsely claimed
+                                          no credential-storage precedent
+                                          existed -- credentials.py's
+                                          get_token() does, now reused)
+                                          fixed before commit. Not yet
+                                          exercised against a real Dropbox
+                                          account -- see "Open questions"
+                                          above for what remains.
 10. Extractors                        -- DONE this session.
                                           10_API/gmv_crawler_extractor.py:
                                           `ExtractionDocument` (spec v0.2
@@ -501,21 +522,22 @@ Correction-2 assumption made it into the spec in the first place:
 2. Fetch and read the source Notion documents listed above yourself — do
    not rely solely on this document's summaries for anything you're about
    to build on.
-3. Resolve step 9's blocked premise with the user before writing a Dropbox
-   connector — this has now been independently verified false by two
-   separate sessions; do not attempt to route around it (e.g. by
-   "reinterpreting" the Skill as code) without an explicit user decision.
-4. With step 9 blocked, step 10 (Extractors: PDF/DOCX/TXT/MD content
-   extraction) may be the next practically unblocked step — it operates on
-   raw bytes, not on a specific connector, so it does not strictly require
-   step 9 to be resolved first. Not started or investigated this session;
-   before designing it, read `gmv_evidence_pipeline.py`'s existing
-   extraction code (PDF/DOCX/TXT/MD, plus its PaddleOCR integration for
-   scanned PDFs, referenced but not inspected this session) in full first,
-   per this session's own established discipline (read the real code
-   before designing, don't assume from spec prose) — it may turn out to
-   already largely exist, the same way step 4/6/7's grounding work found
-   for other "not started" items in earlier drafts of this document.
+3. Steps 9 and 10 are both done (Dropbox connector, Extractors). Step 11
+   (Candidate extraction, default LLM gemma4:12b — not independently
+   reverified) is the next not-started step in §33's order. Before
+   designing it, check whether anything in this repo (`gmv_evidence_pipeline.py`,
+   `area35_validator.py`, or elsewhere) already does candidate/claim
+   extraction from text that could be reused rather than reimplemented —
+   not investigated yet this session, per this session's own established
+   discipline (read the real code before designing, don't assume from
+   spec prose).
+4. `DropboxConnector` (step 9) has never been driven end-to-end against a
+   real Dropbox account/token — only tested against an injected fake
+   session. If a future step needs to actually crawl real Dropbox content
+   (not just have the contract satisfied), budget time to verify the
+   real API's response shapes (`path_lower`, `server_modified` format,
+   pagination) match what the connector assumes, ideally against a real
+   token before trusting it in a longer pipeline.
 5. For any step, follow the same pattern steps 1-8 used: schema/contract
    first (no premature engine unless the step explicitly calls for one and
    you decide that deliberately), tests that cross-check real committed
