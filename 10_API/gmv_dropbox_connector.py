@@ -113,16 +113,15 @@ class DropboxConnector:
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         if access_token:
-            token = access_token
+            self._token = access_token
         else:
             try:
-                token = get_token(TOKEN_ENV_VAR).value
+                self._token = get_token(TOKEN_ENV_VAR).value
             except TokenError as exc:
                 raise DropboxConnectorError(
                     "no Dropbox access token: pass access_token= explicitly or "
                     f"set the {TOKEN_ENV_VAR} environment variable"
                 ) from exc
-        self._token = token
         self._root_path = root_path
         self._session = session if session is not None else requests.Session()
         self._timeout = timeout
