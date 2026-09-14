@@ -30,6 +30,10 @@ must not be modified.
 Each current top-level entry has one primary class, an accountable owner role,
 and a backup treatment. “Git if canonical” does not authorize staging currently
 untracked documents; canonicalization remains a separate governance decision.
+One row below (`03_STATE/ombra/`) is a sub-path, not a top-level path — it is
+listed here only because a caller-facing default needed a concrete row to
+point to; it inherits its class from its top-level parent (`03_STATE/`)
+rather than introducing one, and is not itself a second top-level entry.
 
 | Current path | Class | Owner | Backup policy |
 |---|---|---|---|
@@ -45,6 +49,7 @@ untracked documents; canonicalization remains a separate governance decision.
 | `01_RUNTIME/` | Source | Runtime maintainer | Git for code and pinned legacy entrypoints; generated content prohibited |
 | `02_INDEXES/` | Runtime output | Index owner | Future full-system backup only when not reproducible; never Git by default |
 | `03_STATE/` | Live state | Runtime state owner | Full-system backup after S002-20; never Git |
+| `03_STATE/ombra/` | Live state | Runtime state owner | Full-system backup after S002-20; never Git. Sub-path decision (crawler preplan step 8/9 handoff, this session): the canonical on-disk directory for materialized Monad `.md` files (the "Ombra") produced by `10_API/gmv_monad_materializer.py`. Already covered by `03_STATE/`'s existing "Live state" classification above; called out separately only because a caller-supplied `target_path` needed a concrete default. No new top-level path or governance class was created. |
 | `04_LOGS/` | Runtime output | Producing Service owner | Retention-controlled operational backup; never Git |
 | `05_OUTPUT/` | Runtime output | Producing Service owner | Retain only approved evidence/reports; never Git by default |
 | `06_CACHE/` | Cache/build | Producing Service owner | Exclude and regenerate |

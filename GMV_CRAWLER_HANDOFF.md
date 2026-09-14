@@ -330,12 +330,21 @@ Correction-2 assumption made it into the spec in the first place:
   spec-sanctioned manifest evolution, not a schema-freeze violation — add
   the column(s), update `SOURCE_COLUMNS`/`SourceManifestEntry`/
   `_source_row()` together.
-- **No canonical on-disk directory for materialized Monad `.md` files
-  exists yet (step 8).** `materialize_monad()` takes an explicit
-  `target_path` from its caller rather than deciding one — choosing/adding
-  one is a `SOURCE_RUNTIME_BOUNDARIES.md` governance decision (new
-  top-level path classification), not something step 8 makes unilaterally.
-  Needed before any real end-to-end run materializes actual Monads.
+- **RESOLVED this session.** The canonical on-disk directory for
+  materialized Monad `.md` files (the "Ombra") is `03_STATE/ombra/` — a
+  user decision, applied and documented in
+  `00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md` (new row under the existing
+  `03_STATE/` "Live state" entry — a sub-path of an already-classified
+  top-level path, not a new governance class) and in
+  `10_API/gmv_monad_materializer.py`'s own module docstring.
+  `materialize_monad()` still takes an explicit `target_path` from its
+  caller rather than hardcoding a location — that part of step 8's design
+  is unchanged and deliberate; the decision only fixes what a real caller
+  should pass. `tests/test_gmv_monad_materializer.py`'s illustrative
+  `target` paths were updated from `tmp_path / "monads" / ...` to
+  `tmp_path / "03_STATE" / "ombra" / ...` to reflect this (still under
+  `tmp_path` for test isolation, never writing to the repo's real
+  `03_STATE/`).
 
 ## Remaining steps (§33, 9-16) — status and notes
 

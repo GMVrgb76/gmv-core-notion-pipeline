@@ -317,10 +317,16 @@ def test_render_none_valued_optional_atom_fields_render_as_empty_cell() -> None:
 
 
 # --- materialize_monad: validation gate + atomic write ---
+#
+# `target` below mirrors the decided canonical Ombra layout
+# (03_STATE/ombra/, see gmv_monad_materializer.py's module docstring and
+# 00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md) under `tmp_path` for isolation --
+# materialize_monad() itself still takes target_path from the caller and
+# does not hardcode this location.
 
 
 def test_materialize_monad_writes_file(tmp_path: Path, registry: dict) -> None:
-    target = tmp_path / "monads" / "GMV-000001.md"
+    target = tmp_path / "03_STATE" / "ombra" / "GMV-000001.md"
     result = mm.materialize_monad(_document(), target, registry)
     assert result == target
     assert target.read_text(encoding="utf-8") == mm.render_monad_markdown(_document())
@@ -329,14 +335,14 @@ def test_materialize_monad_writes_file(tmp_path: Path, registry: dict) -> None:
 def test_materialize_monad_uses_secure_atomic_write_permissions(
     tmp_path: Path, registry: dict,
 ) -> None:
-    target = tmp_path / "monads" / "GMV-000001.md"
+    target = tmp_path / "03_STATE" / "ombra" / "GMV-000001.md"
     mm.materialize_monad(_document(), target, registry)
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
 
 
 def test_materialize_monad_is_idempotent(tmp_path: Path, registry: dict) -> None:
-    target = tmp_path / "monads" / "GMV-000001.md"
+    target = tmp_path / "03_STATE" / "ombra" / "GMV-000001.md"
     mm.materialize_monad(_document(), target, registry)
     first = target.read_text(encoding="utf-8")
     mm.materialize_monad(_document(), target, registry)
@@ -346,7 +352,7 @@ def test_materialize_monad_is_idempotent(tmp_path: Path, registry: dict) -> None
 
 def test_materialize_monad_refuses_on_blocker(tmp_path: Path, registry: dict) -> None:
     document = _document(gmv_id="not-well-formed")
-    target = tmp_path / "monads" / "bad.md"
+    target = tmp_path / "03_STATE" / "ombra" / "bad.md"
     with pytest.raises(mm.MonadMaterializationError) as excinfo:
         mm.materialize_monad(document, target, registry)
     assert any(i.codice == "M-SCHEMA01" for i in excinfo.value.issues)
@@ -357,7 +363,7 @@ def test_materialize_monad_refuses_on_dangling_source_reference(
     tmp_path: Path, registry: dict,
 ) -> None:
     document = _document(atoms=(_atom(source="SRC-MISSING"),), sources=(_source(source_id="SRC-1"),))
-    target = tmp_path / "monads" / "bad.md"
+    target = tmp_path / "03_STATE" / "ombra" / "bad.md"
     with pytest.raises(mm.MonadMaterializationError) as excinfo:
         mm.materialize_monad(document, target, registry)
     assert any(i.codice == "M-PROV01" for i in excinfo.value.issues)
@@ -367,7 +373,7 @@ def test_materialize_monad_refuses_on_dangling_source_reference(
 def test_materialize_monad_loads_registry_itself_when_not_given(tmp_path: Path) -> None:
     """registry is optional -- callers that only materialize one document
     should not be forced to load GMV_ONTOLOGY_REGISTRY_v0.1.json themselves."""
-    target = tmp_path / "monads" / "GMV-000001.md"
+    target = tmp_path / "03_STATE" / "ombra" / "GMV-000001.md"
     mm.materialize_monad(_document(), target)
     assert target.exists()
 

@@ -44,16 +44,20 @@ Grounding, read in full before writing this module:
   against §14. Building that logic here would be exactly the "premature
   engine" this session's working method warns against.
 
-- No canonical on-disk directory for materialized Monad files is decided
-  here. 00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md classifies every current
-  top-level path in this repository; none of them is a Monad store, and
-  adding one is a governance decision ("Governance owners approve
-  authority and lifecycle; documentation cannot itself grant runtime
-  capabilities outside the Sprint plan") this module does not make
-  unilaterally. materialize_monad() therefore takes an explicit
-  `target_path` from its caller rather than hardcoding a location --
-  narrower than deciding a directory layout, consistent with steps 1-7's
-  own discipline of schema/contract before engine.
+- Canonical on-disk directory for materialized Monad files (the "Ombra"):
+  `03_STATE/ombra/`, a user decision recorded in this session and folded
+  into 00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md. `03_STATE/` is already
+  classified there as "Live state" (canonical, mutable, full-system
+  backup, never Git) -- `ombra/` is a subdirectory of that existing
+  classification, not a new top-level path, so it needed no new governance
+  entry, only this note. materialize_monad() still takes an explicit
+  `target_path` from its caller rather than hardcoding a location -- that
+  is deliberate (narrower than deciding a directory layout, consistent
+  with steps 1-7's own discipline of schema/contract before engine), not
+  something this decision changes. A real caller writing an actual Monad
+  should pass a `target_path` under `03_STATE/ombra/`; tests use this same
+  relative shape under `tmp_path` for isolation (see
+  tests/test_gmv_monad_materializer.py).
 
 - Atomic writing reuses 10_API/secure_storage.py::atomic_write_text
   (0700 directory / 0600 file, tempfile + os.replace), not a new
@@ -425,8 +429,11 @@ def materialize_monad(document: MonadDocument, target_path: Path,
     """Validates document (raises MonadMaterializationError on any
     BLOCKER-severity finding), renders it, and writes it atomically to
     target_path via secure_storage.atomic_write_text. Returns target_path
-    on success. Does not decide target_path itself -- see module
-    docstring on why no canonical Monad directory is chosen here."""
+    on success. Does not decide target_path itself -- the canonical
+    directory (03_STATE/ombra/) is decided (see module docstring), but a
+    caller still supplies the concrete target_path explicitly rather than
+    this function hardcoding it, by the same deliberate design as before
+    the decision."""
     if registry is None:
         registry = _load_ontology_registry()
     blockers = find_materialization_blockers(document, registry)
