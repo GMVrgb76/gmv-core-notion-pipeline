@@ -366,7 +366,7 @@ def validate_batch_response(
             destination_directory = normalized_relative(
                 destination_value, f"Ollama destination for {source_relpath}"
             ).as_posix()
-        except MigrationError, TypeError:
+        except (MigrationError, TypeError):
             validated.append(unresolved_item(source, "LLM_DESTINATION_INVALID"))
             continue
         valid_reason = (

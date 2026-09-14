@@ -23,7 +23,7 @@ which ones, and how they were corrected.
   5. `9a719578` — Entity Registry migration (step 6)
   6. `a4334505` — Atom validator (step 7)
 - Full test suite: **830 passed**, `ruff check` clean, as of the last commit above.
-  Re-run before continuing: `/Users/giacomomarcovalerio/.gmv_core/.venv/bin/python -m pytest tests/ -q`
+  Re-run before continuing: `~/.gmv_core/.venv/bin/python -m pytest tests/ -q`
   and `... -m ruff check .` (the repo's own `.venv`, not necessarily the one
   active in a new session — see "Environment" below).
 
