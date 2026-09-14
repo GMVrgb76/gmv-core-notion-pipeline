@@ -1,15 +1,17 @@
-# GMV Crawler — Handoff for continuation (preplan steps 11-16)
+# GMV Crawler — Handoff for continuation (preplan steps 12-16)
 
-Status: steps 1-10 of the crawler's implementation order (spec §33) are
+Status: steps 1-11 of the crawler's implementation order (spec §33) are
 complete, reviewed, committed, and pushed — including step 9 (Dropbox
 SourceConnector), whose original premise was false (see Correction 2
-below) and required an explicit user decision before it could proceed.
-This document lets a different tool/session (OpenCode, Codex, a fresh
-Claude Code session, or a human) resume from step 11 without re-deriving
-what prior sessions already verified. Read this document fully before
-touching code — several assumptions in the original spec turned out to be
-false on inspection; this document tells you which ones, and how they
-were corrected.
+below) and required an explicit user decision before it could proceed,
+and step 11 (Candidate extraction), which took two adversarial-review
+rounds to close a real batch-destroying bug (see "What exists now"
+below). This document lets a different tool/session (OpenCode, Codex, a
+fresh Claude Code session, or a human) resume from step 12 without
+re-deriving what prior sessions already verified. Read this document
+fully before touching code — several assumptions in the original spec
+turned out to be false on inspection; this document tells you which ones,
+and how they were corrected.
 
 ## Repository state
 
@@ -18,7 +20,7 @@ were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 13 commits ahead of base, in order:
+- 16 commits ahead of base, in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
@@ -36,7 +38,10 @@ were corrected.
   11. `dc76fb02` — docs: resolve Ombra canonical directory decision (`03_STATE/ombra/`)
   12. `60543d0d` — feat: Extractors module (step 10)
   13. `909d3b38` — feat: real Dropbox SourceConnector against Dropbox API v2 (step 9)
-- Full test suite as of `909d3b38`: **903 passed, 0 failed** — the 2
+  14. `93778b2b` — docs: handoff update for step 9 completion
+  15. `f5f429ee` — fix: credential-assignment false-positive in DropboxConnector (repo security scanner, not a real secret leak)
+  16. `fffa556f` — feat: Candidate extraction (step 11) — two adversarial-review rounds, see "What exists now" below
+- Full test suite as of `fffa556f`: **924 passed, 0 failed** — the 2
   previously-documented soffice-portability failures (see "Known
   environment-only failures" below) are gone as of this run, most likely
   because PR #18 (`fix/test-collection-and-soffice-portability`) was
@@ -212,7 +217,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-10), file by file
+## What exists now (steps 1-11), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -239,8 +244,31 @@ All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 | 9 | `tests/test_gmv_dropbox_connector.py` | 21 tests against an injected fake `requests.Session` (no real network calls, no HTTP-mocking dependency added) — pagination, non-file/deleted filtering, Authorization header actually sent, content_hash independence from Dropbox's own field, network-exception wrapping |
 | 10 | `10_API/gmv_crawler_extractor.py` | `ExtractionDocument` + `extract_document()`, a thin wrapper around `gmv_evidence_pipeline.py`'s existing `_extract()` (PDF/DOCX/DOC/TXT/MD/HTML/CSV/JSON incl. PaddleOCR fallback) — reused, not reimplemented. Adds a source_hash staleness gate before extraction |
 | 10 | `tests/test_gmv_crawler_extractor.py` | 21 tests incl. a cross-check against `_extract()`'s real source for every `EvidenceError` code it can raise |
+| 11 | `10_API/gmv_crawler_candidate_extractor.py` | `CandidateEntity`/`CandidateProposition` (frozen dataclasses) + `extract_candidates()`, a thin wrapper around `gmv_evidence_pipeline.py`'s existing `ollama_extract()` — reused, not reimplemented. Only two candidate shapes exist, not the spec's five (Relation/Event/Measure sub-typing needs an unbuilt NORMALIZE PREDICATES stage — documented gap, not silently invented). `status` is free text, not validated against any closed vocabulary (see below). `evidence_ids` is caller-supplied (no BUILD EVIDENCE engine exists yet). Returns `(entities, propositions, rejected)` — a malformed candidate is excluded individually with its reason recorded in `rejected`, never crashes the whole batch |
+| 11 | `tests/test_gmv_crawler_candidate_extractor.py` | 21 tests, `ollama_extract` monkeypatched (no real network/Ollama calls). Two are explicit regression tests for the two review rounds below |
 
-## Working method established this session (follow it for steps 11-16)
+**Two adversarial-review rounds on step 11, both real, non-cosmetic bugs:**
+round 1 returned **BLOCK** — an early draft validated `status` against
+`gmv_evidence_pipeline.STATUS_PRECEDENCE` as a closed vocabulary, raising
+`ValueError` on anything else; that list's own source comment says it
+exists for tolerant ranking (`_better_status()`), never as a rejection
+gate, and a realistic LLM status value (`"DOCUMENTATO"`, reproduced
+empirically) crashed extraction for an entire document via a `tuple(...
+for ...)` comprehension — destroying every other valid candidate in the
+same batch. Fixed by dropping the closed-vocabulary check (status is now
+only checked non-empty). Round 2 (re-verification) confirmed the fix but
+found a narrower residual trigger of the *same* all-or-nothing pattern:
+an explicitly empty-string status is legal under `SEMANTIC_OUTPUT_SCHEMA`
+(no `minLength`, not `required`) and still crashed the whole batch —
+rated a non-blocking WARNING with a recommended fix, applied proactively:
+`extract_candidates()` now isolates each candidate's construction
+(`try`/`except` per item) and returns a third `rejected` tuple of
+reasons instead of letting one malformed item propagate. **If a future
+step adds more validation to these dataclasses, keep this per-item
+isolation — do not go back to a comprehension that raises on first
+failure.**
+
+## Working method established this session (follow it for steps 12-16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -383,7 +411,7 @@ Correction-2 assumption made it into the spec in the first place:
   `tmp_path` for test isolation, never writing to the repo's real
   `03_STATE/`).
 
-## Remaining steps (§33, 11-16) — status and notes
+## Remaining steps (§33, 12-16) — status and notes
 
 ```
 9.  Dropbox connector = wrapper of    -- DONE. Not a wrapper (the premise
@@ -496,10 +524,27 @@ Correction-2 assumption made it into the spec in the first place:
                                           soffice-portability failures, PR
                                           #18 not yet merged); `ruff check`
                                           clean.
-11. Candidate extraction               -- not started. Default LLM
-    (default: gemma4:12b)                 gemma4:12b per prior benchmark
-                                          (not independently reverified
-                                          this session).
+11. Candidate extraction               -- DONE. 10_API/gmv_crawler_
+    (default: gemma4:12b)                 candidate_extractor.py wraps
+                                          the real, existing
+                                          ollama_extract() rather than
+                                          reimplementing LLM-calling
+                                          logic. Two adversarial-review
+                                          rounds found and fixed a real
+                                          all-or-nothing batch-crash bug
+                                          (see "What exists now" above
+                                          for the full account) -- not a
+                                          cosmetic finding, reproduced
+                                          empirically twice. Only two
+                                          candidate shapes built (Entity/
+                                          generic Proposition), not the
+                                          spec's five -- Relation/Event/
+                                          Measure sub-typing needs
+                                          NORMALIZE PREDICATES, an
+                                          unbuilt stage with no numbered
+                                          step in §33. gemma4:12b default
+                                          still not independently
+                                          reverified by any session.
 12. Reconciliation engine              -- not started. This is likely
                                           where the atom_fingerprint
                                           trade-off (see above) needs to
@@ -522,15 +567,19 @@ Correction-2 assumption made it into the spec in the first place:
 2. Fetch and read the source Notion documents listed above yourself — do
    not rely solely on this document's summaries for anything you're about
    to build on.
-3. Steps 9 and 10 are both done (Dropbox connector, Extractors). Step 11
-   (Candidate extraction, default LLM gemma4:12b — not independently
-   reverified) is the next not-started step in §33's order. Before
-   designing it, check whether anything in this repo (`gmv_evidence_pipeline.py`,
-   `area35_validator.py`, or elsewhere) already does candidate/claim
-   extraction from text that could be reused rather than reimplemented —
-   not investigated yet this session, per this session's own established
-   discipline (read the real code before designing, don't assume from
-   spec prose).
+3. Steps 9, 10 and 11 are all done (Dropbox connector, Extractors,
+   Candidate extraction). Step 12 (Reconciliation engine) is the next
+   not-started step in §33's order — this is explicitly flagged above as
+   likely where the atom_fingerprint word-order-collision trade-off
+   (step 7) needs a real resolution, and is also a natural place to
+   decide the `claim_id`/`evidence_id` open question (still unresolved,
+   needs the user's decision per the spec's own text). Before designing
+   it, check `gmv_evidence_pipeline.py::consolidate_claims()` in full —
+   it already computes a `claim_id` from *resolved* subject/object pairs
+   (post entity-resolution, using `resolution_status == "RESOLVED"`), a
+   genuinely different, later-stage concept than this step's raw
+   `CandidateProposition.evidence_id` — this grounds, but does not fully
+   settle, the open claim_id question above.
 4. `DropboxConnector` (step 9) has never been driven end-to-end against a
    real Dropbox account/token — only tested against an injected fake
    session. If a future step needs to actually crawl real Dropbox content
