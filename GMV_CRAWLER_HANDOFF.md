@@ -1,12 +1,13 @@
-# GMV Crawler — Handoff for continuation (preplan steps 8-16)
+# GMV Crawler — Handoff for continuation (preplan steps 9-16)
 
-Status: steps 1-7 of the crawler's implementation order (spec §33) are
+Status: steps 1-8 of the crawler's implementation order (spec §33) are
 complete, reviewed, committed, and pushed. This document lets a different
 tool/session (OpenCode, Codex, a fresh Claude Code session, or a human)
-resume from step 8 without re-deriving what this session already verified.
-Read this document fully before touching code — several assumptions in the
-original spec turned out to be false on inspection; this document tells you
-which ones, and how they were corrected.
+resume from step 9's open decision (see "Step 9 is blocked" below) without
+re-deriving what this and the prior session already verified. Read this
+document fully before touching code — several assumptions in the original
+spec turned out to be false on inspection; this document tells you which
+ones, and how they were corrected.
 
 ## Repository state
 
@@ -15,25 +16,75 @@ which ones, and how they were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 6 commits ahead of base, in order:
+- 9 commits ahead of base, in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
   4. `fbbcb739` — Projection Adapter contract (step 5)
   5. `9a719578` — Entity Registry migration (step 6)
   6. `a4334505` — Atom validator (step 7)
-- Full test suite: **830 passed**, `ruff check` clean, as of the last commit above.
-  Re-run before continuing: `~/.gmv_core/.venv/bin/python -m pytest tests/ -q`
-  and `... -m ruff check .` (the repo's own `.venv`, not necessarily the one
-  active in a new session — see "Environment" below).
+  7. `d328028` — this handoff document, first version
+  8. `0dd6c76` — fix: unblock test collection (pre-existing Python-2-syntax
+     SyntaxError in `10_API/gmv_artist_normalize_plan.py`, unrelated to the
+     crawler, predates this branch's fork point — see "Unrelated bug fixed
+     this session" below) and repo git policy (this handoff's own absolute
+     path)
+  9. `8327d78` — Monad materializer v1.0 (step 8)
+- Full test suite as of `8327d78`: **851 passed, 10 failed**. The 10
+  failures are pre-existing, sandbox-environment-only gaps, not
+  regressions — verified individually, not fixed (see "Known
+  environment-only failures" below). `ruff check .` clean.
+  Re-run before continuing: `<repo-root>/.venv/bin/python -m pytest tests/ -q`
+  and `... -m ruff check .` — see "Environment" below on which venv to use.
 
 ## Environment
 
-- Python venv with `pytest`/`ruff` installed: `~/.gmv_core/.venv/bin/python`
-  (this worktree's own `.venv` may not have dependencies installed; use the
-  main checkout's venv, confirmed working throughout this session).
-- No network/Notion/Dropbox credentials needed for any of the work done so
-  far — everything is schema/contract/pure-Python, no live I/O.
+- No committed venv exists in this repository (`.venv/` is gitignored,
+  per `00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md`'s own "Local tooling"
+  classification). The prior session's handoff pointed at
+  `~/.gmv_core/.venv/bin/python` — a path specific to that session's own
+  machine, not portable. This session created a fresh venv at the repo
+  root (`python3 -m venv .venv && .venv/bin/pip install -r
+  requirements-dev.txt`) and used that throughout. Do the same in a new
+  session/container rather than assuming any specific path exists.
+- No network/Notion/Dropbox credentials needed for the schema/contract
+  work (steps 1-7). Step 8 (Monad materializer) is the first step with a
+  real write path, but it writes to a caller-supplied local path only —
+  still no network/credentials involved.
+
+### Known environment-only failures (do not "fix" without checking your own container first)
+
+10 of the ~861 collected tests fail in this session's sandboxed container
+for reasons confirmed to be container setup, not code:
+- 8 in `tests/test_gmv_artist_import.py`: the tool under test shells out to
+  an installed copy at `~/.gmv_core/10_API/gmv_folder_report.py`, which
+  does not exist in this container (no such path, no install script in the
+  repo populates it).
+- 2 in `tests/test_gmv_evidence_pipeline.py` (DOC extraction via
+  LibreOffice): `soffice` is present but non-functional in this sandbox —
+  confirmed independently of pytest: `soffice --headless --convert-to txt
+  test.txt` fails with "source file could not be loaded" even on a plain
+  text file, outside any test. A container config gap (missing fonts,
+  no D-Bus, sandboxing), not a code defect.
+Before assuming either of these is fixed or newly broken in a future
+session, check whether `~/.gmv_core` exists and whether `soffice
+--headless --convert-to txt:Text <any .txt file>` actually works in your
+own container — do not just compare pass counts.
+
+## Unrelated bug fixed this session (not crawler work, but blocked everything)
+
+`10_API/gmv_artist_normalize_plan.py:369` had `except MigrationError,
+TypeError:` — Python 2 syntax, a `SyntaxError` under Python 3. This
+predates this branch's fork point (`main` at `b480b04f` already has it),
+so **`main` itself currently has broken pytest collection**: one
+`SyntaxError` anywhere aborts the entire collection run
+(`Interrupted: 1 error during collection`, zero tests executed), despite
+the recent `fix/ci-quality-gate-broken-since-sept3` PR. Fixed by
+parenthesizing the tuple (`except (MigrationError, TypeError):`), matching
+the identical pattern already used at line 708 of the same file — no
+behavior change, `normalized_relative()` only ever raises
+`MigrationError` in practice. Not something this branch caused; worth
+raising on `main` directly, independent of the crawler work.
 
 ## What the GMV Crawler is (one paragraph)
 
@@ -140,7 +191,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-7), file by file
+## What exists now (steps 1-8), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -161,8 +212,10 @@ All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 | 6 | `tests/migrations/test_entity_registry.py` | Full migration test suite incl. cross-check against the ontology registry's CORE/DOMAIN class_ids |
 | 7 | `10_API/gmv_atom_validator.py` | `AtomCandidate` (frozen 18-field dataclass), `validate_atom()` (mechanically-checkable subset of the 19 EIC rules — `UNENFORCED_RULE_IDS` lists what is NOT covered and why), `compute_atom_fingerprint()` (reuses `area35_validator._forma()`/`Issue`/`SEV` by import) |
 | 7 | `tests/test_gmv_atom_validator.py` | Full rule coverage, incl. a test proving a known accepted trade-off (fingerprint collisions on reordered non-person text) rather than hiding it |
+| 8 | `10_API/gmv_monad_materializer.py` | `MonadDocument`/`SourceManifestEntry` (frozen dataclasses), `render_monad_markdown()` (pure function -> canonical `.md` text, §19 skeleton), `materialize_monad()` (validates via `find_materialization_blockers()` — BLOCKER-only gate reusing `validate_atom()` — then writes atomically via `secure_storage.atomic_write_text`). No canonical Monad directory decided; caller supplies `target_path`. PUBLIC text is caller-supplied verbatim, not computed here (that is step 15) |
+| 8 | `tests/test_gmv_monad_materializer.py` | Cross-checks gmv_id/entity_type gates against real migration 010 SQL (not a second hardcoded list), rendering/escaping tests, materialize_monad atomicity/idempotency/permission tests |
 
-## Working method established this session (follow it for steps 8-16)
+## Working method established this session (follow it for steps 9-16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -195,11 +248,24 @@ Correction-2 assumption made it into the spec in the first place:
 6. **Independent adversarial review before every commit**, via the
    `gmv-code-reviewer` subagent, given only the diff and file contents —
    not this conversation's context, to avoid sharing its blind spots. Every
-   single step this session had a review round; **5 of 7 found real,
+   single step 1-7 had a review round; **5 of 7 found real,
    non-cosmetic bugs** (wrong vocabulary claims, a SQL CHECK that only
    constrained one character position, an indirect merge-cycle gap, a
    docstring claiming an enforcement that had no code behind it). Treat a
    clean first-pass review as unlikely, not the norm.
+   **Known issue this session hit twice on step 8:** the `gmv-code-reviewer`
+   subagent (launched via the `Agent` tool, `run_in_background: true`)
+   stalled both times — status stayed "running" with an elapsed-time
+   readout that did not advance reliably, for 25+ minutes the first
+   attempt and 10+ minutes the second, with no result either time.
+   Both were stopped via `TaskStop` rather than waited on indefinitely.
+   Step 8 was reviewed by the primary session doing the adversarial pass
+   directly instead (reading the new files cold against every file they
+   import from/claim to be consistent with) — it found one real gap this
+   way (see step 8's commit message). If this recurs in a future session,
+   don't wait past ~10-15 minutes on a single review attempt; a retry is
+   worth one attempt, but a second stall means do the review directly
+   rather than looping indefinitely.
 7. **When a review returns BLOCK, fix and send back to the same reviewer
    for re-verification before committing** — do not just trust your own
    fix. This caught at least one case (step 7) where a fix for one
@@ -254,28 +320,59 @@ Correction-2 assumption made it into the spec in the first place:
   on ATTRIBUTE predicates with literal-type ranges), not an oversight — but
   worth knowing if a future step assumes broader OBJECT_TYPE validation
   exists.
+- **SOURCES manifest column set (step 8)**: `GMV_KNOWLEDGE_MONAD_SPEC_v1.0`
+  §2.4 (prose) and §19 (worked example) disagree — §2.4 lists 11 fields
+  incl. FILENAME and "DUPLICATE / DERIVATION STATUS", §19's actual table
+  header has only 9, missing both. Not in §20's freeze list, so §2.4's own
+  text authorizes evolution. `gmv_monad_materializer.py` follows §19's
+  literal 9-column table for v1.0. If a future step needs FILENAME or
+  duplicate/derivation tracking on SOURCES rows, that is an intentional,
+  spec-sanctioned manifest evolution, not a schema-freeze violation — add
+  the column(s), update `SOURCE_COLUMNS`/`SourceManifestEntry`/
+  `_source_row()` together.
+- **No canonical on-disk directory for materialized Monad `.md` files
+  exists yet (step 8).** `materialize_monad()` takes an explicit
+  `target_path` from its caller rather than deciding one — choosing/adding
+  one is a `SOURCE_RUNTIME_BOUNDARIES.md` governance decision (new
+  top-level path classification), not something step 8 makes unilaterally.
+  Needed before any real end-to-end run materializes actual Monads.
 
 ## Remaining steps (§33, 9-16) — status and notes
 
 ```
-8.  Monad materializer v1.0           -- not started. Ground in
-                                          GMV_KNOWLEDGE_MONAD_SPEC_v1.0
-                                          (frozen, already read this
-                                          session). Likely the first step
-                                          that needs an actual write path
-                                          (materializing .md files) --
-                                          decide file layout against
-                                          SOURCE_RUNTIME_BOUNDARIES.md's
-                                          classes before writing anything.
 9.  Dropbox connector = wrapper of    -- BLOCKED on a decision: the
     gmv-dropbox-import v3                premise is false (see Corrections
-                                          above). A real SourceConnector
+                                          above). Independently
+                                          re-verified this session (not
+                                          just trusted from the prior
+                                          handoff): grepped this repo's
+                                          full git history for
+                                          dropbox-import/dropbox_import
+                                          (zero hits besides this
+                                          handoff's own text and the
+                                          documented corrections), and
+                                          fetched the real Skill file
+                                          directly from Dropbox
+                                          (/GMV_SKILLS/gmv-dropbox-import/
+                                          SKILL.md) via the Dropbox MCP
+                                          connection -- confirmed it is an
+                                          LLM-instruction document
+                                          (AUDIT/ESECUZIONE/NORMALIZZAZIONE
+                                          modes, explicit human-confirmation
+                                          step before any mutation), and its
+                                          actual triage vocabulary does not
+                                          even match the "Certi/Da
+                                          decidere/Non toccare" three-list
+                                          claim the spec makes for it. A
+                                          real SourceConnector
                                           implementation is needed from
                                           scratch, or the Skill-based
                                           workflow needs to be
                                           reinterpreted as callable code.
-                                          Surface this to the user before
-                                          proceeding.
+                                          Still not resolved -- surface
+                                          this to the user before
+                                          proceeding, do not decide it
+                                          autonomously.
 10. Extractors                        -- not started (PDF/DOCX/TXT/MD
                                           first; note existing PaddleOCR
                                           integration in
@@ -310,10 +407,28 @@ Correction-2 assumption made it into the spec in the first place:
    not rely solely on this document's summaries for anything you're about
    to build on.
 3. Resolve step 9's blocked premise with the user before writing a Dropbox
-   connector.
-4. For step 8 (the likely next unblocked step), read
-   `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` in full, then look at how steps 3-7
-   structured their commits (schema/contract + tests + adversarial review
-   before commit) as the pattern to repeat.
-5. Keep the full test suite and `ruff check` green at every commit; push
-   after each one; don't open a PR unless asked.
+   connector — this has now been independently verified false by two
+   separate sessions; do not attempt to route around it (e.g. by
+   "reinterpreting" the Skill as code) without an explicit user decision.
+4. With step 9 blocked, step 10 (Extractors: PDF/DOCX/TXT/MD content
+   extraction) may be the next practically unblocked step — it operates on
+   raw bytes, not on a specific connector, so it does not strictly require
+   step 9 to be resolved first. Not started or investigated this session;
+   before designing it, read `gmv_evidence_pipeline.py`'s existing
+   extraction code (PDF/DOCX/TXT/MD, plus its PaddleOCR integration for
+   scanned PDFs, referenced but not inspected this session) in full first,
+   per this session's own established discipline (read the real code
+   before designing, don't assume from spec prose) — it may turn out to
+   already largely exist, the same way step 4/6/7's grounding work found
+   for other "not started" items in earlier drafts of this document.
+5. For any step, follow the same pattern steps 1-8 used: schema/contract
+   first (no premature engine unless the step explicitly calls for one and
+   you decide that deliberately), tests that cross-check real committed
+   artifacts (not hardcoded duplicates), adversarial review before commit
+   (see the known `gmv-code-reviewer` stall issue above — don't wait
+   indefinitely if it recurs), commit message documenting what review
+   found and how it was fixed, push after every commit, no PR unless
+   asked.
+6. Keep the full test suite and `ruff check` green at every commit —
+   check "Known environment-only failures" above first so you don't chase
+   a container-specific gap as if it were a regression.
