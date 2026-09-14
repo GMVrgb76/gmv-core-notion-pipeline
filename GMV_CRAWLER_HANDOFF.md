@@ -382,13 +382,99 @@ Correction-2 assumption made it into the spec in the first place:
                                           this to the user before
                                           proceeding, do not decide it
                                           autonomously.
-10. Extractors                        -- not started (PDF/DOCX/TXT/MD
-                                          first; note existing PaddleOCR
-                                          integration in
-                                          gmv_evidence_pipeline.py for
-                                          scanned PDFs -- reuse, don't
-                                          reimplement, per this session's
-                                          established discipline).
+10. Extractors                        -- DONE this session.
+                                          10_API/gmv_crawler_extractor.py:
+                                          `ExtractionDocument` (spec v0.2
+                                          §7's own field set, snake_case)
+                                          + `extract_document()`, a thin
+                                          wrapper around
+                                          gmv_evidence_pipeline.py's
+                                          existing `_extract()` (PDF/DOCX/
+                                          DOC/TXT/MD/HTML/CSV/JSON, incl.
+                                          the PaddleOCR fallback and
+                                          LibreOffice .doc subprocess) --
+                                          reused, not reimplemented, per
+                                          this session's established
+                                          discipline. Adds a source_hash
+                                          staleness gate (mirrors
+                                          `extract()`'s own
+                                          `sha256_file(path) != row["sha256"]`
+                                          check) before calling
+                                          `_extract()`, narrowing (not
+                                          replacing -- no Run Ledger
+                                          integration exists yet) the
+                                          EXTRACT-before-DETECT-CHANGE
+                                          ordering risk Correction 6 flags.
+                                          `language` and `structural_units`
+                                          are honest v1 gaps (always
+                                          `None`/`()`) -- no language
+                                          detection built, and
+                                          segmentation is the next pipeline
+                                          stage (SEGMENT), not this one.
+                                          tests/test_gmv_crawler_extractor.py
+                                          (21 tests) incl. a cross-check
+                                          that inspects `_extract()`'s real
+                                          source for every `EvidenceError`
+                                          code it can raise, not a
+                                          duplicated hardcoded list.
+                                          **One real bug found, caught
+                                          twice independently (self-review,
+                                          then confirmed by
+                                          `gmv-code-reviewer`):**
+                                          `_extract()`'s plain-text branch
+                                          (.txt/.md/.html/.csv/.json) has
+                                          no try/except of its own and can
+                                          raise a bare `UnicodeDecodeError`
+                                          on non-UTF-8 content;
+                                          `gmv_evidence_pipeline.extract()`
+                                          already guards this with `except
+                                          (OSError, UnicodeError)`, but the
+                                          first draft of
+                                          `extract_document()` only caught
+                                          `EvidenceError`, contradicting its
+                                          own "never raises" docstring
+                                          claim. Caught first by this
+                                          session's own adversarial re-read
+                                          of the first draft (reproduced
+                                          with a real latin1-encoded
+                                          fixture before fixing, not just
+                                          inferred from reading the code) and
+                                          fixed -- widened the except clause
+                                          to `(EvidenceError, OSError,
+                                          UnicodeError)`, matching
+                                          `extract()`'s own set exactly --
+                                          before the independent
+                                          `gmv-code-reviewer` background
+                                          agent's result was available. That
+                                          review (launched
+                                          `run_in_background`, this time
+                                          completing within the session,
+                                          unlike step 8's two stalls)
+                                          returned a **BLOCK** identifying
+                                          the identical bug with the
+                                          identical minimal fix, landing
+                                          after the fix and its regression
+                                          test (`test_extract_document_non_utf8_text_fails_explicitly_instead_of_crashing`)
+                                          were already committed and pushed
+                                          -- re-verify-the-fix step therefore
+                                          already satisfied by construction,
+                                          not skipped. The review's only
+                                          other note was non-blocking: the
+                                          source-inspection cross-check test
+                                          (`test_status_values_cover_every_real_extract_error_code`)
+                                          is, by its own regex-based design,
+                                          blind to a non-`EvidenceError`
+                                          exception type by construction --
+                                          correctly flagged as a real limit
+                                          of that specific test, not a
+                                          defect to fix (the bug it would
+                                          have missed was caught by the two
+                                          adversarial reads instead). Full
+                                          suite re-verified after the fix:
+                                          880 passed (only the 2 documented
+                                          soffice-portability failures, PR
+                                          #18 not yet merged); `ruff check`
+                                          clean.
 11. Candidate extraction               -- not started. Default LLM
     (default: gemma4:12b)                 gemma4:12b per prior benchmark
                                           (not independently reverified
