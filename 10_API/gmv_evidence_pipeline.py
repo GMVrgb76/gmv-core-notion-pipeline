@@ -244,9 +244,19 @@ def _extract(path: Path) -> tuple[str, str]:
         soffice = shutil.which("soffice") or shutil.which("libreoffice")
         if not soffice: raise EvidenceError("EXTRACTION_FAILED", detail="soffice/libreoffice binary not found on PATH")
         with tempfile.TemporaryDirectory() as tmp:
+            # -env:UserInstallation forces soffice to use a fresh, writable
+            # profile directory instead of resolving one under $HOME. In
+            # sandboxed/containerized environments (no writable/expected
+            # $HOME/.config), soffice otherwise fails profile creation
+            # silently and reports it as "source file could not be loaded"
+            # -- indistinguishable from a real conversion failure without
+            # this fix. Each call gets its own throwaway profile dir
+            # (inside the same TemporaryDirectory, cleaned up with it).
+            profile_dir = Path(tmp) / "lo_profile"
             try:
                 subprocess.run(  # noqa: S603 - fixed argv from shutil.which + local path, no shell
-                    [soffice, "--headless", "--convert-to", "txt:Text", "--outdir", tmp, str(path)],
+                    [soffice, f"-env:UserInstallation={profile_dir.as_uri()}",
+                     "--headless", "--convert-to", "txt:Text", "--outdir", tmp, str(path)],
                     capture_output=True, timeout=60, check=True)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", "replace")
