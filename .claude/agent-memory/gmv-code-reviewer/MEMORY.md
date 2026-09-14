@@ -147,3 +147,31 @@ verifica solo i codici `raise EvidenceError(...)` (o equivalente) non copre
 questo tipo di gap per costruzione — è cieco a eccezioni di tipo diverso da
 quello che cerca, e questo va segnalato esplicitamente come limite del test,
 non solo come test "verde quindi ok".
+
+## Lezione verificata 2026-09-14 (review gmv_dropbox_connector.py): un claim "nessun meccanismo esistente per X" va grep-verificato quanto un claim "riuso Y" — è lo stesso errore speculare
+
+Il docstring di `10_API/gmv_dropbox_connector.py` giustificava la reimplementazione
+ad-hoc della risoluzione del token ("no existing credential-storage mechanism to
+build on") elencando cosa aveva grepppato (SDK Dropbox, codice OAuth, secrets
+vault, `secure_storage.py`). Verificato falso: `credentials.py` nella root del
+repo espone già `get_token(name, file_fallback=None) -> ResolvedToken`, un
+meccanismo centralizzato e generico (parametrizzato per nome env var, non
+hardcoded al suo attuale consumer) con lo stesso pattern esatto — env var,
+poi fallback, altrimenti errore esplicito mai silenzioso — usato realmente da
+6 file (`notion_extract.py`, `adapter_notion.py`, `notion_publish.py`, ecc.).
+Il grep dichiarato nel docstring era reale (le tre cose cercate davvero non
+c'erano) ma incompleto: ha mancato l'unico componente rilevante per la
+decisione che stava giustificando.
+
+**Lezione generale:** le lezioni precedenti (2026-09-13) coprivano il caso
+"il modulo dichiara di riusare X, verificare se è vero". Questo è il caso
+speculare, altrettanto pericoloso: "il modulo dichiara che X non esiste nel
+repo, quindi reimplementa da zero" — va verificato con lo stesso rigore.
+Un grep dichiarato nel docstring (anche con termini di ricerca elencati
+esplicitamente, es. "grepped: no X, no Y, no Z") non è evidenza sufficiente:
+i termini di ricerca stessi possono essere sbagliati/incompleti. Prima di
+accettare "nessun precedente esistente" come giustificazione per una nuova
+astrazione (qui: gestione token), fare il proprio grep indipendente per il
+tipo di componente realmente rilevante (qui: non "dropbox"/"OAuth"/"secrets
+vault" ma "credential"/"token" a livello di funzione riusabile), non solo
+ripetere i termini che l'autore del modulo ha già cercato.
