@@ -114,3 +114,36 @@ concreto (falsi negativi: stesso claim, ordine del nome diverso, fingerprint
 diverso) che il repo aveva già risolto altrove per lo stesso tipo di dato. Cercare
 sempre, nel file citato come fonte di riuso, se esistono più utility correlate
 allo stesso problema, non solo quella effettivamente importata.
+
+## Lezione verificata 2026-09-14 (review gmv_crawler_extractor.py): un wrapper "mai solleva eccezioni" va verificato contro TUTTE le eccezioni della funzione avvolta, non solo il tipo di eccezione dichiarato
+
+Un modulo nuovo (`10_API/gmv_crawler_extractor.py::extract_document()`) avvolge
+`gmv_evidence_pipeline._extract()` con `except EvidenceError` e dichiara nel
+proprio docstring "Never raises for an extraction-format failure ... a caller
+processing many sources can iterate without a per-file try/except". Falso,
+riprodotto direttamente: per `.txt/.md/.html/.csv/.json`, `_extract()` fa
+`path.read_text(encoding="utf-8", errors="strict")` senza alcun try/except
+attorno (a differenza dei rami `.pdf`/`.docx`/`.doc`, che catturano
+`ImportError`/`PyPdfError`/subprocess error e li convertono in
+`EvidenceError`). Un file di testo con encoding non-UTF-8 (scenario reale, non
+patologico — es. bio artista legacy in windows-1252) solleva
+`UnicodeDecodeError` non gestito attraverso tutto il wrapper. La funzione
+originale che il modulo cita come modello di parità (`gmv_evidence_pipeline.
+extract()`) cattura esplicitamente `except (OSError, UnicodeError)` attorno
+alla stessa chiamata — il wrapper nuovo omette quella seconda clausola.
+
+**Lezione generale:** quando un modulo nuovo avvolge una funzione esistente e
+dichiara "non solleva mai eccezioni per un fallimento di formato" o simile,
+non fidarsi del claim sulla base del solo tipo di eccezione esplicitamente
+gestito (qui `EvidenceError`). Leggere l'*intero* corpo della funzione avvolta
+per ogni ramo/formato e cercare chiamate non protette (I/O, decode, parsing)
+che possano sollevare tipi di eccezione diversi da quello dichiarato/atteso
+(`OSError`, `UnicodeError`/`UnicodeDecodeError`, ecc.). Se esiste già un
+chiamante precedente della stessa funzione nel repo (qui `extract()` nello
+stesso file), confrontare quali except-clause usa quel chiamante: un wrapper
+nuovo che ne cattura un sottoinsieme stretto è un segnale concreto di gap, non
+una preferenza di stile. Un test di cross-check basato su regex/AST che
+verifica solo i codici `raise EvidenceError(...)` (o equivalente) non copre
+questo tipo di gap per costruzione — è cieco a eccezioni di tipo diverso da
+quello che cerca, e questo va segnalato esplicitamente come limite del test,
+non solo come test "verde quindi ok".
