@@ -207,3 +207,37 @@ dichiara (qui §10: "il candidato è rifiutato", singolare, non l'intero documen
 Un test che valida solo il costruttore in isolamento (item singolo) non rileva
 questo effetto collaterale — serve un test esplicito con batch misto (un item
 valido + un item che fallisce la validazione) per dimostrarlo.
+
+## Lezione verificata 2026-09-15 (review gmv_crawler_reconciliation.py): un rischio noto e già "earmarked" da un handoff precedente per lo step in revisione va cercato esplicitamente, non solo il rischio in sé
+
+`compute_atom_fingerprint()` (step 7, `gmv_atom_validator.py`) documenta già nel proprio
+docstring un trade-off accettato: `_forma()` applicato a OBJECT senza gating su
+OBJECT_TYPE puo' far collidere due valori multi-parola genuinamente diversi che
+condividono le stesse parole in ordine diverso (es. "Venice Biennale" vs "Biennale
+Venice" -> stesso fingerprint). `GMV_CRAWLER_HANDOFF.md` (documento di continuità
+del progetto, non solo commento di codice) elenca esplicitamente questo trade-off e
+dichiara "likely where [it] needs to be resolved for real" riferendosi proprio allo
+step successivo (qui: step 12, Reconciliation engine). Il nuovo modulo step 12
+riusa `compute_atom_fingerprint()` come chiave di identità (corretto, per istruzione
+esplicita di non reimplementare) ma non menziona mai questo trade-off nel proprio
+docstring, nonostante sia insolitamente dettagliato su tutte le altre scelte di
+scope. Riprodotto empiricamente: due atomi con OBJECT letterale diverso
+("Venice Biennale" / "Biennale Venice"), SOURCE diversa, stesso PREDICATE ->
+`reconcile()` restituisce SUPPORTING ("corroborazione indipendente della stessa
+claim"), etichetta potenzialmente falsa per un OBJECT che potrebbe riferirsi a
+un'entità realmente diversa (rischio concreto per OBJECT_TYPE non-persona:
+PLACE/EVENT/DOCUMENT, molto comuni in un crawler d'arte).
+
+**Lezione generale:** quando una funzione riusata ha un trade-off/rischio già
+documentato nel proprio file sorgente, cercare *anche* se un documento di
+continuità del progetto (handoff notes, roadmap, backlog) ha già dichiarato che
+"lo step attuale/successivo è probabilmente dove va risolto per davvero". Se sì,
+il silenzio del modulo nuovo su quel rischio non è solo un'eredità neutra — è un
+gap di scope-acknowledgment specifico e prevedibile, da segnalare esplicitamente
+anche se riprendere/non risolvere il rischio stesso è coerente con la governance
+("riusa, non reinventare"). Non basta verificare che il riuso sia corretto
+(lo è) — verificare separatamente se il modulo doveva almeno *dichiarare* di
+ereditare un rischio già segnalato come "da risolvere qui" da un documento di
+processo precedente. Applicabile a ogni step futuro dello stesso crawler pipeline
+(`GMV_CRAWLER_HANDOFF.md` §"How to continue" elenca esplicitamente altri
+trade-off aperti earmarked per step specifici non ancora costruiti).
