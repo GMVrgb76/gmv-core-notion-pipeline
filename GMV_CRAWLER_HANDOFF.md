@@ -1,17 +1,19 @@
-# GMV Crawler — Handoff for continuation (preplan steps 12-16)
+# GMV Crawler — Handoff for continuation (preplan steps 13-16)
 
-Status: steps 1-11 of the crawler's implementation order (spec §33) are
+Status: steps 1-12 of the crawler's implementation order (spec §33) are
 complete, reviewed, committed, and pushed — including step 9 (Dropbox
 SourceConnector), whose original premise was false (see Correction 2
 below) and required an explicit user decision before it could proceed,
-and step 11 (Candidate extraction), which took two adversarial-review
-rounds to close a real batch-destroying bug (see "What exists now"
-below). This document lets a different tool/session (OpenCode, Codex, a
-fresh Claude Code session, or a human) resume from step 12 without
-re-deriving what prior sessions already verified. Read this document
-fully before touching code — several assumptions in the original spec
-turned out to be false on inspection; this document tells you which ones,
-and how they were corrected.
+step 11 (Candidate extraction), which took two adversarial-review rounds
+to close a real batch-destroying bug, and step 12 (Reconciliation
+engine), which is deliberately scoped to only 3 of the crawler spec's 6
+reconciliation outcomes (see "What exists now" below for both). This
+document lets a different tool/session (OpenCode, Codex, a fresh Claude
+Code session, or a human) resume from step 13 without re-deriving what
+prior sessions already verified. Read this document fully before
+touching code — several assumptions in the original spec turned out to
+be false on inspection; this document tells you which ones, and how they
+were corrected.
 
 ## Repository state
 
@@ -20,7 +22,7 @@ and how they were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 16 commits ahead of base, in order:
+- 18 commits ahead of base, in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
@@ -41,7 +43,9 @@ and how they were corrected.
   14. `93778b2b` — docs: handoff update for step 9 completion
   15. `f5f429ee` — fix: credential-assignment false-positive in DropboxConnector (repo security scanner, not a real secret leak)
   16. `fffa556f` — feat: Candidate extraction (step 11) — two adversarial-review rounds, see "What exists now" below
-- Full test suite as of `fffa556f`: **924 passed, 0 failed** — the 2
+  17. `60840d63` — docs: handoff update for step 11 completion
+  18. `0c6d4a36` — feat: Reconciliation engine (step 12) — scoped to 3/6 outcomes, see "What exists now" below
+- Full test suite as of `0c6d4a36`: **940 passed, 0 failed** — the 2
   previously-documented soffice-portability failures (see "Known
   environment-only failures" below) are gone as of this run, most likely
   because PR #18 (`fix/test-collection-and-soffice-portability`) was
@@ -217,7 +221,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-11), file by file
+## What exists now (steps 1-12), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -268,7 +272,46 @@ step adds more validation to these dataclasses, keep this per-item
 isolation — do not go back to a comprehension that raises on first
 failure.**
 
-## Working method established this session (follow it for steps 12-16)
+| 12 | `10_API/gmv_crawler_reconciliation.py` | `ReconciliationOutcome` (Literal, all 6 crawler-spec values named) + `ReconciliationResult` + `reconcile()`. Classifies a new `AtomCandidate` (step 7) against caller-supplied `existing_atoms` using the real `compute_atom_fingerprint()` (step 7, reused). **Only NEW/IDENTICAL/SUPPORTING are reachable — CONFLICTING/SUPERSEDING/CORRECTING are named but never produced.** IDENTICAL = same fingerprint + same SOURCE (redundant); SUPPORTING = same fingerprint + different SOURCE (independent corroboration, both atoms stay valid); NEW = no fingerprint match. Never applies the frozen tombstoning rule (STATUS=INVALIDATED/END_REASON=CORRECTED/SUPERSEDES) — no outcome this version produces requires it |
+| 12 | `tests/test_gmv_crawler_reconciliation.py` | 16 tests, incl. a cross-check against the real `ReconciliationOutcome.__args__` (not a duplicated hardcoded set — an earlier draft made exactly that tautology mistake, caught by review) and pinned-behavior tests for two edge cases below |
+
+**Why step 12 stops at 3 of 6 outcomes.** CONFLICTING/SUPERSEDING/CORRECTING
+all need a "slot" identity key (SUBJECT+PREDICATE, ignoring OBJECT) to
+even detect a candidate pair worth comparing — fingerprint-based matching
+(SUBJECT+PREDICATE+OBJECT together) can never surface them, since a
+genuine contradiction or update has a *different* OBJECT by definition,
+hence a different fingerprint. No such slot key, and no governed policy
+for when a same-slot/different-object pair is a legitimate temporal
+update vs. a human correction vs. an unresolved contradiction (which
+would itself depend on PREDICATE_CLASS — some RELATION-class predicates
+may legitimately hold multiple simultaneous values, others may not),
+exists anywhere in this repo. Verified by reading `area35_validator.py::r_duplicati()`
+(only flags duplicates, D01/D02, never reconciles) and
+`gmv_evidence_pipeline.py::consolidate_claims()` (groups by the full
+subject/predicate/object triple, never subject+predicate alone) — this
+step is genuinely new design, not a wrapper of existing logic, unlike
+steps 9-11.
+
+**Two things this step's own review found worth knowing before extending it:**
+1. `SUPPORTING` inherits step 7's known `compute_atom_fingerprint()`
+   collision risk for non-person OBJECT text (`_forma()` is word-order-
+   invariant, not OBJECT_TYPE-aware — "Venice Biennale" and "Biennale
+   Venice" fingerprint identically). `GMV_CRAWLER_HANDOFF.md` had already
+   named this step as "likely where the atom_fingerprint trade-off needs
+   to be resolved for real" — **it is not resolved here**, only
+   explicitly documented as inherited (module docstring). A real fix
+   needs OBJECT_TYPE-aware normalization in `compute_atom_fingerprint()`
+   itself (step 7), not something this module can fix locally.
+2. If `existing_atoms` (caller-supplied — no `atoms_runtime` store exists
+   yet) contains two atoms that already share both the candidate's
+   fingerprint and its SOURCE, `reconcile()`'s IDENTICAL result can only
+   report one of them (`ReconciliationResult`'s own invariant: IDENTICAL
+   carries exactly one matched atom) — the other is silently not
+   reported. Pinned by `test_multiple_existing_atoms_same_source_as_candidate_keeps_only_one_witness`,
+   not fixed; a caller relying on `matched_atoms` to enumerate *every*
+   redundant atom should not assume completeness for IDENTICAL.
+
+## Working method established this session (follow it for steps 13-16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -411,7 +454,7 @@ Correction-2 assumption made it into the spec in the first place:
   `tmp_path` for test isolation, never writing to the repo's real
   `03_STATE/`).
 
-## Remaining steps (§33, 12-16) — status and notes
+## Remaining steps (§33, 13-16) — status and notes
 
 ```
 9.  Dropbox connector = wrapper of    -- DONE. Not a wrapper (the premise
@@ -545,10 +588,21 @@ Correction-2 assumption made it into the spec in the first place:
                                           step in §33. gemma4:12b default
                                           still not independently
                                           reverified by any session.
-12. Reconciliation engine              -- not started. This is likely
-                                          where the atom_fingerprint
-                                          trade-off (see above) needs to
-                                          be resolved for real.
+12. Reconciliation engine              -- DONE, scoped to 3/6 outcomes
+                                          (NEW/IDENTICAL/SUPPORTING).
+                                          CONFLICTING/SUPERSEDING/
+                                          CORRECTING need a "slot" key
+                                          (subject+predicate, object-
+                                          agnostic) that does not exist
+                                          governed anywhere -- see "What
+                                          exists now" above. Does NOT
+                                          resolve the atom_fingerprint
+                                          trade-off despite being the
+                                          step this handoff previously
+                                          named for that -- inherits it,
+                                          documents it, does not fix it
+                                          (fix belongs in step 7's
+                                          compute_atom_fingerprint()).
 13. FTS5                               -- not started.
 14. DERIVED_VIEW_SPEC v0.1             -- not started.
 15. PUBLIC projector                   -- not started.
@@ -567,19 +621,29 @@ Correction-2 assumption made it into the spec in the first place:
 2. Fetch and read the source Notion documents listed above yourself — do
    not rely solely on this document's summaries for anything you're about
    to build on.
-3. Steps 9, 10 and 11 are all done (Dropbox connector, Extractors,
-   Candidate extraction). Step 12 (Reconciliation engine) is the next
-   not-started step in §33's order — this is explicitly flagged above as
-   likely where the atom_fingerprint word-order-collision trade-off
-   (step 7) needs a real resolution, and is also a natural place to
-   decide the `claim_id`/`evidence_id` open question (still unresolved,
-   needs the user's decision per the spec's own text). Before designing
-   it, check `gmv_evidence_pipeline.py::consolidate_claims()` in full —
-   it already computes a `claim_id` from *resolved* subject/object pairs
-   (post entity-resolution, using `resolution_status == "RESOLVED"`), a
-   genuinely different, later-stage concept than this step's raw
-   `CandidateProposition.evidence_id` — this grounds, but does not fully
-   settle, the open claim_id question above.
+3. Steps 9-12 are all done (Dropbox connector, Extractors, Candidate
+   extraction, Reconciliation engine — the last scoped to 3/6 outcomes).
+   Step 13 (FTS5) is the next not-started step in §33's order — spec §21
+   says the MVP-mandatory index is "SQLite metadata + FTS5", vector/graph
+   indexes only after FTS is validated. Before designing it, check
+   whether this repo already has an FTS5 table/index anywhere (not
+   investigated this session) — `gmv_core/migration_sql/` is the place to
+   look first, per this session's own established discipline.
+   The atom_fingerprint word-order-collision trade-off (step 7) is
+   **still unresolved** despite step 12 being previously flagged as
+   where it would be addressed — step 12 only inherited and documented
+   the risk, it did not fix `compute_atom_fingerprint()` itself. If a
+   future step needs real dedup accuracy on non-person OBJECT text
+   (PLACE/EVENT/DOCUMENT), that fix belongs in step 7's function, not in
+   the reconciliation engine that calls it.
+   The `claim_id`/`evidence_id` open question also remains unresolved —
+   `gmv_evidence_pipeline.py::consolidate_claims()` computes a `claim_id`
+   from *resolved* subject/object pairs (post entity-resolution, using
+   `resolution_status == "RESOLVED"`), a genuinely different, later-stage
+   concept than `CandidateProposition.evidence_id` (step 11) or
+   `AtomCandidate`/`ReconciliationResult` (steps 7/12, pre-resolution) —
+   this grounds, but does not settle, the question; still needs the
+   user's explicit decision per the spec's own text before step 16.
 4. `DropboxConnector` (step 9) has never been driven end-to-end against a
    real Dropbox account/token — only tested against an injected fake
    session. If a future step needs to actually crawl real Dropbox content
