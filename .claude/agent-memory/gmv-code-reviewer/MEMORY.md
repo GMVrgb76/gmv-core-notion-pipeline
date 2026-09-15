@@ -370,3 +370,60 @@ di un file di config di default), ricontrollare se un claim generale dichiarato 
 docstring (qui: "no I/O" nel paragrafo di apertura, non nella sezione della funzione corretta) e' ancora
 vero dopo la fix -- una remediation mirata e corretta sulla funzione specifica puo' comunque rendere
 falsa un'affermazione fatta altrove nello stesso file che nessuno ha pensato di ricontrollare.
+
+## Lezione verificata 2026-09-15 (review gmv_crawler_public_projector.py, step 15): una costante grounded contro il nome giusto di file/riga ma il campo sbagliato — variante ulteriore del pattern "riuso non verificato"
+
+Il modulo dichiarava `BLOCKED_EXTRACTION_STATUS = "BLOCKED"` "matches the real, live literal
+`gmv_evidence_pipeline.py:538`", citando riga e file reali, e un test dedicato
+(`test_blocked_extraction_status_matches_real_evidence_pipeline_literal`) che fa
+`assert '"status": "BLOCKED"' in source` sullo stesso file — verde, ma non prova nulla di
+rilevante. Verificato: la riga 538 scrive il campo `"status"` (non `"extraction_status"`) dentro
+`run_manifest.json`, a livello dell'intero run della fase SEMANTIC (LLM entity/claim extraction),
+per un fallimento irreversibile dopo retry — un concetto e un livello di granularità
+completamente diversi dal campo `extraction_status` per-singola-fonte che
+`SourceManifestEntry`/questo modulo consultano davvero. Il vocabolario chiuso e reale per
+`extraction_status` a livello di singola fonte, sia in `gmv_evidence_pipeline.extract()`
+(`EXTRACTION_ABORTED_STALE_HASH`/`FILE_TOO_LARGE`/`SUCCESS`/`EXTRACTION_FAILED`/`str(exc)`) sia
+nel layer crawler già committato (`gmv_crawler_extractor.STATUS_VALUES` =
+`{SUCCESS, OCR_REQUIRED, UNSUPPORTED_FORMAT, EXTRACTION_FAILED, EXTRACTION_ABORTED_STALE_HASH}`,
+validato in `ExtractionDocument.__post_init__`, e riusato letteralmente da
+`gmv_crawler_candidate_extractor.py:231` come `"extraction_status": document.status`) **non
+contiene mai la stringa "BLOCKED"**. Conseguenza: il gate "inferenze da fonti bloccate" —
+uno dei gate che il modulo dichiara "mechanically enforced" — non può mai scattare contro nessuna
+fonte realmente illeggibile/fallita prodotta da questa pipeline, esattamente l'opposto di quanto
+richiesto dalla citazione che lo stesso modulo fa di crawler spec §24 ("una source illeggibile
+deve esistere nel sistema come BLOCKED"). Non è (ancora) un difetto funzionale osservabile oggi —
+`SourceManifestEntry` non viene mai costruito da codice reale nel repo, solo da fixture di test —
+ma è un bug di grounding concreto che diventerà un gate morto/silenzioso nel momento in cui un
+futuro step collega un manifest SOURCES reale a questo projector.
+
+**Lezione generale:** citare un file e un numero di riga reali (`gmv_evidence_pipeline.py:538`) e
+avere un test che fa `assert 'stringa letterale' in source_del_file` non è sufficiente come prova
+di grounding — verificare sempre (a) il **nome del campo**, non solo la stringa valore, e (b) il
+**livello/stage della pipeline** a cui quel campo appartiene, non solo che la stringa esista da
+qualche parte nel file giusto. Un test-grounding che fa solo una substring-match su un file intero
+(senza distinguere a quale chiave JSON o a quale funzione/stage appartiene la stringa trovata) è lo
+stesso pattern di "falsa evidenza" già registrato il 2026-09-13 (test che confermano solo se stessi,
+non il modulo esterno citato) — qui la variante è che il test legge davvero il file esterno giusto,
+ma verifica il campo sbagliato. Quando un modulo nuovo introduce una costante che deve mirrorare un
+vocabolario di stato **per-entità/per-sorgente** (qui: extraction_status di una singola fonte), cercare
+esplicitamente il vocabolario chiuso più recente/più vicino a quel livello già committato nel repo
+(qui: `gmv_crawler_extractor.STATUS_VALUES`, uno step precedente della stessa pipeline crawler) prima
+di accettare come grounding un valore trovato in un file/stage diverso (qui: lo stage SEMANTIC,
+livello run intero, non EXTRACT, livello per-fonte) solo perché la stringa letterale coincide.
+
+**Addendum verificato 2026-09-15 (fix re-review):** la remediation applicata (opzione a
+raccomandata) ha sostituito il letterale con `from gmv_crawler_extractor import STATUS_VALUES` +
+`BLOCKED_EXTRACTION_STATUSES = frozenset(STATUS_VALUES - {"SUCCESS"})`, e il test di grounding è
+stato riscritto per importare `STATUS_VALUES` indipendentemente e fare un confronto di insiemi
+(`==`), non più una substring-match. Nessun import circolare introdotto (`gmv_evidence_pipeline.py`
+non importa nulla del layer crawler). Corroborazione indipendente trovata durante la
+ri-verifica: `gmv_crawler_candidate_extractor.py:231` già scrive
+`"extraction_status": document.status` con `document` un `ExtractionDocument` reale — conferma che
+quando un futuro step costruirà davvero un `SourceManifestEntry`, il valore naturale per
+`extraction_status` erediterà lo stesso vocabolario `STATUS_VALUES`, quindi il gate ricostruito
+scatterà correttamente, non è più dead code per costruzione. **Pattern di fix generalizzabile:**
+quando una costante deve rispecchiare "tutti i valori di un vocabolario chiuso tranne uno/alcuni",
+preferire sempre `frozenset(VOCABOLARIO_IMPORTATO - {eccezioni})` a un secondo letterale
+enumerato a mano — è automaticamente drift-proof se il vocabolario sorgente cambia, ed è la
+remediation concreta che ha chiuso questo blocker specifico.
