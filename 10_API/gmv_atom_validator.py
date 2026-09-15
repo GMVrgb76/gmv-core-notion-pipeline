@@ -364,7 +364,11 @@ def validate_atom(atom: AtomCandidate, registry: dict | None = None) -> list[Iss
     return issues
 
 
-def compute_atom_fingerprint(atom: AtomCandidate) -> str:
+def compute_atom_fingerprint(
+    atom: AtomCandidate,
+    subject_gmv_id: str | None = None,
+    object_gmv_id: str | None = None,
+) -> str:
     """External deduplication key (crawler spec §16), computed by
     reusing area35_validator's own normalization -- imported, not
     reimplemented, per Correction 3's explicit instruction. Uses
@@ -387,7 +391,34 @@ def compute_atom_fingerprint(atom: AtomCandidate) -> str:
     the same semantic claim and must fingerprint identically, not
     diverge because of provenance metadata.
 
-    Known accepted trade-off, not eliminated here: area35_validator.py
+    subject_gmv_id/object_gmv_id: the resolved entity identity
+    (Entity Registry, gmv_core/migration_sql/010_entity_registry.sql --
+    gmv_id, stable and independent of the canonical name) for this
+    atom's subject/object, when it exists. When provided, that id is
+    used verbatim in place of _forma(subject)/_forma(object) for the
+    corresponding fingerprint component -- two differently-worded
+    extraction passes of the same already-resolved entity collapse to
+    the same fingerprint through their shared gmv_id, even where the
+    raw texts would not _forma()-collapse at all (closing, for resolved
+    entities, the word-order/OBJECT_TYPE collision risk on multi-word
+    non-person text documented below: "Venice Biennale" vs. "Biennale
+    Venice" now fingerprint differently whenever each is bound to a
+    different gmv_id, and identically whenever both resolve to the
+    same one). The id is used verbatim, not normalized: it is a
+    governed, name-independent identity, so none of the token
+    normalization _forma() exists for applies to it. Absent (default
+    None) means the entity has not been resolved yet -- no entity-
+    resolution engine exists anywhere upstream to produce these ids
+    automatically (Group B, see AGENTS.md) -- and the component falls
+    back to _forma() exactly as before, byte for byte, so every
+    existing single-argument call keeps its exact current fingerprint.
+    This is the same "accept from the caller what no upstream engine
+    yet produces automatically" pattern already used by
+    derive_current_state()'s ``registry`` and reconcile()'s
+    ``existing_atoms``.
+
+    Known accepted trade-off, not eliminated here: when neither
+    subject_gmv_id nor object_gmv_id is provided, area35_validator.py
     only ever calls _forma() for entita in ("artista", "persona")
     (r_duplicati) -- this function applies it to every ATOM's
     subject/object regardless of OBJECT_TYPE, a broader use than
@@ -401,12 +432,16 @@ def compute_atom_fingerprint(atom: AtomCandidate) -> str:
     (PERSON/ARTIST names, where order genuinely carries no meaning),
     this is the correct behavior; for PLACE/EVENT/DOCUMENT-typed objects
     it is a real, currently-accepted risk of a false-positive dedup
-    match, not a false negative like the bug this fix closes. A correct
-    fix would key normalization on OBJECT_TYPE (order-invariant only for
-    identity-like types), which is not decided here and is deferred to
-    whichever step actually consumes fingerprints for real
-    deduplication."""
-    normalized = "|".join((_forma(atom.subject), atom.predicate, _forma(atom.object)))
+    match, not a false negative like the bug this fix closes. The
+    subject_gmv_id/object_gmv_id parameters are the first concrete
+    realization of the "key normalization on resolved identity" direction
+    -- a correct full fix would also key normalization on OBJECT_TYPE
+    (order-invariant only for identity-like types) for unresolved
+    entities, which is not decided here and is deferred to whichever step
+    actually consumes fingerprints for real deduplication."""
+    subject_component = _forma(atom.subject) if subject_gmv_id is None else subject_gmv_id
+    object_component = _forma(atom.object) if object_gmv_id is None else object_gmv_id
+    normalized = "|".join((subject_component, atom.predicate, object_component))
     import hashlib
 
     return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()

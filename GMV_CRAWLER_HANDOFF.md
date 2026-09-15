@@ -1008,3 +1008,29 @@ document's structural sections (that stays one authorial voice); this
 section is the one place it writes.
 
 *(No entries yet.)*
+
+- **2026-09-15 — Task 1 done: `compute_atom_fingerprint()` accepts
+  `subject_gmv_id`/`object_gmv_id` (opencode task brief
+  `opencode_task_1.md`).** Read before changing: `gmv_atom_validator.py`
+  in full, its test file, `area35_validator.py::_forma()`/`norm()`, the
+  precedent callers' patterns (`derive_current_state()`'s `registry`,
+  `reconcile()`'s `existing_atoms`), and the Entity Registry migration
+  `010_entity_registry.sql` (gmv_id shape `GMV-*`). Grepped every
+  `compute_atom_fingerprint()` call site repo-wide first: all use the
+  single-argument form, none break. What I changed: the function now
+  takes two optional params; when provided, the gmv_id is used verbatim
+  in place of `_forma(...)` for that component; when absent the
+  normalized string is byte-for-byte what it was before. What I
+  verified empirically: the default fingerprint of the base atom is
+  pinned to the exact pre-change SHA-256 literal
+  (`sha256:dc2216b4...4b63`) in a new test (would fail on any default-
+  path change); explicit-None equals default; same gmv_id collapses
+  spellings that do not `_forma()`-collapse; different gmv_id stays
+  distinct despite identical text; same gmv_id closes the Venice
+  Biennale word-order collision for resolved entities. NOT touched,
+  per brief: `gmv_crawler_reconciliation.py::reconcile()` — wiring the
+  new params through it requires an entity-resolution engine that does
+  not exist (Group B). Full suite 1034 passed, `ruff check .` clean.
+  One thing I could not verify: no upstream caller today supplies these
+  ids (no resolution engine), so the new path is exercised only by
+  tests, not by real crawler data.

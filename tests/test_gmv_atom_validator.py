@@ -115,6 +115,85 @@ def test_fingerprint_is_well_formed_sha256() -> None:
     assert len(fp) == len("sha256:") + 64
 
 
+def test_fingerprint_default_unchanged_byte_for_byte() -> None:
+    """Pinned value, not a self-computed tautology: with neither
+    subject_gmv_id nor object_gmv_id provided, the fingerprint of the
+    base _atom() must be exactly the SHA-256 of the same _forma-joined
+    string this function produced before the optional parameters
+    existed. If a future edit changes the default normalization (the
+    component separator, _forma()'s role, or the enclosing digest), this
+    literal fails -- which is precisely the byte-for-byte stability the
+    change was required to preserve for existing single-argument
+    callers."""
+    assert av.compute_atom_fingerprint(_atom()) == (
+        "sha256:dc2216b4f0006f7f5ce9532fb3e76908c63fbdbf26de43bc2a9058b612ff4b63"
+    )
+
+
+def test_fingerprint_explicit_none_matches_default() -> None:
+    """None is 'not provided', not an identity value: passing the
+    parameters explicitly as None must produce the identical fingerprint
+    to the default call, same byte-for-byte guarantee as
+    test_fingerprint_default_unchanged_byte_for_byte."""
+    a = _atom(subject="Federico Garibaldi", object="Riyadh 2025")
+    assert (
+        av.compute_atom_fingerprint(a, subject_gmv_id=None, object_gmv_id=None)
+        == av.compute_atom_fingerprint(a)
+    )
+
+
+def test_fingerprint_same_gmv_id_collapses_unrelated_spellings() -> None:
+    """The bug this change closes, demonstrated on old code: it cannot
+    take subject_gmv_id/object_gmv_id at all (TypeError), and even if
+    the text-only fingerprint were the only key, these two atoms would
+    never match -- "Federico Garibaldi"/"Riyadh 2025" and
+    "Garibaldi F."/"Riyadh" do not _forma()-collapse into each
+    other. Once both atoms carry the SAME resolved gmv_id for subject
+    and object, the resolved identity -- not the normalized text -- is
+    what the fingerprint keys on, and they must match."""
+    a = _atom(subject="Federico Garibaldi", object="Riyadh 2025", object_type="EVENT")
+    b = _atom(subject="Garibaldi F.", object="Riyadh", object_type="EVENT")
+    assert av._forma(a.subject) != av._forma(b.subject)
+    assert av._forma(a.object) != av._forma(b.object)
+    fp_a = av.compute_atom_fingerprint(
+        a, subject_gmv_id="GMV-ARTIST-0001", object_gmv_id="GMV-EVENT-0001"
+    )
+    fp_b = av.compute_atom_fingerprint(
+        b, subject_gmv_id="GMV-ARTIST-0001", object_gmv_id="GMV-EVENT-0001"
+    )
+    assert fp_a == fp_b
+
+
+def test_fingerprint_same_gmv_id_closes_word_order_collision() -> None:
+    """The documented word-order/OBJECT_TYPE weakness, closed for
+    resolved entities: "Venice Biennale" and "Biennale Venice" normally
+    fingerprint identically under _forma() (see
+    test_fingerprint_collides_on_reordered_non_person_text). Bound to
+    the SAME event gmv_id they must still fingerprint identically --
+    they are the same real-world thing; bound to DIFFERENT gmv_ids (the
+    other test below) they must diverge. The id, not the text, decides."""
+    a = _atom(object="Venice Biennale", object_type="EVENT")
+    b = _atom(object="Biennale Venice", object_type="EVENT")
+    assert (
+        av.compute_atom_fingerprint(a, object_gmv_id="GMV-EVENT-0001")
+        == av.compute_atom_fingerprint(b, object_gmv_id="GMV-EVENT-0001")
+    )
+
+
+def test_fingerprint_different_gmv_id_stays_distinct() -> None:
+    """The fix must not collapse everything: two atoms with otherwise
+    identical, _forma()-identical SUBJECT/OBJECT text but DIFFERENT
+    subject gmv_ids are different real-world facts and must fingerprint
+    differently, even though the raw text would normalize the same."""
+    a = _atom(subject="Venice Biennale", object="Riyadh 2025")
+    b = _atom(subject="Venice Biennale", object="Riyadh 2025")
+    assert av._forma(a.subject) == av._forma(b.subject)
+    assert (
+        av.compute_atom_fingerprint(a, subject_gmv_id="GMV-EVENT-0001")
+        != av.compute_atom_fingerprint(b, subject_gmv_id="GMV-EVENT-0002")
+    )
+
+
 def test_eic09_valid_requires_source() -> None:
     assert av.eic09_valid_requires_source(_atom(status="VALID", source="sha256:" + "a" * 64)) == []
     issues = av.eic09_valid_requires_source(_atom(status="VALID", source=""))
