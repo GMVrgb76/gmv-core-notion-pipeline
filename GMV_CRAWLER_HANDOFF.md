@@ -1,6 +1,6 @@
-# GMV Crawler — Handoff for continuation (preplan steps 15-16)
+# GMV Crawler — Handoff for continuation (preplan step 16)
 
-Status: steps 1-14 of the crawler's implementation order (spec §33) are
+Status: steps 1-15 of the crawler's implementation order (spec §33) are
 complete, reviewed, committed, and pushed — including step 9 (Dropbox
 SourceConnector), whose original premise was false (see Correction 2
 below) and required an explicit user decision before it could proceed,
@@ -9,19 +9,26 @@ to close a real batch-destroying bug, step 12 (Reconciliation engine),
 which is deliberately scoped to only 3 of the crawler spec's 6
 reconciliation outcomes, step 13 (FTS5 full-text index), which collided
 with a real, active security boundary (SEC-006/ARC-002) and required an
-explicit user decision among three remediation options, and step 14
+explicit user decision among three remediation options, step 14
 (Derived View Spec), which also took two adversarial-review rounds to
 close two real bugs in its most delicate function
-(`derive_current_state()`) — **read "What exists now" below in full
-before building any future virtual-table-based index (e.g. a vector
-index via `sqlite-vec` or similar), which will very likely hit the same
-SEC-006/ARC-002 boundary step 13 already resolved once.** This document
-lets a different tool/session (OpenCode, Codex, a fresh Claude Code
-session, or a human) resume from step 15 without re-deriving what prior
-sessions already verified. Read this document fully before touching
-code — several assumptions in the original spec turned out to be false
-on inspection; this document tells you which ones, and how they were
-corrected.
+(`derive_current_state()`), and step 15 (PUBLIC projector), whose first
+adversarial-review round found a real grounding bug (a literal that
+matched the wrong field of the wrong pipeline stage, making one of its
+four exclusion gates dead code against any real data) — **read "What
+exists now" below in full before building any future virtual-table-based
+index (e.g. a vector index via `sqlite-vec` or similar), which will very
+likely hit the same SEC-006/ARC-002 boundary step 13 already resolved
+once.** **Step 16 is blocked on an explicit user decision** (the
+`claim_id`/`evidence_id` relationship, open since the spec's own text —
+see "Open questions" below) and was deliberately not started
+autonomously this session; see "Remaining steps" for exactly what is and
+is not done. This document lets a different tool/session (OpenCode,
+Codex, a fresh Claude Code session, or a human) resume without
+re-deriving what prior sessions already verified. Read this document
+fully before touching code — several assumptions in the original spec
+turned out to be false on inspection; this document tells you which
+ones, and how they were corrected.
 
 ## Repository state
 
@@ -30,7 +37,7 @@ corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 22 commits ahead of base as of `a58d8933` (this update itself will be one more), in order:
+- 24 commits ahead of base as of `b8c1214` (this update itself will be one more), in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
@@ -57,15 +64,22 @@ corrected.
   20. `2154f497` — feat: full-text index (step 13) — hit SEC-006/ARC-002 boundary, user decision required, see "What exists now" below
   21. `90b3792a` — docs: handoff update for step 13 completion (also fixed a step-14 mislabeling mistake before it shipped)
   22. `a58d8933` — feat: Derived View Spec (step 14) — two adversarial-review rounds, see "What exists now" below
-- Full test suite as of `a58d8933`: **972 passed, 0 failed** — the 2
-  previously-documented soffice-portability failures (see "Known
-  environment-only failures" below) are gone as of this run, most likely
-  because PR #18 (`fix/test-collection-and-soffice-portability`) was
-  merged into `main` in the interim; **verify this yourself** (`git log
-  main | grep soffice` or check the PR's status) rather than assuming —
-  do not treat "soffice failures reappeared" in a future container as a
-  regression this branch caused if PR #18 was never actually merged.
-  `ruff check .` clean.
+  23. `d187e82` — feat: PUBLIC projector (step 15) — one adversarial-review round found a real grounding bug, fixed and re-verified, see "What exists now" below
+  24. `b8c1214` — chore: record gmv-code-reviewer lesson from step 15 review (agent memory file, not crawler code)
+- Full test suite as of `b8c1214`: **987 passed, 10 failed** in this
+  session's own container — the 10 failures are exactly the
+  container-specific, pre-existing gaps this document already documents
+  under "Known environment-only failures" below (8 in
+  `test_gmv_artist_import.py`, 2 soffice-portability in
+  `test_gmv_evidence_pipeline.py`) — they reappeared in this session's
+  container even though the previous update reported them gone (that
+  update's own caveat — verify PR #18's merge status yourself, do not
+  assume — turned out to matter: this session's container shows the
+  soffice/`~/.gmv_core` gaps again). **Do not treat this as a regression
+  step 15 caused** — none of the 10 failing tests touch
+  `gmv_crawler_public_projector.py`, `gmv_crawler_extractor.py` (imported
+  by it) was not modified by step 15, and the same 10 tests were already
+  failing before step 15's changes were staged. `ruff check .` clean.
   Re-run before continuing: `<repo-root>/.venv/bin/python -m pytest tests/ -q`
   and `... -m ruff check .` — see "Environment" below on which venv to use.
 
@@ -395,7 +409,14 @@ raising with the user directly rather than assumed.
 **Two risks inherited, not fixed, disclosed in the module's own docstring:**
 `STATUS=DISPUTED` atoms produce no `CURRENT_STATE` entry at all (indistinguishable from "never asserted" in this view alone); `_forma()` on SUBJECT inherits the same word-order-collision risk already accepted for OBJECT in `compute_atom_fingerprint()` (step 7) — structurally harder to bound here since the frozen 18-field ATOM schema has an `OBJECT_TYPE` field but no `SUBJECT_TYPE` field.
 
-## Working method established this session (follow it for steps 15-16)
+| 15 | `10_API/gmv_crawler_public_projector.py` | Computes what `gmv_monad_materializer.MonadDocument.public_text` (step 8) should contain — step 8 writes `public_text` verbatim, never computes it. `select_public_atoms()` reuses `derive_current_state()` (step 14) for STATUS=VALID filtering/dedup/alias-aware slot resolution, adding VISIBILITY=="PUBLIC" and a not-blocked-source gate. `render_public_text()` renders one deterministic line per eligible atom (subject/predicate/object, sorted by `atom_id`) — literal fact enumeration, not NLG. `project_public()` composes both |
+| 15 | `tests/test_gmv_crawler_public_projector.py` | 25 tests, incl. regression tests for the round-1 review-found bug below, the disclosed RELATION multi-value AMBIGUOUS trade-off pinned end-to-end, and cross-checks against real committed vocabularies (`gmv_crawler_extractor.STATUS_VALUES`, every sibling test file's `visibility` fixture default) |
+
+**§14's six PUBLIC exclusion rules, mapped explicitly (see module docstring for the full account):** "fatti INTERNAL" and "claim UNVERIFIED non attribuite" are both closed by requiring STATUS=VALID (reused from `derive_current_state()`) + VISIBILITY=="PUBLIC" (this module's own decision — **no governed VISIBILITY vocabulary exists anywhere in this repo**, confirmed by grep; `"PUBLIC"` is the one value every other crawler-step test fixture already defaults to, not a transcription of a real enum). "Historical states presented as current" is closed two ways: STATUS=VALID already excludes SUPERSEDED/INVALIDATED, and — **this module's own deliberate decision, since step 14 left this explicitly undefined** — `derive_current_state()`'s `AMBIGUOUS` slots are excluded from PUBLIC entirely, never one competing atom silently chosen. This inherits step 14's own disclosed limitation: a RELATION predicate able to legitimately hold several simultaneous true values (e.g. `participated_in` several exhibitions) collides into one SUBJECT+PREDICATE slot and is suppressed even though nothing is actually contested — a known, accepted v1 under-publication trade-off, pinned by its own test (`test_select_under_publishes_legitimately_multi_valued_relation_as_disclosed`), not a silent gap; no governed per-predicate "may hold multiple simultaneous values" policy exists anywhere in this repo to fix it with. "Inferenze da fonti bloccate" is closed by excluding any atom whose SOURCE resolves to a SOURCES-manifest row with `extraction_status` other than `"SUCCESS"` — see the review account below for how this gate's grounding was first wrong, then fixed. **Two of the six rules are honestly NOT enforced**, disclosed in the module docstring rather than silently dropped: "bozze contrattuali e dati economici privati" (no classification/sensitivity field exists anywhere in the frozen ATOM schema or the SOURCES manifest — the crawler spec's own "Punti di attenzione aperti" #2 already names this as open and undecided, not something to guess a heuristic for) and "scheduled events presented as occurred" (identical class of gap to EIC-05/EIC-06, already declined at atom-validation time in step 7 for the same reason — a finished VALID atom looks structurally identical whether an occurrence promotion was correct or not).
+
+**One adversarial-review round on step 15, a real grounding bug, fixed and re-verified:** round 1 returned **BLOCK** — an early draft's blocked-source gate used a standalone literal, `BLOCKED_EXTRACTION_STATUS = "BLOCKED"`, whose docstring claimed it "matches the real, live literal `gmv_evidence_pipeline.py:538` already writes." That claim was checked and found false: line 538 writes the whole-run manifest `status` field for the *SEMANTIC* (LLM entity/claim extraction) stage — an unrelated field on an unrelated pipeline stage, not any per-source `extraction_status`. The real, closed, already-committed per-source vocabulary this crawler subsystem actually produces (`gmv_crawler_extractor.STATUS_VALUES`, step 10: `SUCCESS`/`OCR_REQUIRED`/`UNSUPPORTED_FORMAT`/`EXTRACTION_FAILED`/`EXTRACTION_ABORTED_STALE_HASH`) contains no `"BLOCKED"` value at all — the gate was dead code against any real data this pipeline can produce, and its own grounding test only substring-matched the wrong file/field, so it passed while proving nothing (the same "grounding test that reads the right file but the wrong field" failure mode already flagged once before this session, per the reviewer's own memory). Fixed: `BLOCKED_EXTRACTION_STATUSES` is now `frozenset(STATUS_VALUES - {"SUCCESS"})`, imported and computed from the real vocabulary (so it cannot silently drift if a future status value is added upstream), not a second hardcoded literal; the docstring was rewritten to document the correction explicitly and to distinguish this content-extraction-stage concept from `crawler_source_registry.state` (migration 009, step 3) — that table's own real closed vocabulary is `NEW`/`UNCHANGED`/`MODIFIED`/`MOVED`/`DELETED`/`FAILED`, no `BLOCKED` either; crawler spec §24's prose use of the word "BLOCKED" for an unreadable source refers to that different, DETECT-CHANGE-stage concept (real literal `FAILED`), and must not be conflated with this gate. Tests against real pipeline-producible statuses (`EXTRACTION_FAILED`, `UNSUPPORTED_FORMAT`, `SUCCESS`) were added, along with the RELATION multi-value trade-off and CRLF-collapse cases round 1 flagged as missing coverage. Round 2 (re-verification, same reviewer): **PASS** — confirmed the fix fires correctly against real data (and, independently, that `gmv_crawler_candidate_extractor.py:231` already writes a real `extraction_status` field from this exact vocabulary, corroborating it as the right one to key off), confirmed no circular import (`gmv_crawler_extractor` imports only `gmv_crawler_contracts`/`gmv_evidence_pipeline`, neither imports back), no other issues found. **No production code constructs a real `SourceManifestEntry` yet** (confirmed by repo-wide grep, both review rounds) — this gate has no live caller today; it is grounded and ready for whichever future step wires a real SOURCES manifest through, not exercised end-to-end in this crawler yet.
+
+## Working method established this session (follow it for step 16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -514,7 +535,46 @@ goal is fewer review round-trips on step 15/16, not a new process:
    a content problem) — always follow up with a `SendMessage` to the
    same agent asking it to repost the full report before acting on a
    verdict. This has been necessary in most rounds this session; budget
-   for it rather than treating it as an exception.
+   for it rather than treating it as an exception. **Update from step 15:**
+   both review rounds this time returned a full, non-truncated report on
+   the first ask (no follow-up `SendMessage` needed) — so this is not a
+   universal failure mode, just frequent enough to budget for; do not
+   treat one clean round as proof it stopped happening.
+
+### Retrospective: how these 6 items held up on step 15, plus a 7th
+
+Items 1, 2, 3, 4, and 5 were applied proactively from the first draft
+(grep-verified every "imported"/"reused" claim before review; resolved
+STATUS/VISIBILITY, not just PREDICATE, through the most defensible
+grounding available rather than a raw string; no new SQL/DML call site
+so item 3 was a quick no-op check, not skipped; re-read
+`GMV_KNOWLEDGE_MONAD_SPEC_v1.0` §14 and crawler spec §15-20 fully via
+fresh Notion fetches before designing, not from memory/paraphrase;
+wrote the AMBIGUOUS-exclusion adversarial test, the "fails every gate
+simultaneously" test, and the RELATION multi-value trade-off test
+myself before sending to review). None of these caught the round-1 bug
+— it was a new failure *shape*, not a repeat of 1-6, worth naming
+explicitly as a 7th item for step 16 and beyond:
+
+7. **A claim that a literal/constant "matches" or "is grounded in" a
+   real value elsewhere in the codebase is only true if the cited
+   location is the same field, on the same concept, at the same
+   pipeline stage — not just a textually similar key somewhere in the
+   right file.** Step 15's `BLOCKED_EXTRACTION_STATUS = "BLOCKED"`
+   grounding test asserted the literal string `"BLOCKED"` appeared
+   somewhere in `gmv_evidence_pipeline.py` — true, but the match was the
+   *semantic-stage run-manifest's* `status` field, not the *per-source*
+   `extraction_status` field the module's own gate actually reads. A
+   substring match across an entire file proves a string exists
+   somewhere, never that it exists in the right field on the right
+   object. Before writing a grounding test for a "this constant matches
+   a real precedent" claim: name the exact field/attribute the runtime
+   code actually reads (here: `SourceManifestEntry.extraction_status`),
+   then verify the cited precedent populates *that same field/attribute*
+   on *the same kind of object*, not just that the literal appears in
+   the same file. A dict key match (`"status"` vs. `"extraction_status"`)
+   is not a coincidence to wave away — it is exactly the signal that the
+   two things are different concepts.
 
 ## Open questions / known gaps (do not silently resolve these — surface them)
 
@@ -533,12 +593,16 @@ goal is fewer review round-trips on step 15/16, not a new process:
   end-to-end wiring (likely alongside whatever step first needs an actual
   running crawler loop, not a schema/contract step) has not been done or
   investigated.
-- **`claim_id` vs `ATOM_ID`/`evidence_id` relationship** — the original
-  spec flags this as unresolved ("ho verificato che claim_id vive a monte
-  di ogni logica Notion, ma l'equivalenza semantica con evidence_id è
-  un'ipotesi mia, non un fatto confermato — va chiusa da te prima che la
-  generalizzazione dell'adapter venga scritta"). Still open; relevant
-  before step 16 (generalizing `gmv_notion_multi_candidate.py` behind
+- **`claim_id` vs `ATOM_ID`/`evidence_id` relationship — STILL OPEN, THE
+  ONLY THING BLOCKING STEP 16.** All 15 other steps in §33 are done;
+  this is the sole remaining blocker on the crawler's implementation
+  order. A session with budget left after finishing step 15 cleanly
+  deliberately did not attempt step 16 because of this — see "Remaining
+  steps" above. The original spec flags this as unresolved ("ho
+  verificato che claim_id vive a monte di ogni logica Notion, ma
+  l'equivalenza semantica con evidence_id è un'ipotesi mia, non un fatto
+  confermato — va chiusa da te prima che la generalizzazione
+  dell'adapter venga scritta"). Still open; relevant before step 16 (generalizing `gmv_notion_multi_candidate.py` behind
   `ProjectionAdapter`).
 - **`SPONSOR`/`CONTRACT`** are CANDIDATE-status in the ontology registry
   (unit-test-only or never-produced coverage) and are deliberately excluded
@@ -771,14 +835,60 @@ goal is fewer review round-trips on step 15/16, not a new process:
                                           derive_current_state() -- see
                                           "What exists now" above before
                                           touching this file.
-15. PUBLIC projector                   -- not started.
-16. Generalize gmv_notion_multi_       -- not started. Depends on the
-    candidate.py behind                   claim_id/ATOM_ID open question
-    ProjectionAdapter                     above being resolved first, per
-                                          the spec's own explicit
-                                          ordering rationale (§33 note:
-                                          "PRIMA di generalizzare... non
-                                          dopo").
+15. PUBLIC projector                   -- DONE. 10_API/gmv_crawler_
+                                          public_projector.py computes
+                                          MonadDocument.public_text (step
+                                          8 writes it verbatim, never
+                                          computes it). Reuses
+                                          derive_current_state() (step
+                                          14) for STATUS=VALID/dedup/
+                                          alias-aware slot resolution;
+                                          adds VISIBILITY=="PUBLIC" and a
+                                          not-blocked-source gate.
+                                          AMBIGUOUS slots -- left
+                                          undefined by step 14 on purpose
+                                          -- are now deliberately excluded
+                                          from PUBLIC entirely, a decision
+                                          this step made and documented,
+                                          not step 14's. One adversarial-
+                                          review round found a real
+                                          grounding bug (a "BLOCKED"
+                                          literal that matched the wrong
+                                          field of the wrong pipeline
+                                          stage, making the blocked-source
+                                          gate dead code) -- fixed by
+                                          keying off the real
+                                          gmv_crawler_extractor.
+                                          STATUS_VALUES vocabulary
+                                          instead; round 2 returned PASS.
+                                          See "What exists now" above for
+                                          the full account.
+16. Generalize gmv_notion_multi_       -- NOT STARTED, deliberately.
+    candidate.py behind                   Blocked on an explicit user
+    ProjectionAdapter                     decision this session did not
+                                          make autonomously, per this
+                                          task's own instruction and the
+                                          spec's explicit ordering
+                                          rationale (§33 note: "PRIMA di
+                                          generalizzare... non dopo"):
+                                          the claim_id/ATOM_ID/
+                                          evidence_id relationship (see
+                                          "Open questions" above) is still
+                                          open. Step 15 completed cleanly
+                                          in one review round with no
+                                          stalls, so this session had
+                                          budget left to attempt step 16
+                                          -- but starting it without that
+                                          decision would mean guessing at
+                                          exactly the question the spec's
+                                          own text says must be closed by
+                                          the user first, not inferred
+                                          from code position. Nothing
+                                          written, nothing decided; this
+                                          paragraph and "How to continue"
+                                          below are the full state to
+                                          resume from once the decision is
+                                          made.
 ```
 
 ## How to continue
@@ -787,29 +897,42 @@ goal is fewer review round-trips on step 15/16, not a new process:
 2. Fetch and read the source Notion documents listed above yourself — do
    not rely solely on this document's summaries for anything you're about
    to build on.
-3. Steps 9-14 are all done (Dropbox connector, Extractors, Candidate
-   extraction, Reconciliation engine, FTS5 index, Derived View Spec).
-   Step 15 (`PUBLIC projector`) is the next not-started step in §33's
-   order — generate PUBLIC text from ATOMS per
-   `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` §14's exclusion rules (no INTERNAL
-   facts, no unattributed UNVERIFIED claims, no scheduled-presented-as-
-   occurred, etc.). `gmv_monad_materializer.py` (step 8) already takes
-   `public_text` as a caller-supplied string and writes it verbatim —
-   this step computes what that string should actually contain. Before
-   designing it, read `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` §14 yourself
-   (fetched fully in earlier sessions on this branch, but re-fetch to
-   confirm — do not rely solely on this document's paraphrase), and
-   check whether `derive_current_state()` (step 14, just built) is a
-   natural input for it: a `CURRENT_STATE` view already resolves which
-   atoms are the "current" fact per slot, which is close to what a
-   PUBLIC projection over current knowledge would need, but step 14's
-   `AMBIGUOUS` outcome (unresolved competing atoms) has no defined
-   PUBLIC-projection behavior yet — decide deliberately, don't assume.
+3. Steps 9-15 are all done (Dropbox connector, Extractors, Candidate
+   extraction, Reconciliation engine, FTS5 index, Derived View Spec,
+   PUBLIC projector). **Step 16 is the only remaining step in §33's
+   order, and it is blocked on an explicit user decision, not on any
+   remaining technical work this session could have done instead** — do
+   not start writing `ProjectionAdapter`-generalization code until the
+   decision below is made; see "Open questions" above for the full
+   context of why.
+   The `claim_id`/`evidence_id` open question remains unresolved —
+   `gmv_evidence_pipeline.py::consolidate_claims()` computes a `claim_id`
+   from *resolved* subject/object pairs (post entity-resolution, using
+   `resolution_status == "RESOLVED"`), a genuinely different, later-stage
+   concept than `CandidateProposition.evidence_id` (step 11) or
+   `AtomCandidate`/`ReconciliationResult` (steps 7/12, pre-resolution) —
+   this grounds, but does not settle, the question. The spec's own text
+   is explicit that this must be closed by the user before step 16 is
+   written (§33 note: "la riconciliazione claim_id/evidence_id va chiusa
+   qui, non prima" — i.e. inside step 16's own work, but only once the
+   relationship itself is decided, not invented by whoever implements
+   it). Ask the user directly: is `claim_id` (pre-entity-resolution,
+   `gmv_evidence_pipeline.py`) the same concept as the crawler's
+   `evidence_id`/`ATOM_ID` lineage (steps 4/7/11/12), a distinct concept
+   that must be bridged with an explicit mapping, or something else
+   entirely? Once answered, step 16 can proceed: generalize
+   `gmv_notion_multi_candidate.py` behind the `ProjectionAdapter`
+   contract (step 5) — extract `supports(entity_type)`, separate the
+   genuinely generic `route_claim`/`discover_entities` fan-out from the
+   Notion-specific `NOTION_PATCH.json` format, and treat the
+   relation-writer gap (no relation predicate has ever been written to
+   Notion — every relation claim stays `CONFLICT`) as an explicitly
+   missing component to design, not something to presume solved by
+   analogy with simple properties (crawler spec v0.2 §4-bis/§29).
    Any future virtual-table-based index (vector or otherwise) will hit
    the same SEC-006/ARC-002 boundary step 13 already resolved once — see
    "What exists now" above (step 13 section) for how to resolve it again
-   without re-litigating from scratch; this is unlikely to be relevant to
-   step 15 itself.
+   without re-litigating from scratch; unlikely to be relevant to step 16.
    The atom_fingerprint word-order-collision trade-off (step 7) is
    **still unresolved** despite step 12 being previously flagged as
    where it would be addressed — step 12 only inherited and documented
@@ -817,14 +940,6 @@ goal is fewer review round-trips on step 15/16, not a new process:
    future step needs real dedup accuracy on non-person OBJECT text
    (PLACE/EVENT/DOCUMENT), that fix belongs in step 7's function, not in
    the reconciliation engine that calls it.
-   The `claim_id`/`evidence_id` open question also remains unresolved —
-   `gmv_evidence_pipeline.py::consolidate_claims()` computes a `claim_id`
-   from *resolved* subject/object pairs (post entity-resolution, using
-   `resolution_status == "RESOLVED"`), a genuinely different, later-stage
-   concept than `CandidateProposition.evidence_id` (step 11) or
-   `AtomCandidate`/`ReconciliationResult` (steps 7/12, pre-resolution) —
-   this grounds, but does not settle, the question; still needs the
-   user's explicit decision per the spec's own text before step 16.
 4. `DropboxConnector` (step 9) has never been driven end-to-end against a
    real Dropbox account/token — only tested against an injected fake
    session. If a future step needs to actually crawl real Dropbox content
