@@ -1034,3 +1034,48 @@ section is the one place it writes.
   One thing I could not verify: no upstream caller today supplies these
   ids (no resolution engine), so the new path is exercised only by
   tests, not by real crawler data.
+
+- **2026-09-15 — Task 2 done: `register_scan()` REGISTER + DETECT
+  CHANGE driver for `crawler_source_registry` (opencode task brief
+  `opencode_task_2.md`), new module `10_API/gmv_crawler_registry.py`.** Read
+  before writing: migration `009_crawler_source_registry.sql` (PK
+  `content_hash`, states NEW/UNCHANGED/MODIFIED/MOVED/DELETED/FAILED, the
+  two triggers enforcing `deleted_at` for DELETED on both INSERT and
+  UPDATE), `gmv_crawler_contracts.py` (`SourceConnector`/`SourceListing`/
+  `validate_content_hash`) in full, the `scan()` precedent in
+  `gmv_evidence_pipeline.py` (its line 194 `del old[fid]` bug documented
+  as deliberately not inherited), `gmv_core/migrations.py`,
+  `tests/migrations/test_crawler_source_registry.py`, the two static
+  security boundary tests, and `gmv_crawler_fulltext_index.py::index_atom()`
+  (commit-pattern precedent). What I changed: the new module with
+  `register_scan(connection, connector, *, connector_id, now)` and
+  `RegisterScanResult`; implementation of the exact 5-step algorithm
+  (content-hash PK match -> UNCHANGED/MOVED; else same-connector locator
+  match -> MODIFIED (new row) / NEW; per-connector sweep -> DELETED with
+  `deleted_at`, never `DELETE FROM`; `discovered_at` only on INSERT);
+  the two whitelist entries for the new site in
+  `tests/test_write_authorization.py::_NON_CORE_DML_SITES` (mirroring the
+  FTS-index precedent: raw caller-supplied `sqlite3` connection, outside
+  SEC-006 by construction); a new adversarial test file
+  `tests/test_gmv_crawler_registry.py` (15 tests: full state-transition
+  matrix including the trigger rejections at the SQL level, real-trigger
+  enforcement of the DELETED-without-`deleted_at` rule on both INSERT and
+  UPDATE, per-item content_hash-failure isolation: existing row ->
+  FAILED + excluded from the sweep, brand-new unreadable item -> reported
+  only, no write; malformed hash -> same isolated path; FAILED recovery
+  back to UNCHANGED; connector locator-namespace isolation; duplicate
+  content in one scan collapsing to a single MOVED row; commit visibility
+  from a fresh connection; fake connector grounded via
+  `isinstance(..., SourceConnector)` and hard-failing the non-algorithm
+  Protocol methods). Decisions taken where the brief left them open
+  (stated, not silent): `connector_id` is a caller-supplied kwarg (the
+  Protocol has no name); content-hash lookups are global (PK), locator
+  and sweep lookups scoped per `connector_id`; single-item
+  `content_hash()` failure isolates and reports without aborting;
+  all writes commit together, rollback + re-raise on unexpected error;
+  `resource_oid`/`remote_revision` stay NULL (metadata()/revision() never
+  called). Full suite 1049 passed, `ruff check .` clean. Could not
+  verify by test: the rollback path (forcing an unhandled mid-scan error
+  would need SQL-level failure injection; the guard is
+  `try/except Exception -> rollback + raise` around the whole pass, and
+  is covered by review rather than a test).

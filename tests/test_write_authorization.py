@@ -143,12 +143,17 @@ _REVOKED_DML_SITES = frozenset(
 #: FTS_INDEX_OWNER for the full rationale: gmv_core/authorization.py denies
 #: SQLITE_CREATE_VTABLE unconditionally, so an FTS5 index cannot go
 #: through gmv_core.database at all; the User chose a named whitelist
-#: entry, 2026-09-15, crawler preplan step 13). Listed explicitly, the
-#: same reasoning _REVOKED_DML_SITES uses, so a *second*, undocumented
+#: entry, 2026-09-15, crawler preplan step 13 -- and gmv_crawler_registry.py
+#: REGISTER/DETECT-CHANGE takes a caller-supplied raw sqlite3 connection
+#: for the same reason, the crawler pipeline drives the registry outside
+#: the Core authorization system). Listed explicitly, the
+#: same reasoning _REVOKED_DML_SITES uses, so a *third*, undocumented
 #: non-Core DML site is still caught.
 _NON_CORE_DML_SITES = frozenset(
     {
         ("10_API/gmv_crawler_fulltext_index.py", "index_atom", "INSERT", "atoms_fts"),
+        ("10_API/gmv_crawler_registry.py", "register_scan", "INSERT", "crawler_source_registry"),
+        ("10_API/gmv_crawler_registry.py", "register_scan", "UPDATE", "crawler_source_registry"),
     }
 )
 
@@ -156,7 +161,8 @@ _NON_CORE_DML_SITES = frozenset(
 def test_dml_capability_matrix_matches_source() -> None:
     """Every INSERT/UPDATE/DELETE call site in production code is exactly
     the approved 10-tuple matrix plus the 2 explicitly revoked DB-005/
-    DB-006 sites plus the 1 explicitly non-Core FTS index site -- no
+    DB-006 sites plus the 2 explicitly non-Core sites (FTS index and the
+    crawler registry REGISTER/DETECT-CHANGE driver) -- no
     more, no fewer, and none of the revoked/non-Core sites is present in
     the live matrix."""
     scan = _scan_production_tree()
