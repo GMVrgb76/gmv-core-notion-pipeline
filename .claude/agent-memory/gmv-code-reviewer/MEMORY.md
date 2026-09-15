@@ -297,3 +297,76 @@ lettura incompleta.
 **Follow-up verificato 2026-09-15, stesso giorno: la remediation ha chiuso il blocker, riverificato indipendentemente.** Il coordinator ha aggiunto `FTS_INDEX_OWNER` in `tests/test_sqlite_connection_boundary.py` e un secondo `_NON_CORE_DML_SITES` in `tests/test_write_authorization.py::test_dml_capability_matrix_matches_source` (un secondo controllo statico distinto, basato su AST/regex su INSERT/UPDATE/DELETE indipendentemente dal tipo di connessione, che il mio primo giro di review non aveva controllato esplicitamente — trovato dal coordinator, poi confermato da me leggendo il file). Entrambe le whitelist restano rigorose (uguaglianza esatta di insiemi, non un permesso generico) e **non** aggiungono la nuova INSERT a `authorization.DML_CAPABILITIES` (che avrebbe erroneamente concesso una capability SEC-006 runtime a un modulo che non passa mai da `AuthorizingConnection`) — la distinzione fra "autorizzato a runtime" e "inventariato/riconosciuto nell'audit statico" e' stata rispettata correttamente. Riverificato in modo indipendente (non fidandosi del resoconto): `git diff --cached` sui due file di test, poi `pytest -q` sull'intera suite con i 4 file nuovi/modificati effettivamente su disco → 951 passed, `ruff check .` pulito, i due test di boundary rieseguiti isolatamente → 48 passed. Cercato attivamente anche un possibile terzo controllo statico non coperto (`tests/identity/test_writer_boundary.py`, `tests/migrations/test_version_fixture_targets.py`, `quality/LEGACY_EXCEPTIONS.md`, `quality/SECURITY_GATE_POLICY.md`) — nessuno di questi si applica (il primo controlla solo le tabelle `objects`/`oid_sequences`, gli altri sono su tutt'altro dominio).
 
 **Lezione generale aggiuntiva:** quando un blocker su un confine SEC-006/ARC-002 viene "risolto" con una whitelist nominata, verificare sempre due cose distinte, non una sola: (1) che il controllo statico che aveva bloccato sia stato aggiornato correttamente (ovvio), e (2) che la nuova voce **non** sia stata aggiunta anche alla matrice di autorizzazione *runtime* (`DML_CAPABILITIES`/`DDL_CALLERS` in `gmv_core/authorization.py`) se il modulo in questione non passa comunque da `AuthorizingConnection` — altrimenti la remediation introdurrebbe silenziosamente una capability SEC-006 reale per un caller che non ne ha bisogno e non dovrebbe averla, un errore opposto ma speculare al blocker originale. In questo caso il coordinator l'ha evitato correttamente, ma va controllato esplicitamente ogni volta, non assunto.
+
+## Lezione verificata 2026-09-15 (review gmv_crawler_derived_views.py, step 14): una funzione che promette "mai un'ambiguita' nascosta" va testata sia contro falsi negativi (alias/governance-equivalenza ignorata) sia contro falsi positivi (duplicati esatti in input)
+
+`derive_current_state()` raggruppa atomi per slot `(_forma(subject), predicate)` e dichiara,
+testato con 5 unit test dedicati, di non fare mai una scelta silenziosa fra piu' candidati VALID
+in competizione. Due gap reali, riprodotti empiricamente, non coperti da nessuno dei 17 test:
+
+1. **Falso negativo (ambiguita' reale non vista):** il grouping usa la stringa `predicate` grezza,
+   non risolta attraverso l'alias table del registry di governance
+   (`gmv_atom_validator._known_predicates`, gia' esistente per un motivo esplicito: due predicati
+   testualmente diversi ma registrati come alias, es. il caso reale gia' nel registry
+   `source_for`/`evidences`, sono la stessa proposizione governata). Due atomi VALID con lo stesso
+   subject normalizzato, stesso predicato-per-governance ma alias testuale diverso, OBJECT diverso,
+   finiscono in due slot distinti e vengono riportati entrambi RESOLVED invece di un unico
+   AMBIGUOUS -- esattamente il fallimento che la funzione dichiara di prevenire sempre. Questo gap
+   e' ereditato da `compute_atom_fingerprint()` (step 7, gia' committato), che a sua volta non
+   risolve gli alias per PREDICATE (il suo docstring spiega solo perche' non applica `_forma()` al
+   predicato, non che salta la risoluzione alias) -- nessuna review precedente lo aveva individuato.
+2. **Falso positivo (ambiguita' fittizia):** nessun dedup per `atom_id` prima del raggruppamento --
+   lo stesso identico atomo presente due volte nella lista di input (stesso `atom_id`, stessi campi)
+   produce un `AMBIGUOUS` fasullo con lo stesso `atom_id` duplicato in `candidates`.
+
+**Lezione generale:** quando una funzione di raggruppamento/deduplicazione dichiara esplicitamente
+una garanzia "mai una scelta silenziosa, sempre tutti i candidati in competizione visibili" --
+verificare sia il lato "manca qualcosa che avrebbe dovuto unire" (chiavi di raggruppamento che
+ignorano un vocabolario di equivalenza gia' costruito altrove nel repo per lo stesso campo, es.
+alias di predicato) sia il lato opposto "unisce/segnala qualcosa che non avrebbe dovuto" (input
+con voci duplicate esatte trattate come candidati realmente distinti). Un test che copre solo lo
+scenario positivo previsto dal design (qui: due nomi persona con ordine parole diverso che devono
+correttamente unirsi) non prova che la funzione regga sugli scenari avversariali speculari. Cercare
+sempre, nel modulo sorgente da cui si riusa una chiave/normalizzazione (qui: PREDICATE preso alla
+lettera), se esiste gia' nel repo un vocabolario di equivalenza governata per quello stesso campo
+(qui: alias table del registry ontologico) prima di accettare "confronto per uguaglianza esatta
+della stringa" come corretto.
+
+## Follow-up verificato 2026-09-15, stesso giorno: remediation di gmv_crawler_derived_views.py (B1 alias-blindness, B2 falsa ambiguita' su duplicati) confermata chiusa, riverificata indipendentemente
+
+Il coordinator ha risolto entrambi i BLOCKER della review precedente. Riverificato senza fidarsi della
+descrizione, con dati diversi da quelli usati nei nuovi test del coordinator:
+- B1: `derive_current_state()` ora risolve `predicate` al `predicate_id` canonico via
+  `gmv_atom_validator._known_predicates(registry)` (funzione privata ma gia' esistente, riusata non
+  reimplementata) prima di costruire la chiave di slot. Riprodotto con atom_id/object diversi da quelli
+  del test del coordinator (`source_for`/`evidences`, oggetti "ClaimAlpha"/"ClaimBeta") -> 1 entry
+  AMBIGUOUS, corretto.
+- B2: dedup via `{atom.atom_id: atom for atom in atoms}.values()` prima del raggruppamento. Riprodotto
+  con 3 copie (2 stesso oggetto Python + 1 value-equal ma oggetto Python distinto, stesso atom_id) -> 1
+  sola entry RESOLVED, corretto anche nel caso non object-identity ma solo atom_id-equality.
+- C1 (overclaim "imported"): ora il modulo importa davvero `FROZEN_PREDICATE_CLASSES` e solleva
+  `RuntimeError` a tempo di import se "RELATION" sparisse dal set congelato -- guardia fail-fast reale,
+  non solo prosa corretta. Verificato via grep degli import reali, non solo letto il docstring.
+- C2 (DISPUTED silenzioso) e il rischio `_forma()` su SUBJECT: non risolti nel codice, ma ora dichiarati
+  esplicitamente nel docstring del modulo come rischi noti/ereditati -- coerente con quanto richiesto.
+- A2 (ordinamento non deterministico dei campi display): `candidates` ora ordinati per `atom_id` prima
+  di scegliere quale atomo fornisce subject/predicate di display -- verificato nel codice.
+- Full suite 972 passed, ruff pulito, confermato con esecuzione diretta (non solo fidandosi del resoconto).
+
+**Due residui minori trovati in questo giro di re-verifica, non bloccanti, non menzionati dal coordinator:**
+1. Il docstring di apertura del modulo dichiara ancora "no persistence, no engine, no I/O" ma la fix di
+   B1 introduce I/O su disco di default in `derive_current_state()` (legge
+   `GMV_ONTOLOGY_REGISTRY_v0.1.json` via `_load_ontology_registry()` quando il chiamante non passa un
+   `registry` gia' caricato) -- un fix corretto puo' comunque disallineare un claim generale dichiarato
+   altrove nello stesso file, se chi corregge non rilegge l'intero docstring per coerenza.
+2. Il dedup per `atom_id` assume l'unicita' di `atom_id`: due atomi con contenuto realmente diverso ma
+   `atom_id` accidentalmente uguale (bug di integrita' a monte, non generato da questo modulo)
+   vengono silenziosamente ridotti a uno solo, senza segnale. Edge case profondo (richiede un bug
+   upstream), non introdotto ex novo dal fix in modo peggiore di quanto l'assunzione "atom_id come
+   chiave primaria" gia' implichi altrove nel repo -- non bloccante, ma non testato ne' dichiarato.
+
+**Lezione generale:** quando una remediation per un blocker introduce una capability nuova (qui: lettura
+di un file di config di default), ricontrollare se un claim generale dichiarato altrove nello stesso
+docstring (qui: "no I/O" nel paragrafo di apertura, non nella sezione della funzione corretta) e' ancora
+vero dopo la fix -- una remediation mirata e corretta sulla funzione specifica puo' comunque rendere
+falsa un'affermazione fatta altrove nello stesso file che nessuno ha pensato di ricontrollare.
