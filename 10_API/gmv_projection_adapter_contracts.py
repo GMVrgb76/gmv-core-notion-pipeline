@@ -168,18 +168,57 @@ class TargetPayload:
     envelope, not yet translated into any specific target's wire format.
     entity_type is the crawler's own vocabulary (see the open gap noted
     in this module's docstring), never a target-specific table name.
+
+    `name` added during step 16 (the first concrete adapter this contract
+    was ever built against), not present in the original step-5 draft --
+    a real gap found empirically, not theorized: `write_entity_bundle()`/
+    `publish_bundle()`/the audit record all need the entity's own
+    name/title (for the bundle folder, `entity.json`, and the Notion page
+    title itself), and nothing else on this dataclass carries it. Added
+    as a required field, not optional-with-a-default: a payload naming no
+    entity cannot be meaningfully published to anything. This changed one
+    existing call site (`tests/test_gmv_projection_adapter_contracts.py`'s
+    `_payload()` helper), not a source-breaking change to any real caller
+    (none existed before step 16).
     """
 
     entity_type: str
+    name: str
     operation: Literal["CREATE", "UPDATE"] | None
     operations: tuple[FieldOperation, ...]
     gate: Gate
     body_text: str | None = None
     body_gate: Gate = "REVIEW_REQUIRED"
+    existing_target_reference: str | None = None
+    """The target's own identifier for an already-existing entity (a
+    Notion page id) when `operation == "UPDATE"`, `None` for `CREATE` --
+    same naming convention as `PublishResult.target_reference`, added
+    alongside `name` for the same reason (found missing while implementing
+    `publish()` in step 16: the old dict shape's `existing_notion_id`
+    has no home on this dataclass otherwise, and `publish_bundle()`'s own
+    duplicate-detection branch keys off exactly this being present or
+    absent)."""
+    keep_properties: dict[str, object] = field(default_factory=dict)
+    """Property values on the target that this payload leaves unchanged
+    (not part of `operations`, since nothing is being proposed for them)
+    but that must still match the target's live state before publishing
+    -- the input `notion_publish.py::check_staleness()` needs to detect a
+    page edited on Notion since this payload was built. Missing from the
+    original step-5 draft; found the expensive way in step 16 -- an
+    earlier draft of the concrete Notion adapter omitted this, which
+    silently made `check_staleness()` a permanent no-op (it iterates
+    `patch.get("keep", {}).get("properties", {})`; an absent/empty dict
+    means zero diffs are ever possible, `stale` is always `False`) for
+    every bundle that adapter produced -- caught by adversarial review
+    reproducing it empirically against a fake client returning different
+    live values, not by reading the code. Empty by default (a `CREATE`
+    payload has no existing page to go stale against)."""
 
     def __post_init__(self) -> None:
         if not self.entity_type:
             raise ValueError("entity_type must not be empty")
+        if not self.name:
+            raise ValueError("name must not be empty")
         # This is a NEW invariant this contract introduces, not a mirror
         # of today's real behavior: gate(), the live entity-level gate
         # computation in gmv_evidence_pipeline.py, can currently produce

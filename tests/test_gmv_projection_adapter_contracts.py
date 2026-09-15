@@ -25,6 +25,7 @@ def _operation(**overrides: object) -> contracts.FieldOperation:
 def _payload(**overrides: object) -> contracts.TargetPayload:
     base = {
         "entity_type": "artist",
+        "name": "Test Entity",
         "operation": "CREATE",
         "operations": (_operation(),),
         "gate": "REVIEW_REQUIRED",
