@@ -1,27 +1,27 @@
-# GMV Crawler — Handoff for continuation (preplan steps 14-16)
+# GMV Crawler — Handoff for continuation (preplan steps 15-16)
 
-Status: steps 1-13 of the crawler's implementation order (spec §33) are
+Status: steps 1-14 of the crawler's implementation order (spec §33) are
 complete, reviewed, committed, and pushed — including step 9 (Dropbox
 SourceConnector), whose original premise was false (see Correction 2
 below) and required an explicit user decision before it could proceed,
 step 11 (Candidate extraction), which took two adversarial-review rounds
 to close a real batch-destroying bug, step 12 (Reconciliation engine),
 which is deliberately scoped to only 3 of the crawler spec's 6
-reconciliation outcomes, and step 13 (FTS5 full-text index), which
-collided with a real, active security boundary (SEC-006/ARC-002) and
-required an explicit user decision among three remediation options —
-**read "What exists now" below in full before building any future
-virtual-table-based index (e.g. a vector index via `sqlite-vec` or
-similar), which will very likely hit the exact same boundary. Note this
-is NOT step 14 — §33 numbers step 14 as DERIVED_VIEW_SPEC v0.1; a vector
-index is explicitly excluded from this crawler's first cycle by §31 and
-has no numbered step at all.** This document lets a different tool/session
-(OpenCode, Codex, a fresh Claude Code session, or a human) resume from
-step 14 without re-deriving what
-prior sessions already verified. Read this document fully before
-touching code — several assumptions in the original spec turned out to
-be false on inspection; this document tells you which ones, and how they
-were corrected.
+reconciliation outcomes, step 13 (FTS5 full-text index), which collided
+with a real, active security boundary (SEC-006/ARC-002) and required an
+explicit user decision among three remediation options, and step 14
+(Derived View Spec), which also took two adversarial-review rounds to
+close two real bugs in its most delicate function
+(`derive_current_state()`) — **read "What exists now" below in full
+before building any future virtual-table-based index (e.g. a vector
+index via `sqlite-vec` or similar), which will very likely hit the same
+SEC-006/ARC-002 boundary step 13 already resolved once.** This document
+lets a different tool/session (OpenCode, Codex, a fresh Claude Code
+session, or a human) resume from step 15 without re-deriving what prior
+sessions already verified. Read this document fully before touching
+code — several assumptions in the original spec turned out to be false
+on inspection; this document tells you which ones, and how they were
+corrected.
 
 ## Repository state
 
@@ -30,7 +30,7 @@ were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 20 commits ahead of base, in order:
+- 22 commits ahead of base as of `a58d8933` (this update itself will be one more), in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
@@ -55,7 +55,9 @@ were corrected.
   18. `0c6d4a36` — feat: Reconciliation engine (step 12) — scoped to 3/6 outcomes, see "What exists now" below
   19. `d6a43d90` — docs: handoff update for step 12 completion
   20. `2154f497` — feat: full-text index (step 13) — hit SEC-006/ARC-002 boundary, user decision required, see "What exists now" below
-- Full test suite as of `2154f497`: **951 passed, 0 failed** — the 2
+  21. `90b3792a` — docs: handoff update for step 13 completion (also fixed a step-14 mislabeling mistake before it shipped)
+  22. `a58d8933` — feat: Derived View Spec (step 14) — two adversarial-review rounds, see "What exists now" below
+- Full test suite as of `a58d8933`: **972 passed, 0 failed** — the 2
   previously-documented soffice-portability failures (see "Known
   environment-only failures" below) are gone as of this run, most likely
   because PR #18 (`fix/test-collection-and-soffice-portability`) was
@@ -231,7 +233,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-13), file by file
+## What exists now (steps 1-14), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -385,7 +387,15 @@ generally — is overdue rather than repeating a per-file whitelist
 indefinitely; that judgment call was not made this session and is worth
 raising with the user directly rather than assumed.
 
-## Working method established this session (follow it for steps 14-16)
+| 14 | `10_API/gmv_crawler_derived_views.py` | `derive_timeline()` (sort by VALID_FROM), `derive_ledger()` (sort by INGESTED_AT — deliberately distinct ordering from TIMELINE), `derive_relations()` (filter PREDICATE_CLASS==RELATION), `derive_claims()` (identity — no distinguishing criterion exists in the spec), `derive_current_state()` (per-slot VALID-atom resolution, never a silent pick on ambiguity), `CurrentStateEntry`, `DerivedViews`, `derive_views()`. **PUBLIC excluded** — already step 15's job per `gmv_monad_materializer.py`'s own docstring |
+| 14 | `tests/test_gmv_crawler_derived_views.py` | 21 tests, incl. regression tests for both review-found bugs below and a real-alias cross-check (`source_for`/`evidences`, `GMV_ONTOLOGY_REGISTRY_v0.1.json`) |
+
+**Two adversarial-review rounds on step 14, both real bugs in `derive_current_state()`, reproduced empirically:** round 1 returned **BLOCK** for two bugs in the function's core "never a silent pick" guarantee — (1) the slot key used the raw `predicate` string, so two atoms using different real, registered aliases of the same predicate (`source_for`/`evidences`) were reported as two separate `RESOLVED` facts instead of one `AMBIGUOUS`; (2) no dedup by `atom_id` before grouping, so the same atom appearing twice in the input produced a false `AMBIGUOUS` against itself. Fixed: predicate is now resolved to its ontology-registry canonical id (reusing `gmv_atom_validator._known_predicates()`) before use as the grouping key, and atoms are deduplicated by `atom_id` first. Also fixed in the same round: `derive_relations()`'s `"RELATION"` literal was claimed "imported" in the docstring but `FROZEN_PREDICATE_CLASSES` was never actually imported into the module (only the test file) — now genuinely imported with a fail-at-import-time guard. Round 2 (re-verification) confirmed both fixes with independently-constructed reproductions and returned **PASS_WITH_WARNINGS** — two minor, non-blocking notes: the module's "no I/O" claim needed correcting (`derive_current_state()` now reads `GMV_ONTOLOGY_REGISTRY_v0.1.json` by default unless a caller injects an already-loaded `registry`, fixed in the docstring), and the new `atom_id`-based dedup assumes `atom_id` uniqueness (an upstream-bug edge case, not addressed, not worse than assumptions already implicit elsewhere in this repo).
+
+**Two risks inherited, not fixed, disclosed in the module's own docstring:**
+`STATUS=DISPUTED` atoms produce no `CURRENT_STATE` entry at all (indistinguishable from "never asserted" in this view alone); `_forma()` on SUBJECT inherits the same word-order-collision risk already accepted for OBJECT in `compute_atom_fingerprint()` (step 7) — structurally harder to bound here since the frozen 18-field ATOM schema has an `OBJECT_TYPE` field but no `SUBJECT_TYPE` field.
+
+## Working method established this session (follow it for steps 15-16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -528,7 +538,7 @@ Correction-2 assumption made it into the spec in the first place:
   `tmp_path` for test isolation, never writing to the repo's real
   `03_STATE/`).
 
-## Remaining steps (§33, 14-16) — status and notes
+## Remaining steps (§33, 15-16) — status and notes
 
 ```
 9.  Dropbox connector = wrapper of    -- DONE. Not a wrapper (the premise
@@ -693,7 +703,15 @@ Correction-2 assumption made it into the spec in the first place:
                                           by §31) will very likely hit the
                                           exact same wall -- read that
                                           section first.
-14. DERIVED_VIEW_SPEC v0.1             -- not started.
+14. DERIVED_VIEW_SPEC v0.1             -- DONE. 5 pure derivation
+                                          functions (TIMELINE/LEDGER/
+                                          RELATIONS/CLAIMS/CURRENT_STATE)
+                                          from AtomCandidate lists. PUBLIC
+                                          excluded (step 15's job). Two
+                                          real bugs found and fixed in
+                                          derive_current_state() -- see
+                                          "What exists now" above before
+                                          touching this file.
 15. PUBLIC projector                   -- not started.
 16. Generalize gmv_notion_multi_       -- not started. Depends on the
     candidate.py behind                   claim_id/ATOM_ID open question
@@ -710,19 +728,29 @@ Correction-2 assumption made it into the spec in the first place:
 2. Fetch and read the source Notion documents listed above yourself — do
    not rely solely on this document's summaries for anything you're about
    to build on.
-3. Steps 9-13 are all done (Dropbox connector, Extractors, Candidate
-   extraction, Reconciliation engine, FTS5 index). Step 14
-   (`DERIVED_VIEW_SPEC v0.1`) is the next not-started step in §33's
-   order — spec §12 describes it as a system-level component formalizing
-   the reconstruction rules for STATE/TIMELINE/RELATIONS/CLAIMS/LEDGER/
-   PUBLIC from ATOMS+SOURCES; most likely a rules/config artifact (same
-   shape as step 1's Epistemic Ingestion Rules JSON translation), not an
-   engine — decide deliberately if it turns out to need one, don't
-   default into building one. **Not itself a vector-index step** — see
-   "What exists now" above (step 13 section) for why any future
-   virtual-table-based index will hit the same SEC-006/ARC-002 boundary
-   step 13 already resolved once, and how to resolve it again without
-   re-litigating from scratch.
+3. Steps 9-14 are all done (Dropbox connector, Extractors, Candidate
+   extraction, Reconciliation engine, FTS5 index, Derived View Spec).
+   Step 15 (`PUBLIC projector`) is the next not-started step in §33's
+   order — generate PUBLIC text from ATOMS per
+   `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` §14's exclusion rules (no INTERNAL
+   facts, no unattributed UNVERIFIED claims, no scheduled-presented-as-
+   occurred, etc.). `gmv_monad_materializer.py` (step 8) already takes
+   `public_text` as a caller-supplied string and writes it verbatim —
+   this step computes what that string should actually contain. Before
+   designing it, read `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` §14 yourself
+   (fetched fully in earlier sessions on this branch, but re-fetch to
+   confirm — do not rely solely on this document's paraphrase), and
+   check whether `derive_current_state()` (step 14, just built) is a
+   natural input for it: a `CURRENT_STATE` view already resolves which
+   atoms are the "current" fact per slot, which is close to what a
+   PUBLIC projection over current knowledge would need, but step 14's
+   `AMBIGUOUS` outcome (unresolved competing atoms) has no defined
+   PUBLIC-projection behavior yet — decide deliberately, don't assume.
+   Any future virtual-table-based index (vector or otherwise) will hit
+   the same SEC-006/ARC-002 boundary step 13 already resolved once — see
+   "What exists now" above (step 13 section) for how to resolve it again
+   without re-litigating from scratch; this is unlikely to be relevant to
+   step 15 itself.
    The atom_fingerprint word-order-collision trade-off (step 7) is
    **still unresolved** despite step 12 being previously flagged as
    where it would be addressed — step 12 only inherited and documented
