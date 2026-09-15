@@ -1,15 +1,23 @@
-# GMV Crawler — Handoff for continuation (preplan steps 13-16)
+# GMV Crawler — Handoff for continuation (preplan steps 14-16)
 
-Status: steps 1-12 of the crawler's implementation order (spec §33) are
+Status: steps 1-13 of the crawler's implementation order (spec §33) are
 complete, reviewed, committed, and pushed — including step 9 (Dropbox
 SourceConnector), whose original premise was false (see Correction 2
 below) and required an explicit user decision before it could proceed,
 step 11 (Candidate extraction), which took two adversarial-review rounds
-to close a real batch-destroying bug, and step 12 (Reconciliation
-engine), which is deliberately scoped to only 3 of the crawler spec's 6
-reconciliation outcomes (see "What exists now" below for both). This
-document lets a different tool/session (OpenCode, Codex, a fresh Claude
-Code session, or a human) resume from step 13 without re-deriving what
+to close a real batch-destroying bug, step 12 (Reconciliation engine),
+which is deliberately scoped to only 3 of the crawler spec's 6
+reconciliation outcomes, and step 13 (FTS5 full-text index), which
+collided with a real, active security boundary (SEC-006/ARC-002) and
+required an explicit user decision among three remediation options —
+**read "What exists now" below in full before building any future
+virtual-table-based index (e.g. a vector index via `sqlite-vec` or
+similar), which will very likely hit the exact same boundary. Note this
+is NOT step 14 — §33 numbers step 14 as DERIVED_VIEW_SPEC v0.1; a vector
+index is explicitly excluded from this crawler's first cycle by §31 and
+has no numbered step at all.** This document lets a different tool/session
+(OpenCode, Codex, a fresh Claude Code session, or a human) resume from
+step 14 without re-deriving what
 prior sessions already verified. Read this document fully before
 touching code — several assumptions in the original spec turned out to
 be false on inspection; this document tells you which ones, and how they
@@ -22,7 +30,7 @@ were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 18 commits ahead of base, in order:
+- 20 commits ahead of base, in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
@@ -45,7 +53,9 @@ were corrected.
   16. `fffa556f` — feat: Candidate extraction (step 11) — two adversarial-review rounds, see "What exists now" below
   17. `60840d63` — docs: handoff update for step 11 completion
   18. `0c6d4a36` — feat: Reconciliation engine (step 12) — scoped to 3/6 outcomes, see "What exists now" below
-- Full test suite as of `0c6d4a36`: **940 passed, 0 failed** — the 2
+  19. `d6a43d90` — docs: handoff update for step 12 completion
+  20. `2154f497` — feat: full-text index (step 13) — hit SEC-006/ARC-002 boundary, user decision required, see "What exists now" below
+- Full test suite as of `2154f497`: **951 passed, 0 failed** — the 2
   previously-documented soffice-portability failures (see "Known
   environment-only failures" below) are gone as of this run, most likely
   because PR #18 (`fix/test-collection-and-soffice-portability`) was
@@ -221,7 +231,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-12), file by file
+## What exists now (steps 1-13), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -311,7 +321,71 @@ steps 9-11.
    not fixed; a caller relying on `matched_atoms` to enumerate *every*
    redundant atom should not assume completeness for IDENTICAL.
 
-## Working method established this session (follow it for steps 13-16)
+| 13 | `10_API/gmv_crawler_fulltext_index.py` | `open_index()`/`index_atom()`/`search_atoms()` — a standalone FTS5 virtual table (`atoms_fts`, tokenizer `unicode61 remove_diacritics 2`) indexing ATOM SUBJECT/PREDICATE/OBJECT, reusing `AtomCandidate` (step 7) directly. **Does NOT use `gmv_core.database`/`gmv_core.migrations` at all** — see the boundary-collision account below before touching this file or building any future virtual-table-based index |
+| 13 | `tests/test_gmv_crawler_fulltext_index.py` | 11 tests against real sqlite3/FTS5 (not mocked) incl. a diacritics-removal grounding test ("città"/"citta") and pinned-behavior tests for both documented v1 gaps (no dedup, unsanitized `MATCH` query) |
+
+**Read this before building any future virtual-table-based index (e.g. a
+vector index) — it will very likely hit the identical wall. This is not
+step 14** (§33 numbers step 14 as DERIVED_VIEW_SPEC v0.1 — a rules/config
+artifact, most likely, not an engine, and unlikely to touch SQLite at
+all; a vector index has no numbered step in §33 at all, since §31
+explicitly excludes "infrastruttura vettoriale completa" from this
+crawler's first cycle). `gmv_core/authorization.py`'s SEC-006
+write-capability authorizer denies `SQLITE_CREATE_VTABLE` *unconditionally*,
+for every caller, by explicit design — confirmed by actually running a
+migration against it, not just reading the code. An FTS5 (or, later, any
+`sqlite-vec`/virtual-table-based vector index) table cannot be created
+through `gmv_core.database.connect_path()`/`gmv_core.migrations.migrate()`
+at all, ever, regardless of the caller. `10_API/gmv_crawler_fulltext_index.py`
+therefore manages its own plain, unguarded `sqlite3.connect()` to a
+separate file — **but this collides with a second, real, actively-enforced
+repo boundary**: `tests/test_sqlite_connection_boundary.py`'s
+`test_only_core_factory_calls_sqlite_connect()` statically asserts
+*exactly one* raw `sqlite3.connect()` owner exists in tracked production
+code repo-wide (`gmv_core/database.py`). An earlier draft of this
+module's docstring cited that boundary's governing ADR
+(`00_CONFIG/ADR_CORE_PERSISTENCE_BOUNDARY.md`) incompletely — it quoted
+only the original Decision §3 ("the check is deferred") and missed that
+same file's own 2026-07-21 addendum, which closes that clause and
+confirms the check has been continuously active and enforced since
+2026-07-19. Adversarial review reproduced the break **empirically**
+(staged the new file, re-ran the suite, watched it fail) — this was not
+caught by reading the ADR, only by reading it to the end and then
+verifying against the real test.
+
+**A second, distinct static check needed the identical fix and was
+almost missed on the first review pass:** `tests/test_write_authorization.py::test_dml_capability_matrix_matches_source()`
+independently inventories every `INSERT`/`UPDATE`/`DELETE` call site in
+tracked production code, regardless of which connection type executes
+it — so `index_atom()`'s `INSERT INTO atoms_fts` needed its own fix
+there too, not just in the connection-boundary test.
+
+**Resolution, by explicit user decision (2026-09-15), among three
+options adversarial review presented (a full ADR amendment; relocating
+the module outside the three guarded production roots
+`01_RUNTIME/`/`10_API/`/`gmv_core/`; a named, justified whitelist
+entry):** the user chose the whitelist. Both static checks now carry a
+second, explicitly named and justified exception
+(`FTS_INDEX_OWNER`/`_NON_CORE_DML_SITES`) for this one file only — both
+remain strict equality checks, so a third undocumented file doing the
+same thing would still fail loudly. Confirmed (by the reviewer,
+independently): this whitelist entry was **not** mirrored into
+`gmv_core.authorization.DML_CAPABILITIES` (the live SEC-006 runtime
+matrix) — that would have been the mirror-image mistake, granting a real
+runtime write capability to a module that never uses an
+`AuthorizingConnection` at all.
+
+**For any future virtual-table-based index (vector or otherwise): do not
+re-litigate this from scratch.** The same three options apply; if the user again prefers a named
+whitelist, the pattern to copy is exactly `FTS_INDEX_OWNER` +
+`_NON_CORE_DML_SITES` above. If a *fourth* similar step needs the same
+treatment, that itself might be the signal that option (a) — a real ADR
+amendment excluding derived/rebuildable indexes from `ARC-002`'s scope
+generally — is overdue rather than repeating a per-file whitelist
+indefinitely; that judgment call was not made this session and is worth
+raising with the user directly rather than assumed.
+
+## Working method established this session (follow it for steps 14-16)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -454,7 +528,7 @@ Correction-2 assumption made it into the spec in the first place:
   `tmp_path` for test isolation, never writing to the repo's real
   `03_STATE/`).
 
-## Remaining steps (§33, 13-16) — status and notes
+## Remaining steps (§33, 14-16) — status and notes
 
 ```
 9.  Dropbox connector = wrapper of    -- DONE. Not a wrapper (the premise
@@ -603,7 +677,22 @@ Correction-2 assumption made it into the spec in the first place:
                                           documents it, does not fix it
                                           (fix belongs in step 7's
                                           compute_atom_fingerprint()).
-13. FTS5                               -- not started.
+13. FTS5                               -- DONE. Standalone FTS5 table,
+                                          outside gmv_core entirely (SEC-006
+                                          denies CREATE_VTABLE
+                                          unconditionally -- discovered
+                                          empirically, not assumed). Hit
+                                          and resolved a real collision
+                                          with the ARC-002 sqlite3.connect
+                                          boundary -- user decision
+                                          required, see "What exists now"
+                                          above. Any FUTURE virtual-table-
+                                          based index (e.g. vector -- not
+                                          itself a numbered step, excluded
+                                          from this crawler's first cycle
+                                          by §31) will very likely hit the
+                                          exact same wall -- read that
+                                          section first.
 14. DERIVED_VIEW_SPEC v0.1             -- not started.
 15. PUBLIC projector                   -- not started.
 16. Generalize gmv_notion_multi_       -- not started. Depends on the
@@ -621,14 +710,19 @@ Correction-2 assumption made it into the spec in the first place:
 2. Fetch and read the source Notion documents listed above yourself — do
    not rely solely on this document's summaries for anything you're about
    to build on.
-3. Steps 9-12 are all done (Dropbox connector, Extractors, Candidate
-   extraction, Reconciliation engine — the last scoped to 3/6 outcomes).
-   Step 13 (FTS5) is the next not-started step in §33's order — spec §21
-   says the MVP-mandatory index is "SQLite metadata + FTS5", vector/graph
-   indexes only after FTS is validated. Before designing it, check
-   whether this repo already has an FTS5 table/index anywhere (not
-   investigated this session) — `gmv_core/migration_sql/` is the place to
-   look first, per this session's own established discipline.
+3. Steps 9-13 are all done (Dropbox connector, Extractors, Candidate
+   extraction, Reconciliation engine, FTS5 index). Step 14
+   (`DERIVED_VIEW_SPEC v0.1`) is the next not-started step in §33's
+   order — spec §12 describes it as a system-level component formalizing
+   the reconstruction rules for STATE/TIMELINE/RELATIONS/CLAIMS/LEDGER/
+   PUBLIC from ATOMS+SOURCES; most likely a rules/config artifact (same
+   shape as step 1's Epistemic Ingestion Rules JSON translation), not an
+   engine — decide deliberately if it turns out to need one, don't
+   default into building one. **Not itself a vector-index step** — see
+   "What exists now" above (step 13 section) for why any future
+   virtual-table-based index will hit the same SEC-006/ARC-002 boundary
+   step 13 already resolved once, and how to resolve it again without
+   re-litigating from scratch.
    The atom_fingerprint word-order-collision trade-off (step 7) is
    **still unresolved** despite step 12 being previously flagged as
    where it would be addressed — step 12 only inherited and documented
