@@ -1,34 +1,40 @@
-# GMV Crawler — Handoff for continuation (preplan step 16)
+# GMV Crawler — Preplan complete (all 16 steps, spec v0.2 §33)
 
-Status: steps 1-15 of the crawler's implementation order (spec §33) are
-complete, reviewed, committed, and pushed — including step 9 (Dropbox
-SourceConnector), whose original premise was false (see Correction 2
-below) and required an explicit user decision before it could proceed,
-step 11 (Candidate extraction), which took two adversarial-review rounds
-to close a real batch-destroying bug, step 12 (Reconciliation engine),
-which is deliberately scoped to only 3 of the crawler spec's 6
-reconciliation outcomes, step 13 (FTS5 full-text index), which collided
-with a real, active security boundary (SEC-006/ARC-002) and required an
-explicit user decision among three remediation options, step 14
-(Derived View Spec), which also took two adversarial-review rounds to
-close two real bugs in its most delicate function
-(`derive_current_state()`), and step 15 (PUBLIC projector), whose first
-adversarial-review round found a real grounding bug (a literal that
-matched the wrong field of the wrong pipeline stage, making one of its
-four exclusion gates dead code against any real data) — **read "What
-exists now" below in full before building any future virtual-table-based
-index (e.g. a vector index via `sqlite-vec` or similar), which will very
-likely hit the same SEC-006/ARC-002 boundary step 13 already resolved
-once.** **Step 16 is blocked on an explicit user decision** (the
-`claim_id`/`evidence_id` relationship, open since the spec's own text —
-see "Open questions" below) and was deliberately not started
-autonomously this session; see "Remaining steps" for exactly what is and
-is not done. This document lets a different tool/session (OpenCode,
-Codex, a fresh Claude Code session, or a human) resume without
-re-deriving what prior sessions already verified. Read this document
-fully before touching code — several assumptions in the original spec
-turned out to be false on inspection; this document tells you which
-ones, and how they were corrected.
+**Status: all 16 steps of the crawler's implementation order are
+complete, adversarially reviewed, committed, and pushed.** This document
+is now a completion record and a map of real, disclosed follow-up work —
+not a "resume from step N" handoff, though it still serves that purpose
+for anyone extending the crawler beyond this preplan. Read it fully
+before touching any of this code: several assumptions in the original
+spec turned out to be false on inspection (§0's corrections below), and
+several real gaps were found only by executing code, not by reading it —
+this document tells you which, and exactly how each was resolved,
+disclosed, or deliberately left open pending a decision only a human can
+make.
+
+**Read "What exists now" below in full before extending any of this.**
+In particular: any future virtual-table-based index (e.g. a vector
+index via `sqlite-vec` or similar) will very likely hit the same
+SEC-006/ARC-002 security boundary step 13 already resolved once — don't
+re-litigate it from scratch. And before building on step 16's Notion
+adapter, read its own section below: it closes the `claim_id`/`ATOM_ID`
+identity question by explicit user decision (2026-09-15), but discloses
+a real, live gap (the crawler's governed predicates and the real Notion
+pipeline's routing hints are completely disjoint vocabularies) that
+means every atom this adapter routes today falls through to free-text
+body content, never structured fields/relations, until someone builds
+that mapping.
+
+**What "complete" means here, precisely:** every step in §33's order has
+a real, tested, adversarially-reviewed artifact — not that the crawler
+is production-ready end-to-end. No orchestration loop wires these 16
+pieces together into a running pipeline (steps 1-16 are schema/contract/
+thin-translation-layer work throughout, deliberately, per this session's
+own "no premature engine" discipline); several steps are explicitly
+scoped narrower than the spec's original ambition, with the gap disclosed
+in that step's own docstring/tests, not silently absorbed. The
+"Open questions" and each step's own "known gaps" below are the real
+list of what a production run would still need.
 
 ## Repository state
 
@@ -37,7 +43,9 @@ ones, and how they were corrected.
   in sync (`git status -sb` shows no divergence)
 - Base: forked from `main` at `b480b04f`
 - No PR opened yet — that decision was left to the user
-- 24 commits ahead of base as of `b8c1214` (this update itself will be one more), in order:
+- 29 commits ahead of base (`git log b480b04f..HEAD`), one per step's
+  feature commit plus its own handoff-doc update and any review-driven
+  fix, in order:
   1. `d6b9b685` — Epistemic Ingestion Rules config + crawler_source_registry migration (steps 1+3)
   2. `b1629b69` — GMV_ONTOLOGY_REGISTRY v0.1 (step 2)
   3. `0309b9af` — Source/Evidence contract (step 4)
@@ -45,41 +53,38 @@ ones, and how they were corrected.
   5. `9a719578` — Entity Registry migration (step 6)
   6. `a4334505` — Atom validator (step 7)
   7. `d3280282` — this handoff document, first version
-  8. `0dd6c767` — fix: unblock test collection (pre-existing Python-2-syntax
-     SyntaxError in `10_API/gmv_artist_normalize_plan.py`, unrelated to the
-     crawler, predates this branch's fork point — see "Unrelated bug fixed
-     this session" below) and repo git policy (this handoff's own absolute
-     path)
+  8. `0dd6c767` — fix: unblock test collection (pre-existing Python-2-syntax SyntaxError, unrelated to the crawler)
   9. `8327d786` — Monad materializer v1.0 (step 8)
   10. `9fa5d999` — docs: handoff update for step 8 completion / step 9 re-verification
   11. `dc76fb02` — docs: resolve Ombra canonical directory decision (`03_STATE/ombra/`)
   12. `60543d0d` — feat: Extractors module (step 10)
-  13. `909d3b38` — feat: real Dropbox SourceConnector against Dropbox API v2 (step 9)
-  14. `93778b2b` — docs: handoff update for step 9 completion
-  15. `f5f429ee` — fix: credential-assignment false-positive in DropboxConnector (repo security scanner, not a real secret leak)
-  16. `fffa556f` — feat: Candidate extraction (step 11) — two adversarial-review rounds, see "What exists now" below
-  17. `60840d63` — docs: handoff update for step 11 completion
-  18. `0c6d4a36` — feat: Reconciliation engine (step 12) — scoped to 3/6 outcomes, see "What exists now" below
-  19. `d6a43d90` — docs: handoff update for step 12 completion
-  20. `2154f497` — feat: full-text index (step 13) — hit SEC-006/ARC-002 boundary, user decision required, see "What exists now" below
-  21. `90b3792a` — docs: handoff update for step 13 completion (also fixed a step-14 mislabeling mistake before it shipped)
-  22. `a58d8933` — feat: Derived View Spec (step 14) — two adversarial-review rounds, see "What exists now" below
-  23. `d187e82` — feat: PUBLIC projector (step 15) — one adversarial-review round found a real grounding bug, fixed and re-verified, see "What exists now" below
-  24. `b8c1214` — chore: record gmv-code-reviewer lesson from step 15 review (agent memory file, not crawler code)
-- Full test suite as of `b8c1214`: **987 passed, 10 failed** in this
-  session's own container — the 10 failures are exactly the
-  container-specific, pre-existing gaps this document already documents
-  under "Known environment-only failures" below (8 in
-  `test_gmv_artist_import.py`, 2 soffice-portability in
-  `test_gmv_evidence_pipeline.py`) — they reappeared in this session's
-  container even though the previous update reported them gone (that
-  update's own caveat — verify PR #18's merge status yourself, do not
-  assume — turned out to matter: this session's container shows the
-  soffice/`~/.gmv_core` gaps again). **Do not treat this as a regression
-  step 15 caused** — none of the 10 failing tests touch
-  `gmv_crawler_public_projector.py`, `gmv_crawler_extractor.py` (imported
-  by it) was not modified by step 15, and the same 10 tests were already
-  failing before step 15's changes were staged. `ruff check .` clean.
+  13. `5caef21d` — chore: reviewer lesson from step 10
+  14. `909d3b38` — feat: real Dropbox SourceConnector against Dropbox API v2 (step 9)
+  15. `93778b2b` — docs: handoff update for step 9 completion
+  16. `f5f429ee` — fix: credential-assignment false-positive in DropboxConnector (security scanner, not a real secret leak)
+  17. `fffa556f` — feat: Candidate extraction (step 11) — two adversarial-review rounds
+  18. `60840d63` — docs: handoff update for step 11 completion
+  19. `0c6d4a36` — feat: Reconciliation engine (step 12) — scoped to 3/6 outcomes
+  20. `d6a43d90` — docs: handoff update for step 12 completion
+  21. `2154f497` — feat: full-text index (step 13) — hit SEC-006/ARC-002 boundary, user decision required
+  22. `90b3792a` — docs: handoff update for step 13 completion
+  23. `a58d8933` — feat: Derived View Spec (step 14) — two adversarial-review rounds
+  24. `f9638b01` — docs: handoff update for step 14 completion
+  25. `985a493c` — docs: process-improvement retrospective (6 recurring bug shapes distilled from steps 9-14)
+  26. `d187e824` — feat: PUBLIC projector (step 15) — one adversarial-review round found a real grounding bug
+  27. `b8c1214f` — chore: reviewer lesson from step 15
+  28. `00391613` — docs: handoff update for step 15 completion
+  29. `e0452408` — feat: Notion ProjectionAdapter (step 16, **final step**) — two adversarial-review rounds, two real BLOCK bugs found and closed at contract level, see "What exists now" below
+- Full test suite as of `e0452408`, run locally with `GMV_CORE_ROOT` set
+  to this checkout: **1029 passed, 0 failed**. The two
+  container-specific gap classes this document has tracked all session
+  (`test_gmv_artist_import.py`'s `~/.gmv_core` dependency, soffice
+  portability in `test_gmv_evidence_pipeline.py`) have flipped between
+  passing and failing across different sessions/containers more than
+  once already — **do not trust either state without re-running
+  yourself**; see "Known environment-only failures" below before
+  assuming a pass or fail on those specific tests means anything about
+  this branch's own correctness. `ruff check .` clean.
   Re-run before continuing: `<repo-root>/.venv/bin/python -m pytest tests/ -q`
   and `... -m ruff check .` — see "Environment" below on which venv to use.
 
@@ -247,7 +252,7 @@ checked:
    — an earlier draft of that file got this backwards and was caught by
    review before commit.
 
-## What exists now (steps 1-14), file by file
+## What exists now (all 16 steps), file by file
 
 All under `00_CONFIG/`, `gmv_core/`, `10_API/`, `tests/` of the repo root.
 
@@ -416,7 +421,21 @@ raising with the user directly rather than assumed.
 
 **One adversarial-review round on step 15, a real grounding bug, fixed and re-verified:** round 1 returned **BLOCK** — an early draft's blocked-source gate used a standalone literal, `BLOCKED_EXTRACTION_STATUS = "BLOCKED"`, whose docstring claimed it "matches the real, live literal `gmv_evidence_pipeline.py:538` already writes." That claim was checked and found false: line 538 writes the whole-run manifest `status` field for the *SEMANTIC* (LLM entity/claim extraction) stage — an unrelated field on an unrelated pipeline stage, not any per-source `extraction_status`. The real, closed, already-committed per-source vocabulary this crawler subsystem actually produces (`gmv_crawler_extractor.STATUS_VALUES`, step 10: `SUCCESS`/`OCR_REQUIRED`/`UNSUPPORTED_FORMAT`/`EXTRACTION_FAILED`/`EXTRACTION_ABORTED_STALE_HASH`) contains no `"BLOCKED"` value at all — the gate was dead code against any real data this pipeline can produce, and its own grounding test only substring-matched the wrong file/field, so it passed while proving nothing (the same "grounding test that reads the right file but the wrong field" failure mode already flagged once before this session, per the reviewer's own memory). Fixed: `BLOCKED_EXTRACTION_STATUSES` is now `frozenset(STATUS_VALUES - {"SUCCESS"})`, imported and computed from the real vocabulary (so it cannot silently drift if a future status value is added upstream), not a second hardcoded literal; the docstring was rewritten to document the correction explicitly and to distinguish this content-extraction-stage concept from `crawler_source_registry.state` (migration 009, step 3) — that table's own real closed vocabulary is `NEW`/`UNCHANGED`/`MODIFIED`/`MOVED`/`DELETED`/`FAILED`, no `BLOCKED` either; crawler spec §24's prose use of the word "BLOCKED" for an unreadable source refers to that different, DETECT-CHANGE-stage concept (real literal `FAILED`), and must not be conflated with this gate. Tests against real pipeline-producible statuses (`EXTRACTION_FAILED`, `UNSUPPORTED_FORMAT`, `SUCCESS`) were added, along with the RELATION multi-value trade-off and CRLF-collapse cases round 1 flagged as missing coverage. Round 2 (re-verification, same reviewer): **PASS** — confirmed the fix fires correctly against real data (and, independently, that `gmv_crawler_candidate_extractor.py:231` already writes a real `extraction_status` field from this exact vocabulary, corroborating it as the right one to key off), confirmed no circular import (`gmv_crawler_extractor` imports only `gmv_crawler_contracts`/`gmv_evidence_pipeline`, neither imports back), no other issues found. **No production code constructs a real `SourceManifestEntry` yet** (confirmed by repo-wide grep, both review rounds) — this gate has no live caller today; it is grounded and ready for whichever future step wires a real SOURCES manifest through, not exercised end-to-end in this crawler yet.
 
-## Working method established this session (follow it for step 16)
+| 16 | `10_API/gmv_notion_projection_adapter.py` | `MultiCandidateNotionAdapter` — the first concrete `ProjectionAdapter` (step 5), wrapping `route_claim()`/`build_entity_patch()`/`build_entity_body()`/`gate()`/`compare_entity()`/`load_bundle()`/`publish_bundle()` exactly as they already exist. `supports()`/`project()`/`publish()`/`reconcile_correction()`. `CRAWLER_ENTITY_TYPE_TO_LEGACY` closes the entity_type case/language gap step 5 flagged as unresolved. `claim_id = atom.atom_id` closes the claim_id/ATOM_ID identity question (user decision). `project()` filters to `STATUS=VALID` atoms only (same policy step 15 already established) and does NOT replicate `discover_entities()`'s multi-entity fan-out — see its own docstring for why that's the Entity Registry's (step 6) job going forward, not this adapter's |
+| 16 | `10_API/gmv_projection_adapter_contracts.py` | **Modified**, not just step 16's own file: `TargetPayload` gained three fields step 5's original draft was missing, all found empirically while wiring `publish()` for real — `name` (required), `existing_target_reference`, `keep_properties` (the last one closing a real BLOCK: without it, `notion_publish.py::check_staleness()` silently never detects a page edited on Notion since the payload was built) |
+| 16 | `tests/test_gmv_notion_projection_adapter.py` | 32 tests, incl. cross-checks of `CRAWLER_ENTITY_TYPE_TO_LEGACY` against the real ontology registry and page templates, a regression test proving the predicate-vocabulary mismatch is real, and — added after round-1 review — tests executing the real `check_staleness()`/`plan_requests()` (`notion_publish.py`) against bundles this module wrote, not just asserting `load_bundle()` doesn't crash |
+
+**Two adversarial-review rounds on step 16 (the final step), both real BLOCK bugs, both closed at the contract level, not patched locally in the adapter:** round 1 returned **BLOCK** for two bugs, both reproduced by executing the real `notion_publish.py` functions against bundles the adapter had written, not by reading the code: (1) `build_entity_patch()`'s `"keep"` block — computed specifically to feed `check_staleness()`, per a prior session's own fix to the sibling module (`gmv_notion_candidate.py`, referenced in `project_gmv_multi_candidate_integration.md`) — had no home on `TargetPayload` and was silently dropped, making `check_staleness()` a permanent no-op (`stale` always `False`, even against a live Notion page with completely different values) for every bundle this adapter could ever produce; (2) `body_gate` was never written to `NOTION_PATCH.json`, so `plan_requests()`/`apply_patch()` never append body text regardless of gate value — the safe direction (never over-publishes), but a real, undisclosed dead path. Round 1 also found: no filter excluded `INVALIDATED`/`DISPUTED`/`SUPERSEDED` atoms from being proposed as Notion content (fixed with the same `STATUS=VALID`-only policy step 15 already established); and the module's own justification for `claim_id = atom.atom_id` was factually wrong — it claimed step 12's `reconcile()` would already have deduplicated equivalent atoms by the time one reaches this adapter, but `reconcile()`'s own docstring is explicit that its `SUPPORTING` outcome keeps *both* atoms distinct (never merges to one `atom_id`), and `reconcile()` is not called by any production code path in this repository today (grepped) — the docstring was corrected to the real, simpler justification ("the only stable identity this adapter has, full stop," not "reconciliation already handled it"). Fixed: `TargetPayload` gained `keep_properties`; `_write_bundle()` now writes both `keep` and a properly-translated `body_gate`; `project()` filters to `STATUS=VALID`; the docstring no longer overclaims what `reconcile()` guarantees. Round 2 (re-verification, same reviewer, deliberately using different fixtures than the fix's own tests — a different Notion property type, `DISPUTED`/`SUPERSEDED` statuses in addition to `INVALIDATED`): **PASS_WITH_WARNINGS**, confirmed both blockers closed by executing `check_staleness()`/`plan_requests()` directly against freshly-written bundles, not by trusting the new tests. Two non-blocking style notes left as-is: one test's predicate literal isn't among the ontology registry's real 13 (validates the mechanism, not a reachable real-data scenario — should be labeled as such, not a code defect); `_write_bundle()`'s bundle-folder naming convention (crawler entity_type) differs stylistically from `write_entity_bundle()`'s (legacy Italian entity_type) without affecting `load_bundle()`.
+
+**Known, disclosed, not-fixed-here limitations for whoever builds on step 16:**
+- **The predicate-vocabulary mismatch is real and unresolved, pinned by its own test** (`test_predicate_vocabulary_mismatch_is_real_not_just_documented`, checked against both real files): the crawler's governed predicates (`participated_in`, `source_for`, `exhibited_at`, ...) and the real Notion pipeline's routing hints (`"is the author of"`, `"uses technique"`) are completely disjoint vocabularies. Every atom this adapter routes today falls through to `route_claim()`'s free-text body layer — the relation/field structured-routing this adapter exists to provide is, in practice, unreachable until a future step builds an explicit predicate → hint-phrase mapping (real domain judgment, not something this session had grounds to invent).
+- **No multi-entity fan-out.** `project()` takes one `MonadDocument` and returns one `TargetPayload` for that entity only — it does not replicate `discover_entities()`'s capability to propose *other* entities merely mentioned in the claims. That capability is superseded, going forward, by the crawler's own Entity Registry (step 6) resolving those other entities into their own Monads; a future engine step calling `project()` once per resolved Monad is how multi-entity output should work against this contract, not built here.
+- **`reconcile_correction()` raises `NotImplementedError`.** No real implementation exists anywhere in this repository for the correction-flow crawler spec §30 describes; step 5's own contract docstring already said so, unchanged by step 16.
+- **No relation-writer**, preserved exactly as inherited: every relation-type claim this adapter routes stays `CONFLICT` (`build_entity_patch()`'s own real, unmodified behavior).
+- **`FieldOperation.field` holds a resolved Notion property name, not a generic ontology id** — a disclosed divergence from that field's own docstring, because `build_entity_patch()` does not preserve the generic key in its real output and editing that proven, corpus-validated function to add one would be exactly the "riscrittura" §33 rules out.
+- **The `atom_fingerprint` word-order/OBJECT_TYPE weakness (step 7) is still unresolved**, inherited unchanged through steps 12/14/15/16 — see step 12/14's own sections above. This is the real fix needed if two differently-worded extractions of the same fact should ever be recognized as one atom before reaching this adapter.
+
+## Working method established this session (follow it for any future work)
 
 Each step followed this discipline; deviating from it is how the false
 Correction-2 assumption made it into the spec in the first place:
@@ -593,29 +612,36 @@ explicitly as a 7th item for step 16 and beyond:
   end-to-end wiring (likely alongside whatever step first needs an actual
   running crawler loop, not a schema/contract step) has not been done or
   investigated.
-- **`claim_id` vs `ATOM_ID`/`evidence_id` relationship — STILL OPEN, THE
-  ONLY THING BLOCKING STEP 16.** All 15 other steps in §33 are done;
-  this is the sole remaining blocker on the crawler's implementation
-  order. A session with budget left after finishing step 15 cleanly
-  deliberately did not attempt step 16 because of this — see "Remaining
-  steps" above. The original spec flags this as unresolved ("ho
-  verificato che claim_id vive a monte di ogni logica Notion, ma
-  l'equivalenza semantica con evidence_id è un'ipotesi mia, non un fatto
-  confermato — va chiusa da te prima che la generalizzazione
-  dell'adapter venga scritta"). Still open; relevant before step 16 (generalizing `gmv_notion_multi_candidate.py` behind
-  `ProjectionAdapter`).
+- **RESOLVED this session (2026-09-15), by explicit user decision.**
+  `claim_id` and `ATOM_ID`/`evidence_id` are related but structurally
+  distinct (`claim_id` keys off resolved entity identity, `ATOM_ID`/
+  `compute_atom_fingerprint()` off normalized text) — concretely realized
+  in step 16 as `FieldOperation.claim_id = AtomCandidate.atom_id`, not a
+  re-derivation of the legacy computation. See step 16's own section in
+  "What exists now" above for the full account, including the docstring
+  correction adversarial review forced (the first justification
+  overclaimed what `reconcile()`, step 12, actually guarantees). **This
+  decision does not, by itself, fix the underlying `atom_fingerprint`
+  word-order/OBJECT_TYPE weakness (step 7)** — see that item below,
+  still open, now the most concrete lever for closing this properly.
 - **`SPONSOR`/`CONTRACT`** are CANDIDATE-status in the ontology registry
   (unit-test-only or never-produced coverage) and are deliberately excluded
   from the Entity Registry's `entity_type` CHECK — they cannot be persisted
   as entities until promoted to CORE/DOMAIN by an explicit decision.
-- **`Gate` vocabulary reconciliation is still owed.** The crawler-level
-  `Gate` type (step 5, AUTO_ACCEPT/REVIEW_REQUIRED/BLOCKED) is a new
-  vocabulary, not translated from the two real, live vocabularies it will
-  eventually have to interoperate with: `gate()`'s entity-level
-  READY_FOR_NOTION/REVIEW_REQUIRED/INSUFFICIENT_EVIDENCE
-  (`gmv_evidence_pipeline.py`) and the body-level
-  BODY_PATCH_READY/BODY_REVIEW_REQUIRED (`gmv_notion_candidate.py`). This
-  translation does not exist yet.
+- **RESOLVED this session (step 16).** The crawler-level `Gate` type
+  (step 5, AUTO_ACCEPT/REVIEW_REQUIRED/BLOCKED) is now translated both
+  directions against both real, live vocabularies:
+  `gmv_notion_projection_adapter.py::_entity_gate_to_crawler_gate()`/
+  `_crawler_gate_to_entity_gate` (entity-level, `gate()`'s
+  READY_FOR_NOTION/REVIEW_REQUIRED/INSUFFICIENT_EVIDENCE) and
+  `_body_gate_to_crawler_gate()`/`_crawler_gate_to_body_gate()`
+  (body-level, `gmv_notion_candidate.py`'s
+  BODY_PATCH_READY/BODY_REVIEW_REQUIRED). Note the entity-level forward
+  mapping is not a straight lookup: `READY_FOR_NOTION` only becomes
+  `AUTO_ACCEPT` when no operation is `CONFLICT` (a real combination
+  `gate()` itself can produce, since it never inspects `operations`) —
+  otherwise it downgrades to `REVIEW_REQUIRED`, enforcing
+  `TargetPayload`'s own invariant rather than violating it.
 - **`text_hash` format is undecided** (`EvidenceUnit.text_hash`, step 4) —
   the one real precedent in this repo (`gmv_evidence_pipeline.py:297`) uses
   bare hex, `content_hash` uses a `sha256:` prefix. Left unvalidated on
@@ -661,7 +687,7 @@ explicitly as a 7th item for step 16 and beyond:
   `tmp_path` for test isolation, never writing to the repo's real
   `03_STATE/`).
 
-## Remaining steps (§33, 15-16) — status and notes
+## §33 implementation order — final status, all 16 steps DONE
 
 ```
 9.  Dropbox connector = wrapper of    -- DONE. Not a wrapper (the premise
@@ -863,98 +889,110 @@ explicitly as a 7th item for step 16 and beyond:
                                           instead; round 2 returned PASS.
                                           See "What exists now" above for
                                           the full account.
-16. Generalize gmv_notion_multi_       -- NOT STARTED, deliberately.
-    candidate.py behind                   Blocked on an explicit user
-    ProjectionAdapter                     decision this session did not
-                                          make autonomously, per this
-                                          task's own instruction and the
-                                          spec's explicit ordering
-                                          rationale (§33 note: "PRIMA di
-                                          generalizzare... non dopo"):
-                                          the claim_id/ATOM_ID/
-                                          evidence_id relationship (see
-                                          "Open questions" above) is still
-                                          open. Step 15 completed cleanly
-                                          in one review round with no
-                                          stalls, so this session had
-                                          budget left to attempt step 16
-                                          -- but starting it without that
-                                          decision would mean guessing at
-                                          exactly the question the spec's
-                                          own text says must be closed by
-                                          the user first, not inferred
-                                          from code position. Nothing
-                                          written, nothing decided; this
-                                          paragraph and "How to continue"
-                                          below are the full state to
-                                          resume from once the decision is
-                                          made.
+16. Generalize gmv_notion_multi_       -- DONE (final step). The
+    candidate.py behind                   claim_id/ATOM_ID/evidence_id
+    ProjectionAdapter                     question that blocked this step
+                                          in the previous handoff revision
+                                          was resolved by explicit user
+                                          decision (2026-09-15): claim_id
+                                          and ATOM_ID are related but
+                                          structurally distinct (claim_id
+                                          keys off resolved entity
+                                          identity, ATOM_ID/
+                                          compute_atom_fingerprint() off
+                                          normalized text) -- concretely
+                                          realized as FieldOperation.
+                                          claim_id = atom.atom_id, not a
+                                          re-derivation of the legacy
+                                          computation. 10_API/gmv_notion_
+                                          projection_adapter.py wraps
+                                          route_claim()/build_entity_
+                                          patch()/build_entity_body()/
+                                          gate()/compare_entity()/
+                                          load_bundle()/publish_bundle()
+                                          exactly as they exist. Two
+                                          adversarial-review rounds found
+                                          and closed two real BLOCK bugs
+                                          (staleness check silently
+                                          neutralized; body-publish path
+                                          silently dead) at the TargetPayload
+                                          contract level, not patched
+                                          locally. See "What exists now"
+                                          above for the full account,
+                                          including the real, disclosed,
+                                          unresolved predicate-vocabulary
+                                          mismatch and the other
+                                          known limitations a future
+                                          session needs before this is
+                                          production-usable.
 ```
 
 ## How to continue
 
-1. Read this document fully.
+**There is no next numbered step — §33's order is fully built.** What
+follows is the real, prioritized list of what stands between this
+preplan and an actual running crawler, for whoever picks this up next
+(a future session, OpenCode, Codex, or a human):
+
+1. Read this document fully, especially "What exists now" above — most
+   of what looks like an open TODO below is already precisely scoped and
+   disclosed there, not a fresh discovery.
 2. Fetch and read the source Notion documents listed above yourself — do
-   not rely solely on this document's summaries for anything you're about
-   to build on.
-3. Steps 9-15 are all done (Dropbox connector, Extractors, Candidate
-   extraction, Reconciliation engine, FTS5 index, Derived View Spec,
-   PUBLIC projector). **Step 16 is the only remaining step in §33's
-   order, and it is blocked on an explicit user decision, not on any
-   remaining technical work this session could have done instead** — do
-   not start writing `ProjectionAdapter`-generalization code until the
-   decision below is made; see "Open questions" above for the full
-   context of why.
-   The `claim_id`/`evidence_id` open question remains unresolved —
-   `gmv_evidence_pipeline.py::consolidate_claims()` computes a `claim_id`
-   from *resolved* subject/object pairs (post entity-resolution, using
-   `resolution_status == "RESOLVED"`), a genuinely different, later-stage
-   concept than `CandidateProposition.evidence_id` (step 11) or
-   `AtomCandidate`/`ReconciliationResult` (steps 7/12, pre-resolution) —
-   this grounds, but does not settle, the question. The spec's own text
-   is explicit that this must be closed by the user before step 16 is
-   written (§33 note: "la riconciliazione claim_id/evidence_id va chiusa
-   qui, non prima" — i.e. inside step 16's own work, but only once the
-   relationship itself is decided, not invented by whoever implements
-   it). Ask the user directly: is `claim_id` (pre-entity-resolution,
-   `gmv_evidence_pipeline.py`) the same concept as the crawler's
-   `evidence_id`/`ATOM_ID` lineage (steps 4/7/11/12), a distinct concept
-   that must be bridged with an explicit mapping, or something else
-   entirely? Once answered, step 16 can proceed: generalize
-   `gmv_notion_multi_candidate.py` behind the `ProjectionAdapter`
-   contract (step 5) — extract `supports(entity_type)`, separate the
-   genuinely generic `route_claim`/`discover_entities` fan-out from the
-   Notion-specific `NOTION_PATCH.json` format, and treat the
-   relation-writer gap (no relation predicate has ever been written to
-   Notion — every relation claim stays `CONFLICT`) as an explicitly
-   missing component to design, not something to presume solved by
-   analogy with simple properties (crawler spec v0.2 §4-bis/§29).
-   Any future virtual-table-based index (vector or otherwise) will hit
-   the same SEC-006/ARC-002 boundary step 13 already resolved once — see
-   "What exists now" above (step 13 section) for how to resolve it again
-   without re-litigating from scratch; unlikely to be relevant to step 16.
-   The atom_fingerprint word-order-collision trade-off (step 7) is
-   **still unresolved** despite step 12 being previously flagged as
-   where it would be addressed — step 12 only inherited and documented
-   the risk, it did not fix `compute_atom_fingerprint()` itself. If a
-   future step needs real dedup accuracy on non-person OBJECT text
-   (PLACE/EVENT/DOCUMENT), that fix belongs in step 7's function, not in
-   the reconciliation engine that calls it.
-4. `DropboxConnector` (step 9) has never been driven end-to-end against a
-   real Dropbox account/token — only tested against an injected fake
-   session. If a future step needs to actually crawl real Dropbox content
-   (not just have the contract satisfied), budget time to verify the
-   real API's response shapes (`path_lower`, `server_modified` format,
-   pagination) match what the connector assumes, ideally against a real
-   token before trusting it in a longer pipeline.
-5. For any step, follow the same pattern steps 1-8 used: schema/contract
-   first (no premature engine unless the step explicitly calls for one and
-   you decide that deliberately), tests that cross-check real committed
-   artifacts (not hardcoded duplicates), adversarial review before commit
-   (see the known `gmv-code-reviewer` stall issue above — don't wait
-   indefinitely if it recurs), commit message documenting what review
-   found and how it was fixed, push after every commit, no PR unless
-   asked.
-6. Keep the full test suite and `ruff check` green at every commit —
-   check "Known environment-only failures" above first so you don't chase
-   a container-specific gap as if it were a regression.
+   not rely solely on this document's summaries for anything you're
+   about to build on; they may have moved since this was written.
+3. **No orchestration loop exists.** Steps 1-16 are schema/contracts/
+   thin translation layers, deliberately — nothing wires DISCOVER through
+   AUDIT (§3) into one running pipeline against the Run Ledger
+   (Correction 1). This is very likely the single largest remaining
+   piece of real engineering, and was out of scope for every step in
+   this preplan on purpose ("no premature engine").
+4. **The predicate-vocabulary mismatch (step 16) blocks the crawler's
+   Notion output from being useful in practice today** — every atom
+   currently falls through to free-text body content, never structured
+   fields/relations, because the crawler's governed predicates and the
+   real Notion pipeline's routing hints share no vocabulary. Closing
+   this needs real domain review (which registry predicate corresponds
+   to which of the real hint phrases, per entity type), not code.
+5. **The `atom_fingerprint` word-order/OBJECT_TYPE weakness (step 7) is
+   still unresolved**, inherited unchanged through steps 12/14/15/16.
+   Fix belongs in `compute_atom_fingerprint()` itself — key normalization
+   on resolved entity identity (Entity Registry, step 6) rather than
+   normalized text, the direction the user's 2026-09-15 claim_id/ATOM_ID
+   decision pointed at but step 16 did not itself need to implement (see
+   its own section above for why).
+6. **CONFLICTING/SUPERSEDING/CORRECTING (step 12) are still unreachable**
+   — need a "slot" identity (subject+predicate, object-agnostic) plus a
+   PREDICATE_CLASS-dependent multiplicity policy that exists nowhere yet.
+7. **No multi-entity fan-out** — step 16's adapter projects one Monad at
+   a time; `discover_entities()`'s old capability to propose *other*
+   entities merely mentioned in claims needs to become the Entity
+   Registry's (step 6) job, not rebuilt inside a projection adapter.
+8. **`DropboxConnector` (step 9) has never been driven end-to-end
+   against a real Dropbox account/token** — only tested against an
+   injected fake session. Budget time to verify the real API's response
+   shapes (`path_lower`, `server_modified` format, pagination) before
+   trusting it in a longer pipeline.
+9. **No relation-writer exists anywhere** (inherited from the pre-crawler
+   pipeline, preserved unchanged through step 16) — every relation claim
+   stays `CONFLICT`. A real design, not an extension by analogy with
+   simple properties (crawler spec §4-bis/§29 already warn about this).
+10. **`reconcile_correction()` (step 16) raises `NotImplementedError`** —
+    crawler spec §30 describes the intended flow; nothing implements it.
+11. Any future virtual-table-based index (vector or otherwise) will hit
+    the same SEC-006/ARC-002 boundary step 13 already resolved once — see
+    "What exists now" above (step 13 section) for how to resolve it
+    again without re-litigating from scratch.
+12. For any future work here, follow the same pattern steps 1-16 used:
+    schema/contract first (no premature engine unless a step explicitly
+    calls for one and you decide that deliberately), tests that
+    cross-check real committed artifacts (not hardcoded duplicates),
+    adversarial review before commit (see the known `gmv-code-reviewer`
+    stall/truncation issues above — don't wait indefinitely, and always
+    request the full report if the tool result is a one-line summary),
+    commit message documenting what review found and how it was fixed,
+    push after every commit, no PR unless asked.
+13. Keep the full test suite and `ruff check` green at every commit —
+    check "Known environment-only failures" above first so you don't
+    chase a container-specific gap as if it were a regression, and
+    re-verify its current state yourself rather than trusting this
+    document's last snapshot (it has flipped between sessions already).
