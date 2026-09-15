@@ -457,6 +457,65 @@ Correction-2 assumption made it into the spec in the first place:
    independently checked and which weren't.
 9. **Push after every commit** (`git push`), no PR opened unless asked.
 
+### Process improvements from steps 9-14's review history (apply starting step 15)
+
+A retrospective across the 6 most recent adversarial-review rounds
+(steps 9/11/12/13/14, several taking 2 rounds) shows the same few bug
+*shapes* recurring, not random defects. Apply these proactively — the
+goal is fewer review round-trips on step 15/16, not a new process:
+
+1. **A claim in a docstring that something is "imported"/"reused" is
+   only true if you can point at the literal `from X import Y` line in
+   *this* file.** Two separate findings (step 9's credentials.py claim,
+   step 14's `FROZEN_PREDICATE_CLASSES` claim) were docstring prose that
+   sounded true and referenced a real thing, but the actual import
+   didn't exist in the module making the claim. Before sending anything
+   for review, grep your own new file for every "imported"/"reused"/
+   "not reimplemented" claim and verify the corresponding `import` line
+   exists in that same file, not just somewhere in the codebase.
+2. **When grouping/comparing by a governed vocabulary field (a
+   PREDICATE, an entity type, a status), resolve through the registry's
+   alias/canonical mapping before using the raw string as a key.** Step
+   14's worst bug (governance-equivalent predicate aliases treated as
+   unrelated facts) is exactly this. Step 15 (PUBLIC projector) will
+   almost certainly filter/group atoms by PREDICATE and VISIBILITY —
+   apply this check there from the first draft, not after a review finds
+   it.
+3. **Before adding any new call site with a repo-wide shape (a new raw
+   `sqlite3.connect`, a new `INSERT`/`UPDATE`/`DELETE`, a new file-write
+   pattern), search for a static boundary test first**
+   (`tests/test_sqlite_connection_boundary.py`,
+   `tests/test_write_authorization.py`, `tests/security/`) — step 13
+   discovered this the expensive way, empirically, after already writing
+   a draft that broke CI. Step 15/16 are unlikely to need a new
+   connection type, but if either does, check first.
+4. **When citing an ADR or governance doc as justification, read it to
+   the literal end, including any "Addendum"/"Amendment" section, before
+   treating any clause as current.** Step 13's docstring cited
+   `ADR_CORE_PERSISTENCE_BOUNDARY.md`'s original Decision §3 ("deferred")
+   and missed the same file's own addendum that closed it 2 days later —
+   caught only because review reproduced the break empirically, not by
+   reading further in the same file. This generalizes beyond that one
+   ADR: any `00_CONFIG/ADR_*.md`/`00_CONFIG/GMV_CRAWLER_HANDOFF.md`-style
+   document with dated sections may have a later section superseding an
+   earlier one.
+5. **Before shipping a function that makes an explicit "never X" or
+   "always Y" guarantee (never silently picks a winner, always
+   validates, never overwrites), write one adversarial test yourself
+   that tries to break exactly that guarantee — duplicates, aliases,
+   empty/malformed input, out-of-order input — before sending it to
+   review.** Steps 11 and 14's core bugs were both violations of a
+   guarantee the function's own docstring/tests already claimed to
+   uphold; the adversarial case (duplicate item, aliased predicate) was
+   findable by asking "what real-world input would break my own stated
+   guarantee?", not just by writing the happy-path tests first.
+6. **The `gmv-code-reviewer` subagent's tool-result is frequently
+   truncated to a one-line summary** (a recurring environment quirk, not
+   a content problem) — always follow up with a `SendMessage` to the
+   same agent asking it to repost the full report before acting on a
+   verdict. This has been necessary in most rounds this session; budget
+   for it rather than treating it as an exception.
+
 ## Open questions / known gaps (do not silently resolve these — surface them)
 
 - **RESOLVED this session.** Step 9's premise was broken (see Correction 2
