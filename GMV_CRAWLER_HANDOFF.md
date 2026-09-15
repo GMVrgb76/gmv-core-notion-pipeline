@@ -996,3 +996,15 @@ preplan and an actual running crawler, for whoever picks this up next
     chase a container-specific gap as if it were a regression, and
     re-verify its current state yourself rather than trusting this
     document's last snapshot (it has flipped between sessions already).
+
+## OpenCode work log
+
+This section is for OpenCode (see `AGENTS.md` at the repo root — its
+own standing brief for working on this subsystem as a delegated
+assistant) to leave short, dated notes about work it did between
+Claude sessions, so the next Claude session can find and verify it
+without re-deriving context. OpenCode does not edit the rest of this
+document's structural sections (that stays one authorial voice); this
+section is the one place it writes.
+
+*(No entries yet.)*
