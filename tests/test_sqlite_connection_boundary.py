@@ -11,6 +11,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = ("01_RUNTIME/", "10_API/", "gmv_core/")
 RAW_CONNECT_OWNER = "gmv_core/database.py"
+# Second, explicitly named connect() owner (crawler preplan step 13,
+# User-approved 2026-09-15 as one of three legitimate options presented:
+# ADR amendment, relocation outside PRODUCTION_ROOTS, or this named
+# whitelist entry -- the user chose this one). GMV_KNOWLEDGE_MONAD_SPEC_v1.0
+# §11 / the crawler spec's own §2 classify a full-text index as a derived,
+# rebuildable structure, never canonical Core data -- but the deciding
+# constraint is narrower and harder than that classification alone:
+# gmv_core/authorization.py's SEC-006 write-capability authorizer denies
+# SQLITE_CREATE_VTABLE unconditionally, for every caller, by explicit
+# design, so an FTS5 virtual table cannot be created through
+# gmv_core.database/gmv_core.migrations at all, regardless of how the
+# data it holds is classified. This is a single, narrow, named exception
+# -- not a general relaxation of the boundary -- and does not authorize
+# any other file to add a second sqlite3.connect() call site.
+FTS_INDEX_OWNER = "10_API/gmv_crawler_fulltext_index.py"
 FOREIGN_KEYS_OFF_OWNERS = (
     "gmv_core/migration_sql/006_foreign_keys.sql",
     "gmv_core/migration_sql/007_domain_constraints.sql",
@@ -122,8 +137,9 @@ def test_only_core_factory_calls_sqlite_connect() -> None:
     }
     calls = {relative: lines for relative, lines in calls.items() if lines}
 
-    assert set(calls) == {RAW_CONNECT_OWNER}
+    assert set(calls) == {RAW_CONNECT_OWNER, FTS_INDEX_OWNER}
     assert len(calls[RAW_CONNECT_OWNER]) == 1
+    assert len(calls[FTS_INDEX_OWNER]) == 1
 
 
 def test_tracked_production_shell_never_invokes_sqlite_client() -> None:

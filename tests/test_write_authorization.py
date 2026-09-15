@@ -136,15 +136,33 @@ _REVOKED_DML_SITES = frozenset(
     }
 )
 
+#: DML sites that execute against a plain sqlite3 connection deliberately
+#: outside gmv_core's SEC-006 authorization system entirely -- not a Core
+#: write capability to approve or revoke, since no AuthorizingConnection is
+#: ever involved (see tests/test_sqlite_connection_boundary.py's
+#: FTS_INDEX_OWNER for the full rationale: gmv_core/authorization.py denies
+#: SQLITE_CREATE_VTABLE unconditionally, so an FTS5 index cannot go
+#: through gmv_core.database at all; the User chose a named whitelist
+#: entry, 2026-09-15, crawler preplan step 13). Listed explicitly, the
+#: same reasoning _REVOKED_DML_SITES uses, so a *second*, undocumented
+#: non-Core DML site is still caught.
+_NON_CORE_DML_SITES = frozenset(
+    {
+        ("10_API/gmv_crawler_fulltext_index.py", "index_atom", "INSERT", "atoms_fts"),
+    }
+)
+
 
 def test_dml_capability_matrix_matches_source() -> None:
     """Every INSERT/UPDATE/DELETE call site in production code is exactly
     the approved 10-tuple matrix plus the 2 explicitly revoked DB-005/
-    DB-006 sites -- no more, no fewer, and none of the revoked sites is
-    present in the live matrix."""
+    DB-006 sites plus the 1 explicitly non-Core FTS index site -- no
+    more, no fewer, and none of the revoked/non-Core sites is present in
+    the live matrix."""
     scan = _scan_production_tree()
-    assert scan.dml_sites == set(authorization.DML_CAPABILITIES) | _REVOKED_DML_SITES
+    assert scan.dml_sites == set(authorization.DML_CAPABILITIES) | _REVOKED_DML_SITES | _NON_CORE_DML_SITES
     assert not (_REVOKED_DML_SITES & set(authorization.DML_CAPABILITIES))
+    assert not (_NON_CORE_DML_SITES & set(authorization.DML_CAPABILITIES))
 
 
 def test_ddl_callers_match_source() -> None:

@@ -241,3 +241,59 @@ ereditare un rischio già segnalato come "da risolvere qui" da un documento di
 processo precedente. Applicabile a ogni step futuro dello stesso crawler pipeline
 (`GMV_CRAWLER_HANDOFF.md` §"How to continue" elenca esplicitamente altri
 trade-off aperti earmarked per step specifici non ancora costruiti).
+
+## Lezione verificata 2026-09-15 (review gmv_crawler_fulltext_index.py, step 13): un ADR citato va letto fino in fondo, non fino alla clausola che conviene — e un test statico repo-wide "non esiste ancora" va sempre eseguito con il nuovo file *staged*, non solo letto
+
+Il docstring del modulo giustificava un `sqlite3.connect()` grezzo dentro `10_API/`
+(bypassando `gmv_core.database`) citando `ADR_CORE_PERSISTENCE_BOUNDARY.md` Decision
+§3: il controllo statico "ARC-002" che rifiuterebbe un secondo `sqlite3.connect`
+diretto fuori da `gmv_core` "e' deferred" e "non esiste ancora". Falso alla verifica
+diretta: lo stesso identico documento ADR contiene, piu' in basso, un
+**Addendum datato 2026-07-21** — "ARC-002 static connect-boundary check confirmed
+satisfied" — che chiude esplicitamente quella clausola deferred e conferma che il
+controllo esiste ed e' attivo: `tests/test_sqlite_connection_boundary.py::
+test_only_core_factory_calls_sqlite_connect`, che fa `ast.parse` di ogni file `.py`
+tracciato sotto `01_RUNTIME/`, `10_API/`, `gmv_core/` e asserisce `set(calls) ==
+{"gmv_core/database.py"}` con **esattamente un** call site `sqlite3.connect`
+grezzo in tutto il repo. Riprodotto empiricamente: `git add` dei due file nuovi
+(ancora untracked al momento della review) seguito da `pytest tests/
+test_sqlite_connection_boundary.py` fa fallire immediatamente quel test — e
+`scripts/quality_gate.sh` (il CI reale) esegue `python -m pytest -q` sull'intera
+suite, quindi il commit di questo modulo rompe la quality gate al primo push, non
+solo in teoria.
+
+**Lezione generale (variante piu' grave delle lezioni precedenti su "riuso non
+verificato"):** quando un docstring cita un ADR per giustificare l'aggiramento di
+un confine architetturale, non fermarsi alla prima clausola che sembra dare
+ragione all'autore — leggere l'intero documento fino alla fine, compresi eventuali
+Addendum/Amendment successivi alla Decision originale (qui l'Addendum e' *nello
+stesso file*, poche righe sotto la clausola citata, con una data piu' recente che
+la supera esplicitamente). Un ADR con un Addendum che "chiude" una clausola
+deferred e' un pattern che ricorrera' in futuro in questo repo (il processo Sprint
+003 lo usa esplicitamente come meccanismo). Inoltre: quando un modulo nuovo
+dichiara "questo controllo statico repo-wide non esiste ancora / non mi si applica
+ancora perche' sono untracked", **non fidarsi della lettura del codice del test
+da sola** — eseguire `git add` dei file nuovi (rollback subito dopo con `git
+restore --staged`) e far girare quel test specifico prima di accettare la
+premessa. Qui il test AST-based ignora i file non tracciati per costruzione
+(usa `git ls-files`), quindi "il test non fallisce oggi" era vero ma irrilevante:
+falliva nel momento esatto in cui il modulo sarebbe diventato cio' che e' stato
+progettato per essere (un file tracciato e committato in `10_API/`). Questo e'
+un blocker dimostrato, non un rischio plausibile — riprodotto con un comando reale,
+non dedotto dalla lettura del codice.
+
+**Nota collaterale:** la giustificazione "architetturale" nel docstring ("FTS e'
+dato derivato/ricostruibile, quindi fuori dal confine SEC-006") non regge comunque
+come lettura del confine *realmente enforced*: il test statico non distingue dato
+canonico da dato derivato — vieta *qualsiasi* secondo call site `sqlite3.connect`
+grezzo in `01_RUNTIME/`/`10_API/`/`gmv_core/`, punto. La distinzione
+canonico/derivato puo' essere un argomento valido per una *futura* decisione di
+Project Owner che amenda l'ADR (es. escludendo esplicitamente indici derivati dal
+confine, o spostando questo modulo fuori dalle production roots sorvegliate), ma
+non e' il criterio che il controllo attuale applica oggi — presentarla come se il
+bypass fosse gia' coperto dalla policy vigente e' un overclaim, non solo una
+lettura incompleta.
+
+**Follow-up verificato 2026-09-15, stesso giorno: la remediation ha chiuso il blocker, riverificato indipendentemente.** Il coordinator ha aggiunto `FTS_INDEX_OWNER` in `tests/test_sqlite_connection_boundary.py` e un secondo `_NON_CORE_DML_SITES` in `tests/test_write_authorization.py::test_dml_capability_matrix_matches_source` (un secondo controllo statico distinto, basato su AST/regex su INSERT/UPDATE/DELETE indipendentemente dal tipo di connessione, che il mio primo giro di review non aveva controllato esplicitamente — trovato dal coordinator, poi confermato da me leggendo il file). Entrambe le whitelist restano rigorose (uguaglianza esatta di insiemi, non un permesso generico) e **non** aggiungono la nuova INSERT a `authorization.DML_CAPABILITIES` (che avrebbe erroneamente concesso una capability SEC-006 runtime a un modulo che non passa mai da `AuthorizingConnection`) — la distinzione fra "autorizzato a runtime" e "inventariato/riconosciuto nell'audit statico" e' stata rispettata correttamente. Riverificato in modo indipendente (non fidandosi del resoconto): `git diff --cached` sui due file di test, poi `pytest -q` sull'intera suite con i 4 file nuovi/modificati effettivamente su disco → 951 passed, `ruff check .` pulito, i due test di boundary rieseguiti isolatamente → 48 passed. Cercato attivamente anche un possibile terzo controllo statico non coperto (`tests/identity/test_writer_boundary.py`, `tests/migrations/test_version_fixture_targets.py`, `quality/LEGACY_EXCEPTIONS.md`, `quality/SECURITY_GATE_POLICY.md`) — nessuno di questi si applica (il primo controlla solo le tabelle `objects`/`oid_sequences`, gli altri sono su tutt'altro dominio).
+
+**Lezione generale aggiuntiva:** quando un blocker su un confine SEC-006/ARC-002 viene "risolto" con una whitelist nominata, verificare sempre due cose distinte, non una sola: (1) che il controllo statico che aveva bloccato sia stato aggiornato correttamente (ovvio), e (2) che la nuova voce **non** sia stata aggiunta anche alla matrice di autorizzazione *runtime* (`DML_CAPABILITIES`/`DDL_CALLERS` in `gmv_core/authorization.py`) se il modulo in questione non passa comunque da `AuthorizingConnection` — altrimenti la remediation introdurrebbe silenziosamente una capability SEC-006 reale per un caller che non ne ha bisogno e non dovrebbe averla, un errore opposto ma speculare al blocker originale. In questo caso il coordinator l'ha evitato correttamente, ma va controllato esplicitamente ogni volta, non assunto.
