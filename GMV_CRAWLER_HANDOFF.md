@@ -1106,3 +1106,23 @@ section is the one place it writes.
   due correzioni precedenti (alias di predicato, dedup per oggetto
   identico restano intatte — i test esistenti passano invariati). Full
   suite 1053 passed, `ruff check .` clean.
+
+- **2026-09-16 — Task 4 done: chiarito che il predicato `"esposto_a"`
+  nel test `test_project_relation_predicate_always_conflicts_no_relation_writer`
+  è sintetico, non un predicato governato reale (opencode task brief
+  `opencode_task_4.md`).** Verified myself, non ri-scoperto: letto
+  `00_CONFIG/GMV_ONTOLOGY_REGISTRY_v0.1.json` — esattamente 13
+  `predicate_id` (represented_by, participated_in, related_to,
+  located_at, source_for, supersedes, created_by, exhibited_at,
+  organized_by, owned_by, edition_of, edition_size, edition_number),
+  nessuno `"esposto_a"`; `"esposto_a"` esiste solo come chiave di
+  `relation_hints` nei page_templates di test del file (imita la forma
+  di un hint di routing legacy) e come stringa nel `make_atom` del test.
+  What I changed: un commento di 5 righe sopra la riga
+  `atom = make_atom(predicate="esposto_a", ...)` che dichiara il
+  predicato sintetico, non uno dei 13 reali, che imita la forma di un
+  legacy routing hint, e che nessun `AtomCandidate` prodotto da codice
+  reale userebbe questo valore — il test valida solo il meccanismo
+  generico CONFLICT per `predicate_class="RELATION"`. NOT touched, per
+  brief: il valore del letterale, la logica del test e gli altri test
+  del file. Full suite 1053 passed, `ruff check .` clean.

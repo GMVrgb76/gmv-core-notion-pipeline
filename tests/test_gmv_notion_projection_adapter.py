@@ -196,6 +196,11 @@ def test_project_relation_predicate_always_conflicts_no_relation_writer(tmp_path
         "entita": {"artista": {"struttura_pagina": [{"titolo": "DOCUMENTAZIONE"}], "field_hints": {},
                                 "relation_hints": {"mostre": [{"predicate": "esposto_a", "anchor": "object"}]}}},
     }
+    # "esposto_a" is a synthetic predicate: not one of the 13 real, governed
+    # predicates in GMV_ONTOLOGY_REGISTRY_v0.1.json, only an imitation of a
+    # legacy routing hint (see the "mostre" relation_hints above) used to
+    # validate the CONFLICT mechanism itself -- no real crawler AtomCandidate
+    # would use this value. Do not read it as a reachable real-data scenario.
     atom = make_atom(predicate="esposto_a", object="Mostra al MAXXI", predicate_class="RELATION")
     monad = make_monad(atoms=(atom,))
     adapter = make_adapter(tmp_path, page_templates=templates, config={"entita": {}})
