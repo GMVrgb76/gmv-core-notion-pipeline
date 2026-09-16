@@ -379,6 +379,35 @@ def test_deleted_content_reappearing_is_revived_not_silently_unchanged(
     assert connection.execute("SELECT COUNT(*) FROM crawler_source_registry").fetchone() == (1,)
 
 
+def test_deleted_content_reappears_at_a_new_locator_same_connector(
+    connection: sqlite3.Connection,
+) -> None:
+    """Revival and a locator change can happen together: the same
+    connector that originally saw and then lost this content sees it
+    again at a DIFFERENT path. Locked in here after being verified only
+    by hand during the adversarial review of the revival fix -- the
+    revival branch must reassign canonical_locator exactly like a normal
+    scan would, not just clear deleted_at at the old path."""
+    content = _hash("moved-while-gone")
+    register_scan(connection, FakeSource({"/old": content}), connector_id="dropbox", now=NOW_1)
+    register_scan(connection, FakeSource({}), connector_id="dropbox", now=NOW_2)
+    assert _rows(connection)[0]["state"] == "DELETED"
+
+    result = register_scan(
+        connection, FakeSource({"/new": content}), connector_id="dropbox", now=NOW_3
+    )
+
+    assert result.revived == 1
+    row = _rows(connection)[0]
+    assert row["connector"] == "dropbox"
+    assert row["canonical_locator"] == "/new"
+    assert row["state"] == "NEW"
+    assert row["deleted_at"] is None
+    assert row["discovered_at"] == NOW_1
+    assert row["last_seen_at"] == NOW_3
+    assert connection.execute("SELECT COUNT(*) FROM crawler_source_registry").fetchone() == (1,)
+
+
 def test_deleted_content_reappearing_under_different_connector_is_reassigned(
     connection: sqlite3.Connection,
 ) -> None:

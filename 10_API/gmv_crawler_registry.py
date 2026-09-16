@@ -119,12 +119,24 @@ requires the undocumented ones to be stated in the commit, not hidden):
   gmv_crawler_fulltext_index.py already uses); on an unexpected error the
   partial scan is rolled back and the exception re-raised, so a scan is
   all-or-nothing as far as the registry is concerned.
-- **``resource_oid`` and ``remote_revision`` stay NULL** for every row
-  this function writes: linking registry rows to Core ``resources`` is a
-  later step, and ``metadata()``/``revision()`` are not part of the
-  algorithm the brief specifies (identity is content-hash-first, per
-  Correction 6). This function calls only ``list()`` and ``content_hash()``
-  on the connector.
+- **``resource_oid`` and ``remote_revision`` are never set by this
+  function** — it never assigns either column a non-NULL value itself,
+  and every freshly-``INSERT``-ed row (state ``NEW``/``MODIFIED``) is
+  guaranteed to have both NULL, since ``INSERT`` never supplies them:
+  linking registry rows to Core ``resources`` is a later step, and
+  ``metadata()``/``revision()`` are not part of the algorithm the brief
+  specifies (identity is content-hash-first, per Correction 6). This
+  function calls only ``list()`` and ``content_hash()`` on the connector.
+  **Exception, found by adversarial review of the DELETED-revival fix
+  below:** a row revived by step 2b is an ``UPDATE`` of an existing row,
+  not an ``INSERT`` — if a later step ever populates ``resource_oid`` on
+  a row before it is swept to ``DELETED``, revival does not clear it; the
+  revived row keeps whatever ``resource_oid`` it already had, even though
+  its ``state`` reads ``NEW``. No code anywhere in this repo populates
+  ``resource_oid`` on this table yet (grepped), so this has no live
+  effect today — but "``state='NEW'`` implies ``resource_oid IS NULL``"
+  is NOT a guarantee this module makes, and must not be assumed by a
+  future step that promotes registry rows to Resource Objects.
 
 Deliberate out of scope: no CLI, no Run Ledger wiring, no orchestration —
 just this function and the transitions it owns.
@@ -192,7 +204,9 @@ def register_scan(
     ``deleted_at`` on the sweep) so a single scan is internally coherent.
     `connection` must have migration 009 applied; this function does not
     create schema. `resource_oid`/`remote_revision` are never written
-    here (module docstring). All writes commit together; on any
+    here (module docstring) -- note the docstring's own disclosed
+    exception: a row revived by step 2b keeps whatever `resource_oid` it
+    already had, it is not reset to NULL. All writes commit together; on any
     unhandled error the scan is rolled back and the exception re-raised.
     """
     listings = connector.list()
