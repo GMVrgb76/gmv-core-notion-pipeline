@@ -1244,3 +1244,59 @@ section is the one place it writes.
   dedup-similitudine/rotazione, nessun sqlite, nessun path default
   hardcoded, nessun wiring pipeline. Full suite 1075 passed,
   `ruff check .` clean.
+
+- **2026-09-16 — Task 8 done: classificazione tipo entità (RESOLVE
+  ENTITIES, fetta ristretta) — `10_API/gmv_crawler_entity_resolver.py`.**
+  Read before writing, verificationi reali: `CandidateEntity`
+  (name/evidence_excerpt/status/source_id/evidence_id, frozen+slots);
+  `DEFAULT_ENDPOINT`/`DEFAULT_MODEL` in `gmv_crawler_candidate_extractor.py`
+  (linee 105-106) — riusati via import, non ridefiniti; `_forma()` in
+  `area35_validator.py` (righe 386-390, root del repo: norm + inversione
+  dopo virgola + token sorted, token di 1 char scartati) con il pattern
+  di import esatto di `gmv_atom_validator.py:106`; `ollama_extract()`
+  letto per intero (10_API/gmv_evidence_pipeline.py) — envelope
+  `/api/generate`, `format` schema, `think`, `done_reason` in
+  {length,max_tokens} -> OLLAMA_OUTPUT_TRUNCATED, JSONDecode ->
+  OLLAMA_INVALID_JSON, URLError -> OLLAMA_UNAVAILABLE, TimeoutError ->
+  TIMEOUT); i 12 valori `entity_type` del CHECK in
+  `010_entity_registry.sql` (identici all'enum del brief), con test di
+  cross-check contro lo stesso SQL. What I changed: nuovo modulo
+  (`EntityTypeProposal` frozen, `_load_known_artists()` -> frozenset
+  _forma-normalizzato per confronto O(1), `_classify_via_ollama()`
+  wrapper HTTP DENTRO il modulo replicando lo stile esatto di
+  `ollama_extract()` (schema `CLASSIFICATION_SCHEMA` costruito dai 12
+  valori, `"think": False` esplicito), `classify_entity_types()` batch:
+  roster -> MATCHED_KNOWN_ARTIST_ROSTER/ARTIST/HIGH/no-verifica SENZA
+  chiamata modello; sotto-batch rimanente -> UNA chiamata Ollama;
+  match per `name` esatto, non per ordine; proposte in ordine di input)
+  + `tests/test_gmv_crawler_entity_resolver.py` (17 test, rete sempre
+  mockata come i fake `monkeypatch` esistenti del repo). Decisione sul
+  punto aperto del brief (entità richiesta non presente nella risposta
+  del modello) — documentata nel commit e qui: ELEVO `EvidenceError
+  ("CLASSIFICATION_MISSING_ENTITY")` con i nomi mancanti in `detail`;
+  né drop silenzioso né proposta inventata, in linea con
+  "fermati e segnala" del brief e con `OLLAMA_SCHEMA_INVALID` di
+  ollama_extract che preferisce fallire forte di fronte a un contratto
+  violato. Altre due decisioni minori dove il brief lasciava margine:
+  (1) la prompt invia SOLO i nomi richiesti, non gli `evidence_excerpt`
+  (le proposte MODEL_INFERENCE hanno comunque `needs_verification=True`,
+  la qualità è il gate di verifica, non l'inferenza); (2) item ben
+  formati ma con nome INVENTATO dal modello vengono ignorati (non
+  gocciolano nelle proposte; solo la mancanza di un nome richiesto è
+  fallimento). Principio centrale pinnato con test esplicito:
+  `needs_verification=True` SEMPRE su MODEL_INFERENCE, HIGH compresa
+  (test parametrizzato HIGH/MEDIUM/LOW). Honest notes: NON ho rieseguito
+  i probe reali contro `gemma4:12b` (la rete è sempre mockata nei test;
+  il direttore li riesegue all'inizio della prossima sessione); HO
+  trovato una discrepanza nel file `area35_known_artists.json`: la sua
+  nota interna e il brief dicono "47 artisti", ma la lista `artists` ne
+  contiene davvero 46 — riportata, non "sistemata" in silenzio (il file
+  è snapshot editoriale futuro, non mio); il test di coerenza pinna la
+  proprietà che conta per la correttezza, cioè che NESSUN paio di nomi
+  distinti collida sotto `_forma()` (46 == 46). NOT in scope, come da
+  brief: zero scritture Entity Registry / zero `sqlite3`, nessuna coda
+  di revisione persistente per queste proposte, nessun lookup web,
+  nessuna modifica a `area35_known_artists.json` né a moduli esistenti
+  (errori e default solo IMPORTATI via import), nessun wiring a
+  `build_atoms()` o alla pipeline. Full suite 1092 passed (era 1075),
+  `ruff check .` clean.
