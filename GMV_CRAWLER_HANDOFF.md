@@ -1153,3 +1153,52 @@ section is the one place it writes.
   NOT touched, per brief: il valore di `bundle_dir`, `TargetPayload`,
   altri `ProjectionAdapter`, `write_entity_bundle()`. Full suite 1054
   passed, `ruff check .` clean.
+
+- **2026-09-16 — Task 6 done: BUILD ATOMS v0, fetta ristretta solo
+  predicati `ATTRIBUTE` (opencode task brief `opencode_task_6.md`).**
+  Read before writing, tutto verificato sul codice reale: registro
+  `GMV_ONTOLOGY_REGISTRY_v0.1.json` in full — confermato **esattamente
+  2** predicati `ATTRIBUTE` (`edition_size`, `edition_number`, entrambi
+  `range ["integer"]`), gli altri 11 sono `RELATION`; `CandidateProposition`
+  (`gmv_crawler_candidate_extractor.py`) campi `source_id`/
+  `extraction_claim_ref`/`predicate`/`subject_raw`/`object_raw` con i
+  guard `__post_init__` (object_raw vuoto non costruibile); `AtomCandidate`
+  18 campi; firme di `_known_predicates(registry)`/`_load_ontology_registry()`/
+  `validate_atom(atom, registry)` in `gmv_atom_validator.py` — identiche
+  a quelle del brief, e ho verificato che l'import privato di quelle due
+  funzioni è già il pattern usato da `derive_current_state()` in
+  `gmv_crawler_derived_views.py:147-152`; `Issue` (`area35_validator.py`,
+  alla root del repo, classe riga 45) con `.codice/.severita/.messaggio`.
+  What I changed: nuovo modulo `10_API/gmv_crawler_atom_builder.py`
+  (`RejectedCandidate` frozen, `build_atom()`, `build_atoms()`) e nuovo
+  file di test `tests/test_gmv_crawler_atom_builder.py` (14 test). Algoritmo
+  seguito lettera per lettera dal brief; `atom_id` =
+  `"ATOM-"+sha256(source_id|extraction_claim_ref)[:16]` (unico per
+  estrazione, non per fatto — NIENTE `compute_atom_fingerprint()`, come
+  da brief), atomi sempre `visibility="INTERNAL"`,
+  `status="UNVERIFIED"`, `asserted_by="crawler_llm_extraction"`,
+  `confidence=0.5` (pinnati nei test su ogni atomo costruito). Guard
+  import-time: il set di predicati ATTRIBUTE/integer è ricalcolato dal
+  registro reale e confrontato con {edition_size, edition_number} —
+  se il registro cresce un terzo ATTRIBUTE, il modulo fallisce a import,
+  non opera in silenzio (stesso pattern fail-loud di
+  `derive_relations()`'s "RELATION"). Verified empirically, non dedotto:
+  14 test incl. un valid `edition_size` e un valid `edition_number` con
+  TUTTI i 18 campi verificati uno per uno; ri-validazione indipendente
+  di un atomo costruito direttamente con `validate_atom()` -> zero
+  BLOCKER; determinismo (stesso id byte per byte) e unicità (ref
+  diverso / sorgente diversa -> id diverso, stesso fatto); batch misto
+  2 validi + 2 scarti con motivi diversi senza eccezioni né perdite;
+  alias reale `evidences`->`source_for` si risolve come RELATION e viene
+  scartato come il canonico. NOT in brief: `CandidateEntity`, gli 11
+  RELATION, coda di revisione, nessun modulo esistente toccato, nessun
+  wiring in pipeline/CLI/Run Ledger. Un solo punto che ho dovuto
+  "aggirare" (riportato, non taciuto): la variante `""` del test
+  `OBJECT_NOT_INTEGER` non è costruibile — `CandidateProposition.__post_init__`
+  rifiuta `object_raw` vuoto; ho coperto il caso vuoto-dopo-strip con una
+  stringa di soli spazi (`"   "`), che è costruibile e si strip-pa a
+  `""`. Nota non testata: il ramo `VALIDATION_FAILED` esiste come da
+  brief ma è oggi irraggiungibile con questi campi fissi su `edition_size`/
+  `edition_number` (qualsiasi cambiamento di registro che lo renderebbe
+  raggiungibile fa scattare prima il guard import-time). Full suite 1068
+  passed, `ruff check .` clean.
