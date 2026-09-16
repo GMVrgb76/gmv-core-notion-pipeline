@@ -1202,3 +1202,45 @@ section is the one place it writes.
   `edition_number` (qualsiasi cambiamento di registro che lo renderebbe
   raggiungibile fa scattare prima il guard import-time). Full suite 1068
   passed, `ruff check .` clean.
+
+- **2026-09-16 — Task 7 done: coda di revisione per gli scarti di BUILD
+  ATOMS (consuma `RejectedCandidate`, non tocca il modulo).** Read
+  before writing: verificate empiricamente le premesse del brief invece
+  di fidarmi — `tests/test_sqlite_connection_boundary.py` whitelista
+  esattamente 2 produttori di `sqlite3.connect` (database.py +
+  fulltext_index.py) e `tests/test_write_authorization.py` pinna la
+  matrice DML a un set esatto approvato: aggiungere un terzo
+  proprietario per uno strumento di osservazione/triage sarebbe stato
+  scope di sicurezza sproporzionato, quindi JSONL come da brief; i
+  timestamp `now` nel repo sono ISO-8601 con `Z`
+  (registry test NOW_1..NOW_3, atom-builder test NOW) -> min/max
+  lessicografico su stringa corretto; header `#!/usr/bin/env python3`
+  + docstring come i moduli 10_API esistenti. What I changed: nuovo
+  modulo `10_API/gmv_crawler_rejection_queue.py`
+  (`append_rejected(rejected, queue_path, *, now)` -> una riga
+  `json.dumps(ensure_ascii=False)` per scarto, campi verbatim +
+  `queued_at` separato dalla classe, mkdir parent + append mai overwrite;
+  `RejectionQueueSummaryEntry` frozen; `summarize_rejection_queue` ->
+  tupla vuota se il file non esiste, raggruppa per coppia esatta
+  `(reason_code, raw_predicate)`, min/max sui queued_at, sort esplicito
+  count desc poi `(reason_code, raw_predicate)` asc; mini-CLI
+  `__main__` di 6 righe, niente argparse) e nuovo file di test
+  `tests/test_gmv_crawler_rejection_queue.py` (7 test). Verified
+  empirically: creazione file+cartelle padre e campi esatti per riga;
+  due append successive = accumulo non overwrite; path assente = tupla
+  vuota; min/max provati scrivendo dopo un timestamp PIU' PICCOLO nel
+  file (vero min/max, non primo/ultimo scritto); coppia esatta come
+  chiave (stesso reason/predicate diversi e viceversa = gruppi separati);
+  ordine deterministico verificato chiamando la funzione due volte; e
+  test end-to-end con `build_atoms()` reale (2 scan: UNKNOWN_PREDICATE
+  ripetuto -> count 2 across scans, alias `evidences` -> gruppo
+  PREDICATE_NOT_YET_SUPPORTED con raw_predicate "evidences"). Devo
+  segnalare una correzione fatta a me stesso durante il test: la mia
+  aspettativa iniziale sul tie-break alfabetico era sbagliata
+  ("PREDICATE..." < "UNKNOWN..." alfabeticamente), il sort del modulo
+  era corretto — ho corretto il test, non il modulo. NOT in scope,
+  come da brief: nessuna chiamata automatica a `append_rejected()` in
+  `build_atoms()` (restano disaccoppiati), nessuna promozione/
+  dedup-similitudine/rotazione, nessun sqlite, nessun path default
+  hardcoded, nessun wiring pipeline. Full suite 1075 passed,
+  `ruff check .` clean.
