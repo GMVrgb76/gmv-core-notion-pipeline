@@ -166,11 +166,12 @@
       "predicate_class": "RELATION",
       "status": "CORE",
       "domain": ["EXHIBITION", "EVENT", "ORGANIZATION"],
-      "range": ["PLACE"],
+      "range": ["PLACE", "INSTITUTION"],
       "aliases": [],
       "inverse": null,
       "definition": "Subject is physically located at object.",
-      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7"
+      "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7",
+      "notes": "range widened from ['PLACE'] to include INSTITUTION 2026-09-17, grounded in real crawler data (Federico Garibaldi biography extraction, this session): real exhibition venues (e.g. Le Stanze della Fotografia, Area35 Art Gallery) are cultural institutions, not generic PLACE entities -- gmv_crawler_relation_atom_builder.py's object_type classification correctly typed them INSTITUTION and validate_atom() rejected every resulting atom (A-SCHEMA05) before this widening, on real, not synthetic, data."
     },
     {
       "predicate_id": "source_for",

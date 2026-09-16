@@ -159,10 +159,20 @@ def test_exhibition_object_type_rejected_validation_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reproduces the real probe failure this session observed: model
-    classifies a venue as EXHIBITION instead of PLACE. validate_atom()
-    reports this as A-SCHEMA05 MAJOR; this module's fatal set (BLOCKER or
-    A-SCHEMA05 by codice, see disclosed deviation) must turn it into a
-    rejection -- the brief's most-important test."""
+    classifies a venue as EXHIBITION instead of PLACE/INSTITUTION.
+    validate_atom() reports this as A-SCHEMA05 MAJOR; this module's fatal
+    set (BLOCKER or A-SCHEMA05 by codice, see disclosed deviation) must
+    turn it into a rejection -- the brief's most-important test.
+
+    2026-09-17: GMV_ONTOLOGY_REGISTRY_v0.1.json's located_at range was
+    widened from ["PLACE"] to ["PLACE", "INSTITUTION"] (see that file's
+    own "notes" on the entry) after a live run on this exact real data
+    showed real venues (Le Stanze della Fotografia, Area35 Art Gallery)
+    correctly typed INSTITUTION by the model, then wrongly rejected by
+    the too-narrow range. EXHIBITION is still outside the range either
+    way, so this test's own claim is unaffected -- only the grounding
+    assertion on the range's exact value is updated to match; see the
+    sibling test below for the now-accepted INSTITUTION case."""
     monkeypatch.setattr(relation_builder, "classify_entity_types", make_classifier("EXHIBITION"))
     built, rejected = build_relation_atoms(HOLD_PROPS, HOLD_ENTITIES, now=NOW)
     assert built == ()
@@ -171,7 +181,24 @@ def test_exhibition_object_type_rejected_validation_failed(
         assert entry.reason_code == "VALIDATION_FAILED"
         assert "A-SCHEMA05" in entry.detail
         assert "range" in entry.detail
-        assert LOCATED_AT_RANGE == ["PLACE"]
+    assert LOCATED_AT_RANGE == ["PLACE", "INSTITUTION"]
+    assert "EXHIBITION" not in LOCATED_AT_RANGE
+
+
+def test_institution_object_type_now_accepted_after_range_widening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Positive-path counterpart to the test above: since 2026-09-17,
+    INSTITUTION is a valid located_at object_type (real venues like
+    Area35 Art Gallery are institutions, not generic PLACE) -- an atom
+    classified INSTITUTION must build successfully now, not be rejected
+    the way it was on the live run that motivated the range widening."""
+    monkeypatch.setattr(relation_builder, "classify_entity_types", make_classifier("INSTITUTION"))
+    built, rejected = build_relation_atoms(HOLD_PROPS, HOLD_ENTITIES, now=NOW)
+    assert rejected == ()
+    assert len(built) == 2
+    for entry in built:
+        assert entry.atom.object_type == "INSTITUTION"
 
 
 # --- pass-1 rejections, with classify never called ---
