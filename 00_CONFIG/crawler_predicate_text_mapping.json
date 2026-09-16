@@ -1,0 +1,17 @@
+{
+  "note": "Human-curated, verified mapping from raw LLM-extracted predicate text to a governed predicate_id in GMV_ONTOLOGY_REGISTRY_v0.1.json. Populated from real rejection-queue data (Task 7) observed on a real biography extraction (Federico Garibaldi, this session) -- NOT an exhaustive vocabulary, NOT LLM-guessed. Every entry here was checked by a human against the target predicate's real domain/range before being added; this is exactly the 'verified fact, not inference' principle already applied to area35_known_artists.json.",
+  "note_on_scope": "Deliberately tiny. Several other real raw predicates seen in the same document ('acquired', 'was born in', 'earned', 'presented', 'is an', 'explores') do NOT appear here: 'acquired' would need the inverse direction of owned_by (subject/object swapped), which this mapping does not attempt; the rest have no corresponding predicate in the registry at all today -- a real vocabulary gap, not a missing mapping.",
+  "note_on_maintenance": "Adding an entry here is a governance decision (reuse-before-invention, same rule GMV_ONTOLOGY_REGISTRY_v0.1.json states for predicates themselves) -- not something code should do automatically from the rejection queue's frequency counts. A human reads the queue, decides, then edits this file.",
+  "mappings": [
+    {
+      "raw_predicate_text": "was held at",
+      "predicate_id": "located_at",
+      "verified_against": "located_at domain=[EXHIBITION,EVENT,ORGANIZATION] range=[PLACE] -- checked against real Garibaldi cases: 'AttraversaMenti was held at Le Stanze della Fotografia' (subject is an exhibition), 'Through, Let's Hope Time Won't Be Late was held at Area35 Art Gallery' (same shape)."
+    },
+    {
+      "raw_predicate_text": "was presented at",
+      "predicate_id": "located_at",
+      "verified_against": "Same predicate/range as 'was held at' -- checked against 'BlueShores was presented at UniCredit Pavilion, Milan', same subject/object shape (a titled show/work presented at a venue)."
+    }
+  ]
+}
