@@ -1348,3 +1348,70 @@ section is the one place it writes.
   niente che unisca questa coda a quella di Task 7 (due code separate,
   stesso pattern JSONL). Full suite 1102 passed (era 1092),
   `ruff check .` clean.
+
+- **2026-09-17 — Task 10 done: BUILD ATOMS per predicati RELATION,
+  fetta `located_at` — `10_API/gmv_crawler_relation_atom_builder.py`.**
+  Collega tre pezzi già costruiti (mapping curato testo->predicato:
+  `00_CONFIG/crawler_predicate_text_mapping.json`; `classify_entity_types()`
+  Task 8; `AtomCandidate`/`validate_atom()`). Read before writing:
+  mapping file per intero (2 voci reali verificate a mano, "was held at"/
+  "was presented at" -> `located_at`, class="located_at" RELATION,
+  domain=[EXHIBITION,EVENT,ORGANIZATION], range=[PLACE] letto dal
+  registry); `CandidateProposition`/`CandidateEntity` fields in
+  `gmv_crawler_candidate_extractor.py`; `RejectedCandidate` da
+  `gmv_crawler_atom_builder.py` (riusato via import, mai ridefinito); i
+  18 campi di `AtomCandidate` e le regole di `validate_atom()` in
+  `gmv_atom_validator.py` per intero; `classify_entity_types()` per
+  intero (match per nome esatto, raise su mancante, `needs_verification`
+  SEMPRE True su MODEL_INFERENCE); **verificato con grep: zero riferimenti
+  a "domain" in `gmv_atom_validator.py`** (conferma il fatto del brief:
+  valida solo `object_type` contro il `range`, mai il tipo del soggetto).
+  DEVIAZIONE DISCLOSAITA (trovata leggendo il codice reale, confermata
+  empiricamente e NON aggirata in silenzio — il brief la vietava): il
+  brief (punto 6) dice di scartare su "almeno un Issue severita==BLOCKER"
+  e nello stesso punto afferma che lì viene intercettato meccanicamente
+  l'`object_type` sbagliato (EXHIBITION invece di PLACE), e il suo test
+  "più importante" impone `VALIDATION_FAILED` per quel caso; ma
+  `object_type_matches_predicate_range()` emette A-SCHEMA05 con severità
+  MAJOR, mai BLOCKER (riprodotto con `validate_atom()` reale prima di
+  scrivere codice: `PLACE -> []`, `EXHIBITION -> [('A-SCHEMA05',
+  'MAJOR')]`). Una regola BLOCKER-solo accetterebbe l'atomo con tipo
+  sbagliato e il test mandatorio del brief fallirebbe. Risoluzione
+  minima richiesta dal test stesso: il fatal set è BLOCKER **oppure**
+  A-SCHEMA05 (per codice, non per severità), ogni altro MAJOR resta
+  non-fatale come in Task 6. Segnalato qui, nel docstring del modulo e
+  nel commit. What I changed: `build_relation_atoms(propositions,
+  entities, *, now, registry=None, predicate_mapping=None,
+  known_artists=None, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL,
+  timeout=60) -> (tuple[BuiltRelationAtom,...], tuple[RejectedCandidate,
+  ...])` in due passate (passata 1 no-rete: mapping `.strip().lower()`
+  esatto -> `PREDICATE_TEXT_NOT_MAPPED`; `_link_object_to_entity()` pura
+  prefisso-normalizzato, più lunga vince, pareggio esatto di lunghezza
+  -> None -> `OBJECT_NOT_LINKED_TO_KNOWN_ENTITY`; passata 2 UNA sola
+  chiamata `classify_entity_types()` per le entità distinte per nome,
+  fallimenti di rete propagati mai soppressi; atomo con i fixed literal
+  IDENTICI a Task 6 e `predicate_class` risolto dal registry reale,
+  `object_type=proposal.entity_type`; guard import-time stile Task 6:
+  ogni predicate_id del mapping è registrato e di classe RELATION — il
+  "deve emergere" del brief per una entry di classe sbagliata, che la
+  sola clausola "resolvi dal registry" non basterebbe a far emergere,
+  verificato ragionando sul flusso) + `BuiltRelationAtom` frozen
+  (atom + object_type_proposal intero, perché `AtomCandidate` è congelato
+  per spec e non può portare needs_verification) + 11 test. Test
+  salienti: i due casi reali Garibaldi con TUTTI e 18 i campi verificati
+  uno per uno e `predicate_class` confrontato col valore letto dal
+  registry nel test (non "RELATION" hardcoded per caso); il test
+  critico EXHIBITION->VALIDATION_FAILED con detail su range (riproduce
+  il probe reale, passa SOLO grazie alla deviazione); "was born in" ->
+  PREDICATE_TEXT_NOT_MAPPED con classify mockato fail-if-called;
+  oggetto senza match -> OBJECT_NOT_LINKED_TO_KNOWN_ENTITY; prefisso più
+  lungo vince (caso costruito apposta) e pareggio lunghezza -> None;
+  batch con entità condivisa -> UNA chiamata classify (asserzione sul
+  conteggio mockato); fallimento rete -> excezione propagata; plus un
+  test di catena Task 8->Task 9 rilevante: il `object_type_proposal` di
+  un `BuiltRelationAtom` va DIRETTAMENTE in `append_entity_proposals()`
+  (riusato così com'è, non reimplementato). NOT in scope rispettato:
+  `gmv_crawler_atom_builder.py` intatto, mapping non esteso, nessuna
+  inversione "acquired"->owned_by, nessuna scrittura registry, nessuna
+  chiamata automatica a Task 9, nessun filtro su `entity.status`. Full
+  suite 1113 passed (era 1102), `ruff check .` clean.
