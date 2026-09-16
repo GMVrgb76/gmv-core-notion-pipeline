@@ -1300,3 +1300,51 @@ section is the one place it writes.
   (errori e default solo IMPORTATI via import), nessun wiring a
   `build_atoms()` o alla pipeline. Full suite 1092 passed (era 1075),
   `ruff check .` clean.
+
+- **2026-09-16 — Task 9 done: coda di revisione per le proposte di tipo
+  entità — `10_API/gmv_crawler_entity_proposal_queue.py`.** Mirrors Task
+  7's JSONL queue, applied to a different output: `EntityTypeProposal`
+  from Task 8. Read before writing: `EntityTypeProposal` fields
+  (entity_name/entity_type/confidence/source/needs_verification) in
+  `gmv_crawler_entity_resolver.py:128-139`; the Task 7 module mirror
+  pattern in full; the boundary tests re-run and green
+  (`test_sqlite_connection_boundary.py` + `test_write_authorization.py`,
+  48 passed) and confirmed the exact precedent cited in the docstring
+  (`test_write_authorization.py:611
+  test_no_log_file_created_without_any_violation`: the auth log is NOT
+  created, not even its parent dir, when nothing happened); the robot
+  network mock style copied from the Task 8 tests (FakeUrlResponse,
+  classification_envelope, monkeypatched urlopen). What I changed: nuovo
+  modulo — `append_entity_proposals(proposals, queue_path, *, now) ->
+  int`: filtra `needs_verification=True` PRIMA di ogni effetto
+  filesystem, scrive JSONL appenda-mai-overwrite (5 campi verbatim +
+  `queued_at`), ritorna il numero di righe scritte non `len(proposals)`;
+  `EntityProposalQueueSummaryEntry` frozen (campos `confidence_counts`
+  tupla di (livello, conteggio) coerente con i dati grezzi, mai un solo
+  valore aggregato — gemma4 non è deterministico tra scan);
+  `summarize_entity_proposal_queue()`: path assente -> (); raggruppa per
+  la coppia ESATTA (entity_name, entity_type) — stesso nome proposto
+  EXHIBITION e INSTITUTION restano DUE gruppi (segnale di incoerenza,
+  lo decide l'umano); `confidence_counts` ordinata count desc poi rank
+  HIGH/MEDIUM/LOW esplicitato in codice (mai alfabetico); fine da
+  `count` decrescente poi (name,type) asc; mini-CLI 8 righe con stampa
+  del livello più frequente + `tests/test_gmv_crawler_entity_proposal_queue.py`
+  (10 test) incl. il caso che rompe l'ordinamento alfabetico
+  (LOW=2/MEDIUM=2/HIGH=1 -> MEDIUM,LOW,HIGH), l'out-of-chronological
+  queued_at per first/last (min/max), il test determinismo su chiamate
+  ripetute e un end-to-end con `classify_entity_types()` REALE (Task 8,
+  rete mockata) su batch misto roster+ignoto: solo la proposta
+  MODEL_INFERENCE finisce in coda, quella MATCHED_KNOWN_ARTIST_ROSTER
+  no. Decisione documentata dove il brief lasciava il margine: quando
+  non c'è nulla da scrivere il file NON viene creato (e uno esistente
+  resta intatto) — coerente con il precedente del log di autorizzazione
+  e con la semantica "queue exists iff something was ever enqueued";
+  testato esplicitamente anche per la parent dir assente. Honest notes:
+  all asserts verified in real code; mi sono fermato dopo il commit come
+  da brief. NOT in scope: nessuna modifica a
+  `gmv_crawler_entity_resolver.py` (resta disaccoppiato, nessuna chiamata
+  automatica), nessuna tabella SQL/nessuna nuova `sqlite3.connect`,
+  nessuna deduplicazione fuzzy, nessuna rotazione/pulizia del file,
+  niente che unisca questa coda a quella di Task 7 (due code separate,
+  stesso pattern JSONL). Full suite 1102 passed (era 1092),
+  `ruff check .` clean.
