@@ -16,7 +16,7 @@
       "**/service_account*.json": "deny"
     },
     "edit": {
-      "*": "ask",
+      "*": "allow",
       "*.env": "deny",
       "*.env.*": "deny",
       "**/*token*": "deny",
@@ -31,13 +31,15 @@
     "grep": "allow",
     "lsp": "allow",
     "bash": {
-      "*": "ask",
-      "git status*": "allow",
-      "git diff*": "allow",
-      "git log*": "allow",
+      "*": "allow",
       "rm -rf*": "deny",
       "git reset --hard*": "deny",
       "git clean -fd*": "deny",
+      "git push --force*": "deny",
+      "git push -f*": "deny",
+      "git push*main*": "deny",
+      "git checkout main*": "deny",
+      "git merge*": "deny",
       "chmod -R*": "deny",
       "chown -R*": "deny",
       "sudo*": "deny"
