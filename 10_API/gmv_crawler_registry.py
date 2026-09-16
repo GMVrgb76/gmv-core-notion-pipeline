@@ -21,22 +21,56 @@ in the table.
 Algorithm, exactly as specified by the Task 2 brief (``opencode_task_2.md``):
 
 1. ``content_hash = connector.content_hash(listing.locator)``.
-2. A row in ``crawler_source_registry`` with that ``content_hash`` exists:
-   same ``canonical_locator`` -> ``UNCHANGED`` (only ``last_seen_at``
-   updated); different ``canonical_locator`` -> ``MOVED`` (locator and
-   ``last_seen_at`` updated).
-3. No row with that ``content_hash``: a row with the same
-   ``canonical_locator`` (this connector) exists -> the content at that
-   path changed; a **new** row (new content_hash = new PK) is inserted
-   with ``MODIFIED`` and the old row is left untouched here — if that old
-   content_hash is not seen anywhere else in this scan it transitions to
-   ``DELETED`` in step 5 below, never removed. Otherwise -> ``NEW``.
+2. A **live** (non-``DELETED``) row in ``crawler_source_registry`` with
+   that ``content_hash`` exists: same ``canonical_locator`` ->
+   ``UNCHANGED`` (only ``last_seen_at`` updated); different
+   ``canonical_locator`` -> ``MOVED`` (locator and ``last_seen_at``
+   updated).
+2b. A ``DELETED`` row with that ``content_hash`` exists (content
+    previously seen, then removed, now seen again — by this connector or
+    a different one): revived in place (the row cannot be re-INSERTed,
+    ``content_hash`` is the PRIMARY KEY) to ``state='NEW'``, ``connector``
+    and ``canonical_locator`` reassigned to this scan's values,
+    ``deleted_at`` cleared, ``last_seen_at`` updated. ``discovered_at`` is
+    left untouched (rule 4 below: it marks this identity's first-ever
+    appearance, not the current observation streak). See "Bug fixed"
+    below for why this step exists.
+3. No row (live or ``DELETED``) with that ``content_hash``: a row with
+   the same ``canonical_locator`` (this connector) exists -> the content
+   at that path changed; a **new** row (new content_hash = new PK) is
+   inserted with ``MODIFIED`` and the old row is left untouched here — if
+   that old content_hash is not seen anywhere else in this scan it
+   transitions to ``DELETED`` in step 5 below, never removed. Otherwise
+   -> ``NEW``.
 4. ``discovered_at`` is set only on INSERT; ``last_seen_at`` on every
-   write, including the ``DELETED`` sweep.
+   write, including the ``DELETED`` sweep and the ``2b`` revival.
 5. After every item: each row for this connector whose content_hash was
    **not** seen in this scan and whose state is not already ``DELETED``
    transitions to ``DELETED`` with ``deleted_at = now``. Never a
    ``DELETE FROM``.
+
+Bug fixed after the first version of this module shipped (found by
+independent adversarial review, reproduced empirically, not hypothetical):
+the original ``content_hash`` lookup (step 2) matched **any** row
+regardless of ``state``, including ``DELETED`` ones — which are never
+removed from the table by design (rule 5). Two concrete, reproducible
+failures resulted whenever previously-deleted content reappeared:
+(a) the revived row kept its stale ``deleted_at`` timestamp forever (it
+was only ever cleared on INSERT, and this path is an UPDATE), leaving a
+row with an active ``state`` and a non-NULL ``deleted_at`` — a
+self-contradictory combination no migration-009 trigger catches (the
+triggers only forbid the opposite: ``DELETED`` with ``deleted_at`` NULL);
+(b) because the ``content_hash`` lookup is deliberately global (not
+scoped by ``connector_id`` — content-addressed identity, see below) but
+the old code's UNCHANGED/MOVED branch never touched the ``connector``
+column, a row could be silently hijacked across connectors: connector A's
+deleted row, revived by connector B reporting the same content, kept
+``connector='A'`` forever — B's own sweep would never see it (scoped to
+B), and A's next sweep would still claim it (scoped to A), each connector
+now permanently blind to a row it should own. Step 2b closes both: a
+``DELETED`` match is never folded into the UNCHANGED/MOVED branch, and
+its revival explicitly reassigns ``connector``/``canonical_locator`` and
+clears ``deleted_at``.
 
 Decisions made while implementing, explicit rather than silent (the brief
 requires the undocumented ones to be stated in the commit, not hidden):
@@ -118,7 +152,12 @@ class RegisterScanResult:
     (``connector.content_hash()`` raised or returned a malformed value)
     — those locators were excluded from the ``DELETED`` sweep. ``deleted``
     counts ``DELETED`` *transitions* (rows never removed from the table);
-    ``transitioned_to_failed`` counts existing rows moved to ``FAILED``."""
+    ``transitioned_to_failed`` counts existing rows moved to ``FAILED``.
+    ``revived`` counts step 2b: a previously ``DELETED`` row whose
+    content reappeared this scan (by this connector or another one) —
+    kept distinct from ``created`` because no INSERT happened and
+    ``discovered_at`` was deliberately left untouched, not because the
+    observable effect ("this content is live again") differs."""
 
     connector_id: str
     scanned_at: str
@@ -127,6 +166,7 @@ class RegisterScanResult:
     modified: int
     moved: int
     deleted: int
+    revived: int
     transitioned_to_failed: int
     failed: tuple[tuple[str, str], ...]
 
@@ -161,7 +201,7 @@ def register_scan(
     failed_locators: set[str] = set()
     failed_items: list[tuple[str, str]] = []
 
-    created = unchanged = modified = moved = deleted = transitioned_to_failed = 0
+    created = unchanged = modified = moved = deleted = revived = transitioned_to_failed = 0
 
     try:
         for listing in listings:
@@ -188,11 +228,13 @@ def register_scan(
             seen_hashes.add(content_hash)
 
             existing = connection.execute(
-                "SELECT canonical_locator FROM crawler_source_registry WHERE content_hash = ?",
+                "SELECT canonical_locator, state FROM crawler_source_registry "
+                "WHERE content_hash = ?",
                 (content_hash,),
             ).fetchone()
-            if existing is not None:
-                if existing[0] == locator:
+            if existing is not None and existing[1] != "DELETED":
+                existing_locator, _existing_state = existing
+                if existing_locator == locator:
                     connection.execute(
                         "UPDATE crawler_source_registry SET state = 'UNCHANGED', last_seen_at = ? "
                         "WHERE content_hash = ?",
@@ -206,6 +248,16 @@ def register_scan(
                         (locator, now, content_hash),
                     )
                     moved += 1
+                continue
+
+            if existing is not None:  # state == 'DELETED': content reappeared, revive in place
+                connection.execute(
+                    "UPDATE crawler_source_registry SET state = 'NEW', connector = ?, "
+                    "canonical_locator = ?, last_seen_at = ?, deleted_at = NULL "
+                    "WHERE content_hash = ?",
+                    (connector_id, locator, now, content_hash),
+                )
+                revived += 1
                 continue
 
             same_locator_row = connection.execute(
@@ -253,6 +305,7 @@ def register_scan(
         modified=modified,
         moved=moved,
         deleted=deleted,
+        revived=revived,
         transitioned_to_failed=transitioned_to_failed,
         failed=tuple(failed_items),
     )

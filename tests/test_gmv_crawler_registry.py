@@ -352,6 +352,72 @@ def test_recovery_from_failed_back_to_unchanged(connection: sqlite3.Connection) 
     assert row["deleted_at"] is None
 
 
+def test_deleted_content_reappearing_is_revived_not_silently_unchanged(
+    connection: sqlite3.Connection,
+) -> None:
+    """Regression test for a real bug found by independent adversarial
+    review: the original content_hash lookup matched DELETED rows too,
+    so content that vanished and came back was folded into UNCHANGED/
+    MOVED with its stale deleted_at never cleared -- a live row with a
+    non-NULL deleted_at, a combination no migration-009 trigger catches.
+    Revival must go through its own NEW transition and clear deleted_at."""
+    content = _hash("comes-back")
+    register_scan(connection, FakeSource({"/x": content}), connector_id="dropbox", now=NOW_1)
+    register_scan(connection, FakeSource({}), connector_id="dropbox", now=NOW_2)
+    assert _rows(connection)[0]["state"] == "DELETED"
+
+    result = register_scan(connection, FakeSource({"/x": content}), connector_id="dropbox", now=NOW_3)
+
+    assert result.revived == 1
+    assert result.created == result.unchanged == result.modified == result.moved == 0
+    row = _rows(connection)[0]
+    assert row["state"] == "NEW"
+    assert row["deleted_at"] is None
+    assert row["last_seen_at"] == NOW_3
+    # discovered_at marks the identity's first-ever appearance, left untouched by revival.
+    assert row["discovered_at"] == NOW_1
+    assert connection.execute("SELECT COUNT(*) FROM crawler_source_registry").fetchone() == (1,)
+
+
+def test_deleted_content_reappearing_under_different_connector_is_reassigned(
+    connection: sqlite3.Connection,
+) -> None:
+    """Regression test for the second bug the same review found: the
+    content_hash lookup is deliberately global (content-addressed
+    identity, not connector-scoped), but the old UNCHANGED/MOVED branch
+    never updated the `connector` column -- so a DELETED row revived by a
+    *different* connector than the one that created it stayed permanently
+    misattributed (neither connector's own scope would ever sweep it
+    correctly again). Revival must reassign both connector and locator to
+    the scan that actually saw the content."""
+    content = _hash("shared-content")
+    register_scan(connection, FakeSource({"/a": content}), connector_id="dropbox", now=NOW_1)
+    register_scan(connection, FakeSource({}), connector_id="dropbox", now=NOW_2)
+    assert _rows(connection)[0]["state"] == "DELETED"
+
+    result = register_scan(
+        connection, FakeSource({"/b": content}), connector_id="fs", now=NOW_3
+    )
+
+    assert result.revived == 1
+    row = _rows(connection)[0]
+    assert row["connector"] == "fs"
+    assert row["canonical_locator"] == "/b"
+    assert row["state"] == "NEW"
+    assert row["deleted_at"] is None
+
+    # dropbox no longer owns this row: its own next scan must not re-claim
+    # or re-delete it (it is out of dropbox's connector scope now).
+    result_dropbox_again = register_scan(connection, FakeSource({}), connector_id="dropbox", now=NOW_3)
+    assert result_dropbox_again.deleted == 0
+    assert _rows(connection)[0]["connector"] == "fs"
+    assert _rows(connection)[0]["state"] == "NEW"
+
+    # fs's own next scan correctly reports it as UNCHANGED, proving fs now owns it.
+    result_fs_again = register_scan(connection, FakeSource({"/b": content}), connector_id="fs", now=NOW_3)
+    assert result_fs_again.unchanged == 1
+
+
 def test_connectors_are_independent_locator_namespaces(
     connection: sqlite3.Connection,
 ) -> None:
