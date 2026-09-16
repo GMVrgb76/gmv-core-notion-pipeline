@@ -111,7 +111,18 @@ earlier draft of `derive_current_state()`, both fixed, not just noted:**
    object appearing twice in the input (a plausible caller bug, e.g. a
    list built by concatenating two overlapping queries) produced a false
    `AMBIGUOUS` between an atom and itself. Fixed: atoms are deduplicated
-   by `atom_id` before slot grouping.
+   by `atom_id` before slot grouping. Precisely what this dedup is and
+   is not: `deduplicated = tuple({atom.atom_id: atom for atom in
+   atoms}.values())` deduplicates by *string equality of `atom_id`* --
+   not by Python object identity, not by content equality.  If two
+   genuinely different `AtomCandidate`s (different `predicate`/`object`)
+   were to share an `atom_id` (an upstream bug; no uniqueness guarantee
+   exists before this function), the dict comprehension silently keeps
+   whichever appears *last* in the caller's iteration order and drops
+   the other with no signal.  That outcome is unspecified and must not
+   be built on -- what to do about a real `atom_id` collision (raise? a
+   third resolution state?) is a design question, not something this
+   function promises.  See the pinned regression test.
 
 **Two risks inherited, not fixed, disclosed honestly instead:**
 - `STATUS=DISPUTED` atoms produce no `CURRENT_STATE` entry at all (only

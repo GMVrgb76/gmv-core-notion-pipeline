@@ -1079,3 +1079,30 @@ section is the one place it writes.
   would need SQL-level failure injection; the guard is
   `try/except Exception -> rollback + raise` around the whole pass, and
   is covered by review rather than a test).
+
+- **2026-09-16 — Task 3 done: corretto/pinnato il comportamento reale
+  della dedup per `atom_id` in `derive_current_state()` (opencode task
+  brief `opencode_task_3.md`).** Read before changing:
+  `gmv_crawler_derived_views.py` in full (docstring bug-bullet 2, righe
+  110-114, e la riga `deduplicated = tuple({atom.atom_id: atom for atom
+  in atoms}.values())` a ~223), il suo test file in full, e ho riletto
+  la sezione step 14 round 2 dell'handoff. What I verified empirically,
+  prima di scrivere il test: due `AtomCandidate` distinti (oggetti
+  diversi, `predicate`/`object` diversi) con lo stesso `atom_id` ->
+  `derive_current_state()` restituisce UN solo entry RESOLVED, quello
+  che appare per ultimo nell'ordine di iterazione (invertendo l'input
+  cambia il vincitore), nessun errore, nessuna AMBIGUOUS — riprodotto
+  eseguendo il codice, non dedotto dalla lettura. What I changed:
+  (1) docstring del modulo, bullet 2 della sezione "Two bugs ... found",
+  ora descrive accuratamente che la dedup è per *uguaglianza di stringa*
+  di `atom_id`, non per identità d'oggetto né per contenuto, e che il
+  "vince l'ultimo" è un comportamento non specificato su cui non
+  costruire logica (collisione reale da trattare come decisione di
+  design); (2) nuovo test
+  `test_current_state_same_atom_id_different_content_last_wins_no_error`
+  che pinna il comportamento in entrambe le direzioni di ordine, con
+  nota nel test che è un limite disclosurato, non comportamento da
+  estendere. NOT touched, per brief: la logica di `deduplicated` e le
+  due correzioni precedenti (alias di predicato, dedup per oggetto
+  identico restano intatte — i test esistenti passano invariati). Full
+  suite 1053 passed, `ruff check .` clean.

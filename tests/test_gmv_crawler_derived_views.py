@@ -201,6 +201,35 @@ def test_current_state_deduplicates_identical_atom_id_appearing_twice() -> None:
     assert result[0].candidates == (atom,)
 
 
+def test_current_state_same_atom_id_different_content_last_wins_no_error() -> None:
+    """Pins a known, disclosed limitation of the atom_id dedup -- NOT a
+    desirable behavior to extend.  The dedup in derive_current_state()
+    keys on the `atom_id` *string* (dict comprehension), not on content
+    or Python object identity: two genuinely different atoms sharing an
+    `atom_id` (an upstream bug -- no uniqueness guarantee exists before
+    this function) are collapsed silently to whichever appears last in
+    the input iteration order, with no error and no AMBIGUOUS.  What to
+    do about a real atom_id collision (raise, or a third resolution
+    state) is an open design question, out of scope here; this test only
+    locks in the current real behavior so a future change cannot break
+    silently."""
+    first = make_atom(atom_id="DUPE", predicate="born_in", object="Nizza")
+    second = make_atom(atom_id="DUPE", predicate="died_in", object="Roma")
+    # Forward order: second appears last, second's predicate/object wins.
+    result = derive_current_state((first, second))
+    assert len(result) == 1
+    assert result[0].resolution == "RESOLVED"
+    assert result[0].atom == second
+    assert result[0].atom.predicate == "died_in"
+    assert result[0].atom.object == "Roma"
+    # Reversed order: first now appears last, first's predicate/object wins --
+    # proving the outcome is iteration-order-dependent, not semantically fixed.
+    reversed_result = derive_current_state((second, first))
+    assert reversed_result[0].atom == first
+    assert reversed_result[0].atom.predicate == "born_in"
+    assert reversed_result[0].atom.object == "Nizza"
+
+
 def test_current_state_candidates_ordered_deterministically_by_atom_id() -> None:
     second = make_atom(atom_id="A2", object="Genova")
     first = make_atom(atom_id="A1", object="Nizza")
