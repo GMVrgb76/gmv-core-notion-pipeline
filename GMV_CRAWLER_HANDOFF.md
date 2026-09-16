@@ -1415,3 +1415,41 @@ section is the one place it writes.
   inversione "acquired"->owned_by, nessuna scrittura registry, nessuna
   chiamata automatica a Task 9, nessun filtro su `entity.status`. Full
   suite 1113 passed (era 1102), `ruff check .` clean.
+
+- **2026-09-17 — Task 11 done: DRAFT predicate-mapping proposals (never
+  decisions) for the 7 unmapped raw predicates (`opencode_task_11.md`).**
+  Real data source: `00_CONFIG/crawler_snapshots/rejection_queue_2026-09-17_garibaldi.jsonl`
+  (8 righe reali da una vera `build_relation_atoms()` su `gemma4:12b` e
+  biografia Federico Garibaldi), letto con `summarize_rejection_queue()`
+  (riusata, non reimplementata): 7x `PREDICATE_TEXT_NOT_MAPPED` + 1x
+  `VALIDATION_FAILED` ("was held at", già mappato, ignorato). Letto il
+  registry reale per intero, tutti i 13 predicati con domain/range (11
+  RELATION + edition_size/edition_number ATTRIBUTE). Esito: 1 proposta
+  e 6 `null` giustificati, mai forzando equivalenze "adiacenti ma non
+  equivalenti" (EIC-07): "was featured in" -> `exhibited_at` (MEDIUM,
+  subordinata alla condizione esplicita che il soggetto reale "his work"
+  risolva ad ARTWORK_INSTANCE e non WORK, visto il domain deliberato
+  [ARTWORK_INSTANCE] e la nota del registry sulla granularità); null
+  per "was born in" (HIGH; `located_at` escluso: soggetto ARTIST fuori
+  domain), "is an" (HIGH; nessun predicato IS-A nel registry),
+  "explores" (MEDIUM; `related_to` è ANY/ANY ma il registry stesso lo
+  scoraggia per forme riconoscibili), "presented" (HIGH; nessun
+  predicato MEASURE nel registry, l'oggetto è un conteggio "over 170
+  works"), "acquired" (HIGH) e "earned" (HIGH; nessun predicato premio)
+  con `direction_note` solo su "acquired" -> owned_by verso unico
+  work->owner, mai il contrario (inversione fuori scope). File di
+  proposte nuovo, NON il file di governance: ho scritto solo
+  `00_CONFIG/crawler_predicate_mapping_proposals_DRAFT.json`;
+  `crawler_predicate_text_mapping.json` verificato intatto (git diff
+  vuoto + test che pinna le 2 voci originali `located_at`). Test meccanici
+  in `tests/test_crawler_predicate_mapping_proposals_draft.py` (7 test:
+  7 voci per insieme di raw_predicate_text agganciato allo snapshot
+  reale; ogni id proposto caricato dal registry vero e di classe
+  RELATION; niente direction_note+proposta insieme; file governance
+  invariato). Full suite 1121 passed, `ruff check .` clean. Per i 7,
+  sintesi: was born in=null(HIGH), is an=null(HIGH), explores=null(MEDIUM),
+  presented=null(HIGH), was featured in=exhibited_at(MEDIUM, condizionale),
+  acquired=null(HIGH, inversion-due), earned=null(HIGH). Quello che NON ho
+  potuto verificare: nessun probe live su `gemma4:12b` in questo task
+  (rete mockata nei test); la decisione `exhibited_at` dipende dalla
+  risoluzione WORK vs ARTWORK_INSTANCE che non posso decidere qui.

@@ -1,0 +1,61 @@
+{
+  "note": "DRAFT -- proposte non verificate da un umano, NON usare per aggiornare crawler_predicate_text_mapping.json senza revisione esplicita. Generato da OpenCode, opencode_task_11.md, a partire da 00_CONFIG/crawler_snapshots/rejection_queue_2026-09-17_garibaldi.jsonl.",
+  "proposals": [
+    {
+      "raw_predicate_text": "was born in",
+      "example_sentence": "Federico Garibaldi | was born in | Chiavari, Italy in 1968",
+      "proposed_predicate_id": null,
+      "verification": "Closest predicates checked against GMV_ONTOLOGY_REGISTRY_v0.1.json: located_at (domain=[EXHIBITION,EVENT,ORGANIZATION], range=[PLACE,INSTITUTION]) fails on the real subject Federico Garibaldi (ARTIST is not in domain) and on semantics ('born in' is an origin attribute, not a current physical location); participated_in (domain=[PERSON,ARTIST], range=[EVENT,EXHIBITION,PROJECT]) fails on the real object (Chiavari, Italy is a PLACE, not an event). No registered predicate is semantically equivalent (EIC-07): a birthplace fact is a genuine vocabulary gap.",
+      "direction_note": null,
+      "confidence": "HIGH"
+    },
+    {
+      "raw_predicate_text": "is an",
+      "example_sentence": "Federico Garibaldi | is an | Italian photographer, visual artist, and filmmaker",
+      "proposed_predicate_id": null,
+      "verification": "A type/role assertion (the subject is an instance of the classes photographer/visual artist/filmmaker). No registered predicate expresses IS-A: the registry has no identity/class-membership predicate, and its only non-RELATION entries are edition_size/edition_number (ATTRIBUTE, integer literals, unrelated to type). related_to (ANY/ANY) is the only shape-compatible entry, but the registry's own notes discourage defaulting to it for anything with a recognizable semantic shape, and collapsing a type assertion into 'is related to' is adjacent-proximity, not EIC-07 equivalence.",
+      "direction_note": null,
+      "confidence": "HIGH"
+    },
+    {
+      "raw_predicate_text": "explores",
+      "example_sentence": "his work | explores | perception, memory, and the transformation of landscape through photography, video, and installation",
+      "proposed_predicate_id": null,
+      "verification": "Real subject is his work, real object is a set of themes (perception, memory, landscape transformation) -- a WORK -> topic relation. related_to (domain/range ANY) is the only shape-compatible predicate, but the registry explicitly forbids defaulting to it for any recognizable semantic shape and 'topically relates to' loses the specific directed meaning of 'explores'; every other RELATION predicate rejects WORK->theme on domain/range. A dedicated topical predicate (e.g. 'explores' as CANDIDATE) is a proposal only a human can register, not invented here. Adjacent, not equivalent.",
+      "direction_note": null,
+      "confidence": "MEDIUM"
+    },
+    {
+      "raw_predicate_text": "presented",
+      "example_sentence": "AttraversaMenti | presented | over 170 works",
+      "proposed_predicate_id": null,
+      "verification": "Real subject is AttraversaMenti (an exhibition/project), real object 'over 170 works' is a count, not an entity or a class token. The registry contains no MEASURE-class predicate at all (its 13 entries are RELATION/ATTRIBUTE only). participated_in (range=[EVENT,EXHIBITION,PROJECT]) would require inverting the sentence (the works took part in the exhibition) AND would throw away the quantitative claim (170) entirely. A quantity/measure predicate is a real vocabulary gap.",
+      "direction_note": null,
+      "confidence": "HIGH"
+    },
+    {
+      "raw_predicate_text": "was featured in",
+      "example_sentence": "his work | was featured in | the international exhibition A New Horizon Unfolds. Venice, Riyadh and the Legacy of Marco Polo at L'Art Pur Foundation, Riyadh",
+      "proposed_predicate_id": "exhibited_at",
+      "verification": "exhibited_at (DOMAIN, domain=[ARTWORK_INSTANCE], range=[EXHIBITION,PLACE]) checked against the REAL sentence: real object is 'the international exhibition A New Horizon Unfolds...' (an EXHIBITION, in range). 'Was featured in an exhibition' is the everyday-language equivalent of 'was physically exhibited at' -- a past-tense occurrence statement, consistent with the predicate's EIC-06 occurrence semantics. CONDITION for the human reviewer (why confidence is MEDIUM, not HIGH): the registry deliberately restricts exhibited_at's domain to ARTWORK_INSTANCE, never WORK ('allowing WORK here would reintroduce the granularity collapse that deprecating ARTWORK was meant to resolve'), and the real subject 'his work' must therefore resolve to ARTWORK_INSTANCE (physical exemplar(s)), not WORK (conceptual) -- if it resolves to WORK, this proposal must be dropped. No other registered predicate fits (participated_in's domain is PERSON/ARTIST).",
+      "direction_note": null,
+      "confidence": "MEDIUM"
+    },
+    {
+      "raw_predicate_text": "acquired",
+      "example_sentence": "Museo di Palazzo Ravaschieri | acquired | I Cagnari di Borgolungo for its permanent collection in 2025",
+      "proposed_predicate_id": null,
+      "verification": "Closest predicate is owned_by (DOMAIN, domain=[ARTWORK_INSTANCE], range=[PERSON,ORGANIZATION], 'Subject instance is currently owned by the object'): 'Museo di Palazzo Ravaschieri acquired I Cagnari di Borgolungo' is the acquisition side of ownership. But the directions do not match: owned_by ALWAYS runs work -> owner, while the raw sentence runs owner (Museo di Palazzo Ravaschieri) as subject -> acquired -> work (I Cagnari di Borgolungo), the INVERSE. A consumer would have to invert subject/object, which is explicitly out of scope (Task 10). Mapping it directly would silently reverse the relation's real semantics, so an honest null wins over a forced weak mapping.",
+      "direction_note": "owned_by is defined as work -> owner and always goes from the artwork/instance to its current owner; the raw sentence has the owner (Museo di Palazzo Ravaschieri) as subject and the work (I Cagnari di Borgolungo) as object, the INVERSE direction. Mapping this raw predicate to owned_by would require a subject/object inversion the consumer code does not handle (Task 10, out of scope).",
+      "confidence": "HIGH"
+    },
+    {
+      "raw_predicate_text": "earned",
+      "example_sentence": "his practice | earned | the Silver Dolphin Award at the Cannes Corporate Media & TV Awards",
+      "proposed_predicate_id": null,
+      "verification": "Real subject is 'his practice', real object is 'the Silver Dolphin Award' received at the Cannes Corporate Media & TV Awards. No registered predicate covers awards: participated_in (domain=[PERSON,ARTIST], range=[EVENT,EXHIBITION,PROJECT]) is nearest by object kind (an awards ceremony is an EVENT), but 'earning an award' is not 'the subject took part in the object event' -- the real subject (his practice) is not a PERSON/ARTIST and the core of the claim (the award itself) has no predicate at all. Adjacent, not equivalent; an award predicate is a real vocabulary gap.",
+      "direction_note": null,
+      "confidence": "HIGH"
+    }
+  ]
+}
