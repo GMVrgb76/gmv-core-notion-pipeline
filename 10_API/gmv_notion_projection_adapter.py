@@ -312,7 +312,20 @@ def _write_bundle(run_dir: Path, payload: TargetPayload) -> Path:
     adversarial review reproducing empirically that this silently
     disabled notion_publish.py::check_staleness() and the body-append
     path entirely; see TargetPayload.keep_properties's own docstring for
-    the staleness half)."""
+    the staleness half).
+
+    Bundle-folder naming uses the crawler English vocabulary
+    (`payload.entity_type`, e.g. "artist") -- deliberately NOT
+    write_entity_bundle()'s legacy-Italian vocabulary
+    (gmv_notion_multi_candidate.py, e.g. "artista"). This is a
+    stylistic difference, not a bug: load_bundle() (gmv_notion_publish.py:55)
+    receives `bundle_dir` already resolved and never reads the folder
+    name -- it reads only the three fixed filenames inside
+    (entity.json / NOTION_PATCH.json / NOTION_PAYLOAD.json), so either
+    naming loads identically. Do not "fix" the naming by threading
+    `legacy_entity_type` through the shared TargetPayload contract to
+    match write_entity_bundle() -- that would change a shared
+    projection-adapter contract for a cosmetic reason."""
     import json
 
     bundle_dir = run_dir / "entities" / f"{payload.entity_type.lower()}__{_safe_folder_name(payload.name)}"

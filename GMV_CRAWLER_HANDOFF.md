@@ -1126,3 +1126,30 @@ section is the one place it writes.
   generico CONFLICT per `predicate_class="RELATION"`. NOT touched, per
   brief: il valore del letterale, la logica del test e gli altri test
   del file. Full suite 1053 passed, `ruff check .` clean.
+
+- **2026-09-16 — Task 5 done: documentato (non corretto) il naming
+  diverso delle cartelle bundle tra `_write_bundle()` e
+  `write_entity_bundle()` (opencode task brief `opencode_task_5.md`).**
+  Verified myself, letto le tre funzioni reali: `_write_bundle()`
+  (`10_API/gmv_notion_projection_adapter.py`, questa versione) usa il
+  vocabolario crawler inglese (`payload.entity_type` -> "artist");
+  `write_entity_bundle()` (`10_API/gmv_notion_multi_candidate.py:279`)
+  usa `patch['entity_type']` legacy italiano ("artista"); e
+  `load_bundle()` (`10_API/gmv_notion_publish.py:55-77`) riceve
+  `bundle_dir` già risolto e legge solo `entity.json`/
+  `NOTION_PAYLOAD.json`/`NOTION_PATCH.json` (e `PATCH.json` solo per il
+  messaggio di errore multi-entity) — mai il nome della cartella: la
+  differenza è puramente stilistica. What I changed: (1) nota nel
+  docstring di `_write_bundle()` che spiega la differenza deliberata,
+  cita `gmv_notion_publish.py:55` come prova che `load_bundle()` non
+  legge il nome cartella, e la raccomandazione esplicita di NON
+  allineare i due naming (richiederebbe toccare il contratto condiviso
+  `TargetPayload` — fuori scope, da discutere prima); (2) nuovo test
+  `test_project_bundle_folder_uses_crawler_vocabulary_and_load_bundle_ignores_folder_name`
+  che parte da `project()` reale (payload con `entity_type="ARTIST"`),
+  scrive il bundle con `_write_bundle()`, verifica che la cartella usi
+  il prefisso crawler `artist__` e NON `artista__`, e poi `load_bundle()`
+  sul `bundle_dir` esatto funziona — il naming non rompe il path reale.
+  NOT touched, per brief: il valore di `bundle_dir`, `TargetPayload`,
+  altri `ProjectionAdapter`, `write_entity_bundle()`. Full suite 1054
+  passed, `ruff check .` clean.

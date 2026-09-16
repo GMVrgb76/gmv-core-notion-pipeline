@@ -297,6 +297,32 @@ def test_write_bundle_produces_a_directory_load_bundle_can_load(tmp_path: Path) 
     assert bundle.patch["operation"] == "CREATE"
 
 
+def test_project_bundle_folder_uses_crawler_vocabulary_and_load_bundle_ignores_folder_name(
+    tmp_path: Path,
+) -> None:
+    """Pins the module docstring's disclosed, deliberate naming
+    difference: a project()-produced payload carries the crawler English
+    entity_type ("ARTIST"), so _write_bundle() names the bundle folder
+    "artist__...", NOT write_entity_bundle()'s legacy-Italian
+    "artista__..." (gmv_notion_multi_candidate.py:279). This is
+    stylistic, never functional -- gmv_notion_publish.py::load_bundle()
+    receives bundle_dir already resolved and reads only the three fixed
+    filenames inside (entity.json / NOTION_PATCH.json /
+    NOTION_PAYLOAD.json), never the folder name, so a crawler-vocabulary
+    folder loads identically through the real publication-path reader."""
+    payload = make_adapter(tmp_path).project(make_monad())
+    assert payload.entity_type == "ARTIST"  # crawler vocabulary, not legacy "ARTISTA"
+    bundle_dir = _write_bundle(tmp_path, payload)
+    # crawler-English folder prefix, NOT the legacy "artista__" convention.
+    assert bundle_dir.name.startswith(payload.entity_type.lower() + "__")
+    assert bundle_dir.name.startswith("artist__")
+    assert not bundle_dir.name.startswith("artista__")
+    # The real read path does not depend on the folder name at all:
+    bundle = load_bundle(bundle_dir)
+    assert bundle.entity_name == "Federico Garibaldi"
+    assert bundle.entity_type == "ARTIST"
+
+
 def test_publish_maps_every_real_publish_bundle_return_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import gmv_notion_projection_adapter as module
 
