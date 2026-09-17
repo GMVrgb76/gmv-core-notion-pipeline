@@ -12,6 +12,11 @@
       "raw_predicate_text": "was presented at",
       "predicate_id": "located_at",
       "verified_against": "Same predicate/range as 'was held at' -- checked against 'BlueShores was presented at UniCredit Pavilion, Milan', same subject/object shape (a titled show/work presented at a venue)."
+    },
+    {
+      "raw_predicate_text": "was a solo exhibition at",
+      "predicate_id": "located_at",
+      "verified_against": "Confirmed on TWO separate re-extractions of the same real Garibaldi biography (gemma4:12b is not deterministic between runs): both times produced 'AttraversaMenti' | 'was a solo exhibition at' | 'Le Stanze della Fotografia, Venice (2025)' -- exact same subject/object shape already verified for 'was held at' above, a stable paraphrase, not a new semantic case."
     }
   ]
 }

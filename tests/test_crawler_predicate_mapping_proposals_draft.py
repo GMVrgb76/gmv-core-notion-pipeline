@@ -139,11 +139,22 @@ def test_no_direction_note_paired_with_a_proposal() -> None:
 
 
 def test_governance_mapping_file_still_has_only_the_two_original_entries() -> None:
+    """This test originally pinned the file to exactly the 2 entries that
+    existed when Task 11 ran, to prove Task 11 (an OpenCode delegation)
+    never touched governance. 2026-09-17: a human (the directing session)
+    deliberately added a 3rd entry ('was a solo exhibition at', same
+    located_at mapping, verified against two separate live re-extractions
+    of the same real sentence) -- a legitimate governance edit by the
+    party this file's own "note_on_maintenance" says is allowed to make
+    one. Updated to match; the real invariant this test protects is
+    unchanged: every entry still maps to located_at only, and every
+    raw_predicate_text is one of the ones actually verified against real
+    data, never silently multiplying beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 2, f"expected exactly the 2 original entries, got {len(mappings)}"
+    assert len(mappings) == 3, f"expected exactly the 3 known-verified entries, got {len(mappings)}"
     raw_texts = {m["raw_predicate_text"] for m in mappings}
-    assert raw_texts == {"was held at", "was presented at"}
+    assert raw_texts == {"was held at", "was presented at", "was a solo exhibition at"}
     assert all(m["predicate_id"] == "located_at" for m in mappings), (
-        "the real governance file must still map both entries to located_at only"
+        "the real governance file must still map every entry to located_at only"
     )
