@@ -1453,3 +1453,34 @@ section is the one place it writes.
   potuto verificare: nessun probe live su `gemma4:12b` in questo task
   (rete mockata nei test); la decisione `exhibited_at` dipende dalla
   risoluzione WORK vs ARTWORK_INSTANCE che non posso decidere qui.
+
+- **2026-09-17 — Verifica indipendente di Task 11 (sessione Claude
+  automatica, non OpenCode).** Confermato empiricamente, non fidandosi
+  del commit: `00_CONFIG/crawler_predicate_text_mapping.json` è rimasto
+  bit-per-bit identico da `67d170b` a `a881b1d` (`git diff` vuoto); il
+  commit `a881b1d` tocca solo 3 file (DRAFT nuovo, questo handoff, test
+  nuovo), nessun modulo esistente; `main` non toccato. Rilette a mano
+  tutte le 7 proposte contro il registro reale
+  (`GMV_ONTOLOGY_REGISTRY_v0.1.json`): l'unico `proposed_predicate_id`
+  non-null (`exhibited_at` per "was featured in") esiste, è
+  `predicate_class=="RELATION"`, e il suo domain/range citato nel DRAFT
+  corrisponde esattamente al registro; i 6 verdetti `null` reggono alla
+  rilettura riga per riga di domain/range di ogni predicato scartato.
+  Confermato via `cat` del JSONL reale che i 7 `raw_predicate_text` del
+  DRAFT coincidono esattamente con le 7 righe `PREDICATE_TEXT_NOT_MAPPED`
+  dello snapshot committato (`crawler_snapshots/rejection_queue_2026-09-17_garibaldi.jsonl`),
+  e che "was held at" (VALIDATION_FAILED) ne è correttamente escluso.
+  Full suite rieseguita da zero (venv fresco da `requirements-dev.txt`):
+  1119 passed, 2 failed — i 2 fallimenti sono gli stessi test LibreOffice
+  già documentati sopra come gap ambientale noto (confermato di nuovo qui:
+  `soffice --headless --convert-to txt:Text` fallisce anche su un .txt
+  banale in questo container), non una regressione di Task 11; totale
+  1121 combacia col numero dichiarato nel commit. `ruff check .` pulito.
+  Un limite di verifica onesto, non un difetto trovato: gli
+  `example_sentence` del DRAFT (es. "Federico Garibaldi | was born in |
+  Chiavari, Italy in 1968") non sono verificabili contro il documento
+  Garibaldi originale, che non esiste in questo repo (solo lo snapshot
+  JSONL delle rejection, che porta `raw_predicate` ma non
+  subject_raw/object_raw) — il ragionamento domain/range regge comunque
+  indipendentemente da questo, ma la fedeltà letterale delle frasi
+  d'esempio al documento reale resta non verificata da questa sessione.
