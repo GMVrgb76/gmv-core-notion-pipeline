@@ -83,7 +83,10 @@ def make_proposition(
 
 
 def make_classifier(entity_type: str = "PLACE"):
-    def _fake(entities, *, known_artists=None, endpoint=None, model=None, timeout=None):
+    def _fake(
+        entities, *, known_artists=None, known_institutions=None, endpoint=None,
+        model=None, timeout=None, temperature=None, seed=None,
+    ):
         return tuple(
             EntityTypeProposal(
                 entity_name=entity.name,
@@ -286,7 +289,10 @@ def test_shared_entity_classified_once_per_batch(monkeypatch: pytest.MonkeyPatch
     calls: list[list[dict]] = []
     fake_classifier = make_classifier("PLACE")
 
-    def counting(entities, *, known_artists=None, endpoint=None, model=None, timeout=None):
+    def counting(
+        entities, *, known_artists=None, known_institutions=None, endpoint=None,
+        model=None, timeout=None, temperature=None, seed=None,
+    ):
         calls.append([{"name": e.name} for e in entities])
         return fake_classifier(entities, known_artists=known_artists, endpoint=endpoint, model=model, timeout=timeout)
 

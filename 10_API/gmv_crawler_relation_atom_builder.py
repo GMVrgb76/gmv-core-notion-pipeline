@@ -207,11 +207,20 @@ def build_relation_atoms(
     registry: dict | None = None,
     predicate_mapping: dict[str, str] | None = None,
     known_artists: frozenset[str] | None = None,
+    known_institutions: frozenset[str] | None = None,
     endpoint: str = DEFAULT_ENDPOINT,
     model: str = DEFAULT_MODEL,
     timeout: int = 60,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> tuple[tuple[BuiltRelationAtom, ...], tuple[RejectedCandidate, ...]]:
     """Batch CandidateProposition -> RELATION atoms or structured rejections.
+
+    `temperature`/`seed` (default None) pass straight through to
+    `classify_entity_types()` -- see that function's own docstring for
+    why they exist (a live, reproduced finding: the same entity can be
+    classified differently on separate calls with Ollama's default
+    sampling).
 
     `propositions` and `entities` MUST come from the same extraction/
     document (same `source_id`) -- the caller's responsibility, documented
@@ -293,9 +302,12 @@ def build_relation_atoms(
             for proposal in classify_entity_types(
                 distinct_entities,
                 known_artists=known_artists,
+                known_institutions=known_institutions,
                 endpoint=endpoint,
                 model=model,
                 timeout=timeout,
+                temperature=temperature,
+                seed=seed,
             )
         }
 

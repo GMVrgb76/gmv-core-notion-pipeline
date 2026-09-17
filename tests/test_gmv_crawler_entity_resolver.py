@@ -108,6 +108,53 @@ def test_roster_exact_match_is_verified_fact_and_never_touches_network(
     )
 
 
+def test_institution_list_match_is_verified_fact_and_never_touches_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-09-17: mirrors the artist-roster test exactly, for the
+    institution list (00_CONFIG/area35_known_institutions.json), added
+    after a live finding that the same institution name was classified
+    INSTITUTION in one Ollama run and EXHIBITION in another -- a
+    human-confirmed institution list closes that gap the same way the
+    artist roster already does. `known_institutions` is passed explicitly
+    here rather than relying on the real file's current content: that
+    file grows over time through the OpenWebUI review chat, and this test
+    must stay correct regardless of what it happens to contain."""
+    monkeypatch.setattr(resolver, "_classify_via_ollama", fail_if_called)
+    monkeypatch.setattr(urllib.request, "urlopen", fail_if_called)
+    name = "Le Stanze della Fotografia"
+    proposals = classify_entity_types(
+        (make_entity(name),),
+        known_artists=frozenset(),
+        known_institutions=frozenset({_forma(name)}),
+    )
+    assert proposals == (
+        EntityTypeProposal(
+            entity_name=name, entity_type="INSTITUTION",
+            confidence="HIGH", source="MATCHED_KNOWN_INSTITUTION_LIST",
+            needs_verification=False,
+        ),
+    )
+
+
+def test_artist_roster_checked_before_institution_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A name present in BOTH lists resolves as ARTIST (roster checked
+    first) -- not a real case this project has seen, but the order is
+    fixed and tested, not left to chance."""
+    monkeypatch.setattr(resolver, "_classify_via_ollama", fail_if_called)
+    monkeypatch.setattr(urllib.request, "urlopen", fail_if_called)
+    name = "Ambiguous Name"
+    proposals = classify_entity_types(
+        (make_entity(name),),
+        known_artists=frozenset({_forma(name)}),
+        known_institutions=frozenset({_forma(name)}),
+    )
+    assert proposals[0].entity_type == "ARTIST"
+    assert proposals[0].source == "MATCHED_KNOWN_ARTIST_ROSTER"
+
+
 def test_roster_match_after_forma_normalization_inverted_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

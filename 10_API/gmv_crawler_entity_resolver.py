@@ -87,6 +87,7 @@ from gmv_crawler_candidate_extractor import (  # noqa: E402 -- reuse, not redefi
 from gmv_evidence_pipeline import EvidenceError, OllamaResponseError  # noqa: E402 -- same error family as ollama_extract(), reused not reimplemented
 
 KNOWN_ARTISTS_PATH = REPO_ROOT / "00_CONFIG" / "area35_known_artists.json"
+KNOWN_INSTITUTIONS_PATH = REPO_ROOT / "00_CONFIG" / "area35_known_institutions.json"
 
 #: The 12 valid entity_type values, verbatim from the `entity_type IN (...)` CHECK
 #: in gmv_core/migration_sql/010_entity_registry.sql (cross-checked by a test in
@@ -135,7 +136,7 @@ class EntityTypeProposal:
     entity_name: str
     entity_type: str  # one of the 12 values in 010_entity_registry.sql
     confidence: str  # "HIGH" | "MEDIUM" | "LOW"
-    source: str  # "MATCHED_KNOWN_ARTIST_ROSTER" | "MODEL_INFERENCE"
+    source: str  # "MATCHED_KNOWN_ARTIST_ROSTER" | "MATCHED_KNOWN_INSTITUTION_LIST" | "MODEL_INFERENCE"
     needs_verification: bool
 
 
@@ -152,8 +153,20 @@ def _load_known_artists() -> frozenset[str]:
     return frozenset(_forma(name) for name in data["artists"])
 
 
+def _load_known_institutions() -> frozenset[str]:
+    """The real, human-confirmed institution list (00_CONFIG/area35_known_institutions.json),
+    `_forma()`-normalized -- same pattern as `_load_known_artists()`. Starts
+    empty (2026-09-17) and grows only through explicit human confirmation
+    (e.g. the OpenWebUI review chat's `confirm_institution` tool), never
+    auto-populated from model output -- same 'verified fact, not inference'
+    principle as the artist roster."""
+    data = json.loads(KNOWN_INSTITUTIONS_PATH.read_text(encoding="utf-8"))
+    return frozenset(_forma(name) for name in data["institutions"])
+
+
 def _classify_via_ollama(
-    entity_names: Sequence[str], *, endpoint: str, model: str, timeout: int
+    entity_names: Sequence[str], *, endpoint: str, model: str, timeout: int,
+    temperature: float | None = None, seed: int | None = None,
 ) -> list[dict]:
     """One Ollama classification call for the whole batch of unmatched
     names (a document, one call -- the `ollama_extract()` principle, not
@@ -178,9 +191,12 @@ def _classify_via_ollama(
         "any name and do not reorder.\nNAMES:\n"
         + "\n".join(f"- {name}" for name in entity_names)
     )
+    options: dict[str, object] = {}
+    if temperature is not None: options["temperature"] = temperature
+    if seed is not None: options["seed"] = seed
     payload = json.dumps(
         {"model": model, "prompt": prompt, "stream": False,
-         "format": CLASSIFICATION_SCHEMA, "think": False}
+         "format": CLASSIFICATION_SCHEMA, "think": False, "options": options}
     ).encode()
     request = urllib.request.Request(  # noqa: S310 - caller-supplied local Ollama endpoint, same form and rationale as ollama_extract()
         endpoint.rstrip("/") + "/api/generate",
@@ -213,9 +229,33 @@ def _classify_via_ollama(
 def classify_entity_types(
     entities: Sequence[CandidateEntity], *,
     known_artists: frozenset[str] | None = None,
+    known_institutions: frozenset[str] | None = None,
     endpoint: str = DEFAULT_ENDPOINT, model: str = DEFAULT_MODEL, timeout: int = 60,
+    temperature: float | None = None, seed: int | None = None,
 ) -> tuple[EntityTypeProposal, ...]:
     """Classify every entity into a proposal, in the input order.
+
+    `known_institutions` (2026-09-17) mirrors `known_artists` exactly, one
+    list per governed entity_type instead of one shared list, because the
+    two rosters have different real sources and different maintainers: the
+    artist roster is a point-in-time Dropbox folder snapshot; the
+    institution list starts empty and grows only through explicit human
+    confirmation (the OpenWebUI review chat's `confirm_institution` tool).
+    A name matching BOTH lists is treated as an artist (checked first) --
+    not expected in practice (an institution and a person/artist sharing
+    the exact same real name is not a real case this project has seen),
+    but the order is fixed and documented rather than left to iteration
+    order.
+
+    `temperature`/`seed` (default None, passed straight through to
+    `_classify_via_ollama()` -- no behavior change unless a caller opts
+    in) exist for the same reason `ollama_extract()` gained them
+    (2026-09-17, this session): re-classifying the SAME entity name with
+    Ollama's default sampling can return a DIFFERENT `entity_type` on a
+    separate call (reproduced live: "Le Stanze della Fotografia" was
+    typed INSTITUTION in one run and EXHIBITION in another, with no
+    change to the input). MATCHED_KNOWN_ARTIST_ROSTER hits are unaffected
+    either way -- they never call the model at all.
 
     1. `known_artists` None -> `_load_known_artists()` (the accept-from-
        caller / load-by-default pattern `validate_atom()`/
@@ -242,13 +282,22 @@ def classify_entity_types(
     """
     if known_artists is None:
         known_artists = _load_known_artists()
+    if known_institutions is None:
+        known_institutions = _load_known_institutions()
     matched_names: dict[str, EntityTypeProposal] = {}
     to_classify: list[CandidateEntity] = []
     for entity in entities:
-        if _forma(entity.name) in known_artists:
+        normalized = _forma(entity.name)
+        if normalized in known_artists:
             matched_names[entity.name] = EntityTypeProposal(
                 entity_name=entity.name, entity_type="ARTIST",
                 confidence="HIGH", source="MATCHED_KNOWN_ARTIST_ROSTER",
+                needs_verification=False,
+            )
+        elif normalized in known_institutions:
+            matched_names[entity.name] = EntityTypeProposal(
+                entity_name=entity.name, entity_type="INSTITUTION",
+                confidence="HIGH", source="MATCHED_KNOWN_INSTITUTION_LIST",
                 needs_verification=False,
             )
         else:
@@ -259,6 +308,7 @@ def classify_entity_types(
         for item in _classify_via_ollama(
             [entity.name for entity in to_classify],
             endpoint=endpoint, model=model, timeout=timeout,
+            temperature=temperature, seed=seed,
         ):
             name = item.get("name")
             entity_type = item.get("entity_type")
