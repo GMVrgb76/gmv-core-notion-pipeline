@@ -84,9 +84,27 @@ def process_document(
     model: str = DEFAULT_MODEL,
     max_prompt_chars: int = 24000,
     timeout: int = 60,
+    temperature: float | None = 0,
+    seed: int | None = 42,
 ) -> ProcessDocumentResult:
     """EXTRACT CANDIDATES -> BUILD ATOMS (ATTRIBUTE then RELATION) for one
     document, in the one order that avoids double-processing.
+
+    `temperature`/`seed` default to `0`/`42` HERE (unlike
+    `extract_candidates()`/`ollama_extract()`, which both default to
+    `None` -- no behavior change for their other callers). This
+    orchestrator is exactly the layer that should hold that opinion: a
+    live, reproduced finding this session showed the SAME document
+    re-extracted with Ollama's default sampling produces DIFFERENT
+    predicate phrasing every call ("was held at" / "was a solo
+    exhibition at" / "held the solo exhibition" -- three different
+    surface forms of one real fact across three real runs), which
+    defeats `crawler_predicate_text_mapping.json`'s exact-text matching
+    even when the mapping itself is correct. `temperature=0` with a
+    fixed `seed` made two separate live calls on the same text produce
+    byte-identical predicate lists (verified before this default was
+    set, not assumed). Pass `temperature=None` explicitly to restore
+    Ollama's own default sampling if a caller wants that instead.
 
     1. `extract_candidates(document, ...)` -- real LLM call, real
        envelope/error behavior unchanged (a network/LLM failure
@@ -121,6 +139,8 @@ def process_document(
         model=model,
         max_prompt_chars=max_prompt_chars,
         timeout=timeout,
+        temperature=temperature,
+        seed=seed,
     )
 
     attr_atoms, attr_rejected = build_atoms(propositions, now=now)
@@ -135,6 +155,7 @@ def process_document(
         rel_built, rel_rejected = build_relation_atoms(
             leftover_propositions, entities, now=now,
             endpoint=endpoint, model=model, timeout=timeout,
+            temperature=temperature, seed=seed,
         )
     else:
         # Nothing left for the RELATION builder -- skip the call entirely

@@ -189,9 +189,17 @@ def extract_candidates(
     model: str = DEFAULT_MODEL,
     max_prompt_chars: int = 24000,
     timeout: int = 60,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> tuple[tuple[CandidateEntity, ...], tuple[CandidateProposition, ...], tuple[str, ...]]:
     """Run `ollama_extract()` against `document.text` and map its raw
-    output to this module's Candidate dataclasses. Raises `ValueError` for
+    output to this module's Candidate dataclasses. `temperature`/`seed`
+    are passed straight through to `ollama_extract()` (default None,
+    same as there -- no behavior change unless a caller opts in); see
+    that function's own docstring for why they exist (a live, reproduced
+    finding: re-extracting the same text with default sampling produces
+    different predicate phrasing every call, which defeats any exact-
+    text predicate mapping downstream). Raises `ValueError` for
     a caller bug (document not successfully extracted, no evidence_ids
     supplied) -- these are not extraction outcomes to report via a status
     field the way `extract_document()` (step 10) reports format failures;
@@ -233,6 +241,7 @@ def extract_candidates(
     result = ollama_extract(
         record, endpoint=endpoint, model=model,
         max_prompt_chars=max_prompt_chars, timeout=timeout,
+        temperature=temperature, seed=seed,
     )
     entities: list[CandidateEntity] = []
     propositions: list[CandidateProposition] = []

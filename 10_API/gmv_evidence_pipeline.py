@@ -307,15 +307,31 @@ def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50
 
 def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars: int = 24000,
                    timeout: int = 60, num_ctx: int = 8192, num_predict: int = 2048,
-                   think: bool = False) -> dict:
+                   think: bool = False, temperature: float | None = None,
+                   seed: int | None = None) -> dict:
+    """`temperature`/`seed` are optional (default None -> omitted from
+    `options`, byte-for-byte the same request every existing caller has
+    always sent -- no behavior change unless a caller opts in). Added
+    after a live, reproduced finding (GMV Crawler session, 2026-09-17):
+    with Ollama's default (non-zero) temperature, re-extracting the SAME
+    text produces DIFFERENT predicate/entity phrasing every call --
+    verified by running extraction on one real document twice and
+    diffing the predicates. `temperature=0` + a fixed `seed` made two
+    separate calls on the same text produce byte-identical claim lists.
+    Left opt-in here (not the new default) because this function is also
+    used by gmv_evidence_pipeline.py's own SEMANTIC extraction stage,
+    a different, unrelated caller this change must not silently affect."""
     if record.get("extraction_status") != "SUCCESS": raise EvidenceError("Extraction is not successful")
     text = record["text"]; truncated = len(text) > max_prompt_chars
     if truncated: text = text[:max_prompt_chars // 2] + "\n[...TRUNCATED...]\n" + text[-max_prompt_chars // 2:]
     prompt = ("Extract entities and factual claims from this archive text. Return ONLY JSON with entities and claims. "
               "entities MUST be an array; every entity must contain name,evidence_excerpt,status. "
               "Every claim must contain subject_raw,predicate,object_raw,evidence_excerpt,status. Do not infer.\nTEXT:\n" + text)
+    options = {"num_ctx": num_ctx, "num_predict": num_predict}
+    if temperature is not None: options["temperature"] = temperature
+    if seed is not None: options["seed"] = seed
     payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
-                          "think": think, "options": {"num_ctx": num_ctx, "num_predict": num_predict}}).encode()
+                          "think": think, "options": options}).encode()
     request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate", data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
