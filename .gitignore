@@ -28,3 +28,7 @@ report-limited/
 /08_BACKUP_LOCAL/
 /09_DATABASE/
 /runs/
+# GMV Crawler nightly-run state (automation/gmv_crawler_nightly_run.py's
+# own output: a real SQLite registry + growing JSONL queues/logs) --
+# generated, not source, same "mutable state" rule as the directories above.
+/01_RUNTIME/gmv_crawler/
