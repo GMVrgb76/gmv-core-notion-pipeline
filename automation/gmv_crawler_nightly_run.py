@@ -58,6 +58,13 @@ from gmv_dropbox_connector import DropboxConnector  # noqa: E402
 # existing registry rows for that artist).
 ARTIST_FOLDERS = [
     "/GMV_MASTER_SYSTEM/01_AREA35_MASTER/99_EXPORTS/MUTUALART_2026/01_FEDERICO_GARIBALDI",
+    "/GMV_MASTER_SYSTEM/01_AREA35_MASTER/99_EXPORTS/MUTUALART_2026/02_MANUEL_BONFANTI",
+    "/GMV_MASTER_SYSTEM/01_AREA35_MASTER/99_EXPORTS/MUTUALART_2026/03_FLORENCIA_BRUCK",
+    "/GMV_MASTER_SYSTEM/01_AREA35_MASTER/99_EXPORTS/MUTUALART_2026/04_DAVIDE_GENNA",
+    # 00_area35 (profilo della galleria, non un artista) deliberatamente
+    # escluso -- verificato dal vivo 2026-09-18 che la cartella MUTUALART_2026
+    # contiene questi 4 artisti reali oltre a Garibaldi (usato come unico
+    # caso di test durante lo sviluppo, mai esteso fino ad ora).
 ]
 
 RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
