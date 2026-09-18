@@ -101,13 +101,31 @@ ARTIST_FOLDERS.extend(f"{ARTIST_ROSTER_ROOT}/{name}" for name in ARTIST_ROSTER_N
 # di proposito, cosi' come 06_contratti/05_mercato/04_video/02_mostre.
 TEXT_SUBFOLDER_MARKERS = ("/00_master/", "/03_testi/", "/10_md_processed_files/")
 
+# BUG REALE trovato dal vivo 2026-09-18 durante il test del rinnovo token:
+# 10_md_processed_files e' una cartella PIATTA con le conversioni markdown
+# di file da QUALSIASI cartella originale (il nome del file porta il
+# prefisso della cartella sorgente, es. "06_contratti__...pdf.md",
+# "05_mercato__sales__...pdf.md") -- includerla per intero, come fatto
+# sopra, ha fatto passare un vero contratto (clausole di pagamento,
+# residenza, durata, recesso) e un vero file di vendita/prezzi dentro la
+# pipeline LLM, con frasi finite realmente in rejection_queue.jsonl
+# (rimosse a mano dopo la scoperta). Filtro per prefisso, non per
+# contenuto: un contratto non ancora smistato dentro 09_temp_import
+# (cartella "tutto quello che capita", non solo testi) NON verrebbe
+# comunque intercettato da questo controllo -- rischio residuo dichiarato,
+# non silenziato.
+SENSITIVE_ORIGIN_PREFIXES = ("06_contratti__", "05_mercato__")
+
 
 def _is_allowed_locator(connector_id: str, locator: str) -> bool:
     """MUTUALART_2026 entries (already curated exports) keep every file
     they have; only the full 01_ARTISTS roster needs the text-only
     filter, since that's the one with raw/mixed material mixed in."""
     if connector_id.startswith(ARTIST_ROSTER_ROOT):
-        return any(marker in locator for marker in TEXT_SUBFOLDER_MARKERS)
+        if not any(marker in locator for marker in TEXT_SUBFOLDER_MARKERS):
+            return False
+        basename = locator.rsplit("/", 1)[-1]
+        return not basename.startswith(SENSITIVE_ORIGIN_PREFIXES)
     return True
 
 RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
