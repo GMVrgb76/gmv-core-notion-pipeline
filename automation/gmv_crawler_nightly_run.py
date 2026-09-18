@@ -117,15 +117,25 @@ def notify(title: str, message: str) -> None:
         pass
 
 
-def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) -> tuple[int, int, int]:
+def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) -> tuple[int, int, int, bool]:
     """Scan one artist folder, process every file this script has not yet
     successfully carried through process_document() (see
     PROCESSED_HASHES_PATH's own note on why 'state' alone is not the
     right query here). Returns (files_processed, atoms_built,
-    items_needing_review)."""
+    items_needing_review, scan_ok).
+
+    scan_ok=False means the Dropbox scan itself failed (expired token,
+    network, etc.) -- found live 2026-09-18: this used to be an
+    uncaught exception that killed the whole process before it ever
+    logged anything or sent a notification, so a token expiry produced
+    total silence instead of a signal the user could act on."""
     connector = DropboxConnector(root_path=folder)
     connector_id = folder
-    register_scan(connection, connector, connector_id=connector_id, now=now)
+    try:
+        register_scan(connection, connector, connector_id=connector_id, now=now)
+    except Exception as exc:
+        _log_run_event({"event": "scan_failed", "folder": folder, "error": str(exc), "at": now})
+        return 0, 0, 0, False
 
     processed_hashes = _load_processed_hashes()
     rows = connection.execute(
@@ -192,7 +202,7 @@ def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) ->
         # marked done.
         _save_processed_hash(content_hash, processed_hashes)
 
-    return files_processed, atoms_built, needing_review
+    return files_processed, atoms_built, needing_review, True
 
 
 def _log_run_event(event: dict) -> None:
@@ -208,12 +218,14 @@ def main() -> None:
     now = now_iso()
     connection = sqlite3.connect(REGISTRY_DB)
     total_files = total_atoms = total_review = 0
+    any_scan_failed = False
     try:
         for folder in ARTIST_FOLDERS:
-            files, atoms, review = process_one_folder(connection, folder, now)
+            files, atoms, review, scan_ok = process_one_folder(connection, folder, now)
             total_files += files
             total_atoms += atoms
             total_review += review
+            any_scan_failed = any_scan_failed or not scan_ok
         connection.commit()
     finally:
         connection.close()
@@ -221,10 +233,12 @@ def main() -> None:
     _log_run_event({
         "event": "run_complete", "at": now,
         "files_processed": total_files, "atoms_built": total_atoms,
-        "needing_review": total_review,
+        "needing_review": total_review, "scan_failed": any_scan_failed,
     })
 
-    if total_files == 0 and total_review == 0:
+    if any_scan_failed:
+        notify("GMV Crawler", "Errore: impossibile leggere Dropbox (token scaduto?). Controlla run_log.jsonl.")
+    elif total_files == 0 and total_review == 0:
         notify("GMV Crawler", "Nessun file nuovo da elaborare stanotte.")
     else:
         notify(

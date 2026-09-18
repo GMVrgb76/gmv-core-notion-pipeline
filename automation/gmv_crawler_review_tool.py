@@ -12,9 +12,39 @@ INSTITUTIONS_PATH = REPO_ROOT / "00_CONFIG" / "area35_known_institutions.json"
 RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
 REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
 ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
+RUN_LOG_PATH = RUNTIME_DIR / "run_log.jsonl"
 
 
 class Tools:
+    def check_last_run_status(self) -> str:
+        """Dice se l'esecuzione notturna del crawler (le 3 di notte) ha
+        funzionato l'ultima volta o e' fallita, e perche'. Usa SEMPRE
+        questo strumento per primo quando l'utente chiede com'e' andata
+        la notte o se ci sono novita' -- le altre funzioni leggono solo
+        le code, non dicono se la scansione stessa e' riuscita."""
+        if not RUN_LOG_PATH.exists():
+            return "Il crawler non ha ancora mai completato un'esecuzione."
+        last_complete = None
+        for line in RUN_LOG_PATH.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            if row.get("event") == "run_complete":
+                last_complete = row
+        if last_complete is None:
+            return "Nessuna esecuzione completata trovata nel log."
+        if last_complete.get("scan_failed"):
+            return (
+                f"ATTENZIONE: l'ultima esecuzione ({last_complete['at']}) e' fallita "
+                "nella lettura di Dropbox -- molto probabilmente il token di accesso "
+                "e' scaduto. La pipeline non ha elaborato nulla di nuovo finche' non "
+                "viene fornito un token valido."
+            )
+        return (
+            f"Ultima esecuzione completata alle {last_complete['at']}: "
+            f"{last_complete['files_processed']} file elaborati, "
+            f"{last_complete['atoms_built']} atomi costruiti, "
+            f"{last_complete['needing_review']} elementi da verificare."
+        )
+
     def list_unrecognized_predicates(self) -> str:
         """Elenca i predicati grezzi non riconosciuti dalla pipeline del crawler,
         con quante volte compaiono, cosi' l'utente puo' decidere se e come
