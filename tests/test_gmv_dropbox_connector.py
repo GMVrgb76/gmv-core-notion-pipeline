@@ -61,8 +61,8 @@ class FakeSession:
     def queue(self, url: str, response: FakeResponse) -> None:
         self.queued.setdefault(url, []).append(response)
 
-    def post(self, url: str, *, headers=None, json=None, timeout=None) -> FakeResponse:
-        self.calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+    def post(self, url: str, *, headers=None, json=None, data=None, timeout=None) -> FakeResponse:
+        self.calls.append({"url": url, "headers": headers, "json": json, "data": data, "timeout": timeout})
         pending = self.queued.get(url)
         if not pending:
             raise AssertionError(f"no queued response for {url}")
@@ -303,3 +303,140 @@ def test_parse_dropbox_timestamp_is_utc() -> None:
     parsed = _parse_dropbox_timestamp("2026-01-15T10:30:00Z")
     assert parsed == datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
     assert parsed.tzinfo is timezone.utc
+
+
+# --- OAuth2 refresh-token flow (added 2026-09-18) -----------------------
+# Static tokens (test-token everywhere above) turned out to expire in
+# ~4h in production, too short for a multi-hour crawl. These tests cover
+# the alternative: given DROPBOX_REFRESH_TOKEN/APP_KEY/APP_SECRET (env or
+# explicit args), the connector fetches its own access token and retries
+# once on a 401 instead of just raising.
+
+OAUTH_URL = "https://api.dropboxapi.com/oauth2/token"
+
+
+def make_refreshing_connector(session: FakeSession, **kwargs) -> DropboxConnector:
+    return DropboxConnector(
+        refresh_token="test-refresh-token",  # noqa: S106 (test fixture, not a real secret)
+        app_key="test-app-key",
+        app_secret="test-app-secret",  # noqa: S106 (test fixture, not a real secret)
+        session=session,
+        **kwargs,
+    )
+
+
+def test_refresh_credentials_fetch_access_token_at_construction() -> None:
+    session = FakeSession()
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "fresh-token-1"}))
+    connector = make_refreshing_connector(session)
+    assert connector._token == "fresh-token-1"  # noqa: SLF001,S105
+    assert session.calls[0]["url"] == OAUTH_URL
+    assert session.calls[0]["data"] == {
+        "grant_type": "refresh_token",
+        "refresh_token": "test-refresh-token",
+        "client_id": "test-app-key",
+        "client_secret": "test-app-secret",
+    }
+
+
+def test_refresh_credentials_take_priority_over_explicit_access_token() -> None:
+    """Mode (2) wins when both are present -- an explicit access_token
+    alone is not enough to skip refresh once refresh creds are given."""
+    session = FakeSession()
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "fresh-token-2"}))
+    connector = DropboxConnector(
+        access_token="stale-explicit-token",  # noqa: S106
+        refresh_token="test-refresh-token",  # noqa: S106
+        app_key="test-app-key",
+        app_secret="test-app-secret",  # noqa: S106
+        session=session,
+    )
+    assert connector._token == "fresh-token-2"  # noqa: SLF001,S105
+
+
+def test_401_triggers_one_refresh_and_one_retry_then_succeeds() -> None:
+    session = FakeSession()
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "initial-token"}))
+    connector = make_refreshing_connector(session, root_path="/artists")
+
+    session.queue(
+        "https://api.dropboxapi.com/2/files/list_folder",
+        FakeResponse(401, {"error": {".tag": "expired_access_token"}}),
+    )
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "renewed-token"}))
+    session.queue(
+        "https://api.dropboxapi.com/2/files/list_folder",
+        FakeResponse(200, {"entries": [], "has_more": False}),
+    )
+
+    listings = connector.list()
+    assert listings == []
+    assert connector._token == "renewed-token"  # noqa: SLF001,S105
+    # Bearer header on the successful retry must carry the NEW token, not the stale one.
+    list_folder_calls = [c for c in session.calls if c["url"] == "https://api.dropboxapi.com/2/files/list_folder"]
+    assert len(list_folder_calls) == 2
+    assert list_folder_calls[1]["headers"]["Authorization"] == "Bearer renewed-token"
+
+
+def test_second_consecutive_401_still_raises_not_an_infinite_loop() -> None:
+    """A refresh_token that is itself invalid must not retry forever --
+    exactly one retry, then a real error."""
+    session = FakeSession()
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "initial-token"}))
+    connector = make_refreshing_connector(session, root_path="/artists")
+
+    session.queue(
+        "https://api.dropboxapi.com/2/files/list_folder",
+        FakeResponse(401, {"error": {".tag": "expired_access_token"}}),
+    )
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "renewed-token"}))
+    session.queue(
+        "https://api.dropboxapi.com/2/files/list_folder",
+        FakeResponse(401, {"error": {".tag": "expired_access_token"}}),
+    )
+
+    with pytest.raises(DropboxConnectorError, match="HTTP 401"):
+        connector.list()
+
+
+def test_refresh_token_failure_itself_raises() -> None:
+    session = FakeSession()
+    session.queue(OAUTH_URL, FakeResponse(400, {"error": "invalid_grant"}))
+    with pytest.raises(DropboxConnectorError, match="token refresh failed"):
+        make_refreshing_connector(session)
+
+
+def test_download_also_gets_refresh_retry_on_401() -> None:
+    session = FakeSession()
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "initial-token"}))
+    connector = make_refreshing_connector(session)
+
+    session.queue(
+        "https://content.dropboxapi.com/2/files/download",
+        FakeResponse(401, {"error": {".tag": "expired_access_token"}}),
+    )
+    session.queue(OAUTH_URL, FakeResponse(200, {"access_token": "renewed-token"}))
+    session.queue(
+        "https://content.dropboxapi.com/2/files/download",
+        FakeResponse(200, content=b"bytes after refresh"),
+    )
+
+    payload = connector.download("/artists/report.pdf")
+    assert payload == b"bytes after refresh"
+
+
+def test_no_refresh_credentials_behaves_exactly_like_before() -> None:
+    """Without DROPBOX_REFRESH_TOKEN/APP_KEY/APP_SECRET, a 401 must raise
+    immediately -- no OAuth call attempted, no retry. Guards against the
+    new code path changing behavior for every existing static-token
+    caller (nothing in this repo sets those three env vars today)."""
+    session = FakeSession()
+    session.queue(
+        "https://api.dropboxapi.com/2/files/list_folder",
+        FakeResponse(401, {"error_summary": "invalid_access_token/..."}),
+    )
+    with pytest.raises(DropboxConnectorError, match="HTTP 401"):
+        make_connector(session).list()
+    assert len(session.calls) == 1  # no OAuth refresh call attempted
+    assert session.calls[0]["url"] == "https://api.dropboxapi.com/2/files/list_folder"
+    assert session.calls[0]["headers"]["Authorization"] == "Bearer test-token"

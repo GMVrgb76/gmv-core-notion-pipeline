@@ -15,24 +15,33 @@ module is a from-scratch, deterministic client against Dropbox's own
 list_folder / get_metadata / download endpoints, per the user's explicit
 choice between the two ways to unblock step 9.
 
-Authentication: a single static access token, read from the
-DROPBOX_ACCESS_TOKEN environment variable (or passed explicitly) — the
-user's explicit choice among the options offered (vs. an OAuth2
-refresh-token flow). Token resolution reuses `credentials.get_token()`
-(repo root) rather than reading `os.environ` directly: that helper is
-already the repo's one generic, centralized env-var-then-explicit-error
-token resolver (its docstring frames it as Notion-specific, but its
-signature -- `get_token(name, file_fallback=None)` -- takes the env var
-name as a parameter and has no Notion-specific logic; it is already
-consumed by six files). Adding a second, ad-hoc `os.environ.get()` read
-here would have been undeclared duplication of an established pattern
-this session's own working method explicitly warns against. If the token
-expires or is revoked, every method here raises `DropboxConnectorError`
-from a 401 response, or from `credentials.TokenError` at construction
-time if no token is configured at all -- there is no automatic refresh.
-Network-layer failures (timeout, DNS, connection reset --
-`requests.exceptions.RequestException` and subclasses) are also
-normalized to `DropboxConnectorError`, not left to propagate raw.
+Authentication: two modes, resolved at construction time. (1) A single
+static access token, read from the DROPBOX_ACCESS_TOKEN environment
+variable (or passed explicitly) — the user's original choice among the
+options offered (vs. an OAuth2 refresh-token flow), still the default
+and still what the test suite below exercises. Token resolution reuses
+`credentials.get_token()` (repo root) rather than reading `os.environ`
+directly: that helper is already the repo's one generic, centralized
+env-var-then-explicit-error token resolver. With only a static token,
+expiry or revocation makes every method here raise `DropboxConnectorError`
+from a 401 response -- there is no way to recover without a fresh token.
+(2) OAuth2 "offline access" refresh flow, added 2026-09-18 once the
+static-token mode proved unworkable for a run spanning more than a few
+hours (real access tokens observed to expire in ~4h in production, not
+some longer "generated token" lifetime that was hoped for): if
+DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET are all
+available (env vars or explicit constructor args), the connector fetches
+a fresh access token via OAUTH_TOKEN_URL at construction, and again,
+automatically, on any single 401 response from either the RPC or content
+API (see `_request_with_refresh`) -- one retry per call, not a loop, so a
+refresh_token that is itself invalid still surfaces as a real
+`DropboxConnectorError` instead of retrying forever. Mode (2) takes
+priority when its three values are all present; mode (1) is the fallback,
+preserved unchanged for backward compatibility and for the existing test
+suite (none of which sets the new env vars). Network-layer failures
+(timeout, DNS, connection reset -- `requests.exceptions.RequestException`
+and subclasses) are also normalized to `DropboxConnectorError`, not left
+to propagate raw.
 
 content_hash() deliberately does NOT reuse Dropbox's own `content_hash`
 metadata field, even though that field is also a 64-hex-char string that
@@ -68,6 +77,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -84,8 +94,12 @@ from gmv_crawler_contracts import SourceListing, SourceMetadata  # noqa: E402 --
 
 RPC_BASE_URL = "https://api.dropboxapi.com/2"
 CONTENT_BASE_URL = "https://content.dropboxapi.com/2"
+OAUTH_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"  # noqa: S105 (URL, not a secret value)
 DEFAULT_TIMEOUT_SECONDS = 30.0
 TOKEN_ENV_VAR = "DROPBOX_ACCESS_TOKEN"  # noqa: S105 (env var name, not a secret value)
+APP_KEY_ENV_VAR = "DROPBOX_APP_KEY"
+APP_SECRET_ENV_VAR = "DROPBOX_APP_SECRET"  # noqa: S105 (env var name, not a secret value)
+REFRESH_TOKEN_ENV_VAR = "DROPBOX_REFRESH_TOKEN"  # noqa: S105 (env var name, not a secret value)
 
 
 class DropboxConnectorError(RuntimeError):
@@ -109,34 +123,83 @@ class DropboxConnector:
         *,
         root_path: str = "",
         access_token: str | None = None,
+        app_key: str | None = None,
+        app_secret: str | None = None,
+        refresh_token: str | None = None,
         session: requests.Session | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        if access_token:
+        self._app_key = app_key or os.environ.get(APP_KEY_ENV_VAR)
+        self._app_secret = app_secret or os.environ.get(APP_SECRET_ENV_VAR)
+        self._refresh_token = refresh_token or os.environ.get(REFRESH_TOKEN_ENV_VAR)
+        self._session = session if session is not None else requests.Session()
+        self._timeout = timeout
+
+        if self._refresh_token and self._app_key and self._app_secret:
+            # Mode (2): fetch a real access token now rather than waiting
+            # for the caller's first list()/download() to discover a
+            # missing/expired one -- same fail-fast-at-construction shape
+            # mode (1) already had.
+            self._token = self._refresh_access_token()
+        elif access_token:
             self._token = access_token
         else:
             try:
                 self._token = get_token(TOKEN_ENV_VAR).value
             except TokenError as exc:
                 raise DropboxConnectorError(
-                    "no Dropbox access token: pass access_token= explicitly or "
-                    f"set the {TOKEN_ENV_VAR} environment variable"
+                    "no Dropbox access token: pass access_token= explicitly, set the "
+                    f"{TOKEN_ENV_VAR} environment variable, or set "
+                    f"{REFRESH_TOKEN_ENV_VAR}/{APP_KEY_ENV_VAR}/{APP_SECRET_ENV_VAR} "
+                    "for automatic refresh"
                 ) from exc
         self._root_path = root_path
-        self._session = session if session is not None else requests.Session()
-        self._timeout = timeout
+
+    def _refresh_access_token(self) -> str:
+        try:
+            response = self._session.post(
+                OAUTH_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self._refresh_token,
+                    "client_id": self._app_key,
+                    "client_secret": self._app_secret,
+                },
+                timeout=self._timeout,
+            )
+        except requests.exceptions.RequestException as exc:
+            raise DropboxConnectorError(f"Dropbox token refresh request failed: {exc}") from exc
+        if response.status_code != 200:
+            raise DropboxConnectorError(
+                f"Dropbox token refresh failed: HTTP {response.status_code}: {response.text[:500]}"
+            )
+        return response.json()["access_token"]
 
     def _headers(self, **extra: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}", **extra}
 
+    def _request_with_refresh(self, do_request):
+        """Runs `do_request()` (a zero-arg closure making one HTTP call
+        with the current `self._token`); on a single 401 with refresh
+        credentials available, refreshes the token once and retries
+        `do_request()` exactly once more. Without refresh credentials
+        (`self._refresh_token` unset -- the default, and what every
+        existing test exercises), this is a pure passthrough: one call,
+        whatever it returns or raises."""
+        response = do_request()
+        if response.status_code == 401 and self._refresh_token:
+            self._token = self._refresh_access_token()
+            response = do_request()
+        return response
+
     def _rpc(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
-            response = self._session.post(
+            response = self._request_with_refresh(lambda: self._session.post(
                 f"{RPC_BASE_URL}/{endpoint}",
                 headers=self._headers(**{"Content-Type": "application/json"}),
                 json=payload,
                 timeout=self._timeout,
-            )
+            ))
         except requests.exceptions.RequestException as exc:
             raise DropboxConnectorError(f"Dropbox API {endpoint} request failed: {exc}") from exc
         if response.status_code != 200:
@@ -185,11 +248,11 @@ class DropboxConnector:
 
     def download(self, locator: str) -> bytes:
         try:
-            response = self._session.post(
+            response = self._request_with_refresh(lambda: self._session.post(
                 f"{CONTENT_BASE_URL}/files/download",
                 headers=self._headers(**{"Dropbox-API-Arg": json.dumps({"path": locator})}),
                 timeout=self._timeout,
-            )
+            ))
         except requests.exceptions.RequestException as exc:
             raise DropboxConnectorError(f"Dropbox download request failed for {locator!r}: {exc}") from exc
         if response.status_code != 200:
