@@ -3,6 +3,7 @@ title: GMV Crawler Review
 description: Legge e corregge le code di revisione del crawler GMV (predicati non riconosciuti, tipi di entita' da verificare).
 """
 import json
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(
@@ -13,9 +14,32 @@ RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
 REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
 ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
 RUN_LOG_PATH = RUNTIME_DIR / "run_log.jsonl"
+RUN_NIGHTLY_SCRIPT = REPO_ROOT / "automation" / "run_nightly.sh"
 
 
 class Tools:
+    def run_crawler_now(self) -> str:
+        """Avvia subito una scansione del crawler (la stessa cosa che gira
+        di notte alle 3), senza aspettare la schedulazione automatica.
+        Usa questo strumento quando l'utente chiede esplicitamente di far
+        partire, avviare, lanciare o eseguire ora il crawler.
+        IMPORTANTE: questo strumento restituisce solo la CONFERMA che la
+        scansione e' partita, non il risultato -- la scansione reale
+        richiede alcuni minuti in background. Per sapere come e' andata,
+        l'utente deve richiedere check_last_run_status() poco dopo (es.
+        dopo un paio di minuti)."""
+        if not RUN_NIGHTLY_SCRIPT.exists():
+            return f"ERRORE: script non trovato in {RUN_NIGHTLY_SCRIPT}."
+        subprocess.Popen(  # noqa: S603 -- fixed local script path, no external input
+            [str(RUN_NIGHTLY_SCRIPT)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return (
+            "Scansione avviata in background sulle cartelle artista configurate. "
+            "Richiedimi 'controlla l'ultima esecuzione' tra un paio di minuti per sapere l'esito."
+        )
+
     def check_last_run_status(self) -> str:
         """Dice se l'esecuzione notturna del crawler (le 3 di notte) ha
         funzionato l'ultima volta o e' fallita, e perche'. Usa SEMPRE
