@@ -31,6 +31,7 @@ folders on its own.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -116,6 +117,14 @@ ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
 ATOMS_LOG_PATH = RUNTIME_DIR / "atoms_built.jsonl"
 RUN_LOG_PATH = RUNTIME_DIR / "run_log.jsonl"
 PROCESSED_HASHES_PATH = RUNTIME_DIR / "processed_content_hashes.json"
+# Same lock file gmv_crawler_review_tool.py's run_crawler_now() checks
+# before launching -- shared here so it protects EVERY invocation path
+# (chat, launchd's 3am schedule, a manual run), not just the chat one.
+# Found live 2026-09-18: a chat-triggered run landed while a manual test
+# run of this same script was already in progress against the same
+# registry.db/run_log.jsonl -- concurrent writes were never actually
+# corrupted in that instance, but nothing here made that safe on purpose.
+RUN_PID_FILE = RUNTIME_DIR / "current_run.pid"
 
 # `crawler_source_registry.state` answers "did the CONTENT change since
 # the last scan" (register_scan()'s job) -- it does NOT answer "did THIS
@@ -262,41 +271,68 @@ def _log_run_event(event: dict) -> None:
         handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+def _other_instance_running() -> int | None:
+    """None if no run is currently in progress. Self-healing: a PID file
+    left over from a killed/crashed run is detected as stale (the kill(0)
+    liveness probe fails) and treated as not-running -- no separate
+    cleanup step needed on the failure path."""
+    if not RUN_PID_FILE.exists():
+        return None
+    try:
+        pid = int(RUN_PID_FILE.read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+    except (ValueError, ProcessLookupError, PermissionError):
+        return None
+    return pid
+
+
 def main() -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    if not REGISTRY_DB.exists():
-        migrations.migrate(REGISTRY_DB, target_version=migrations.CRAWLER_SOURCE_REGISTRY_VERSION)
 
-    now = now_iso()
-    connection = sqlite3.connect(REGISTRY_DB)
-    total_files = total_atoms = total_review = 0
-    any_scan_failed = False
+    other_pid = _other_instance_running()
+    if other_pid is not None:
+        _log_run_event({
+            "event": "skipped_already_running", "at": now_iso(), "other_pid": other_pid,
+        })
+        return
+
+    RUN_PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     try:
-        for folder in ARTIST_FOLDERS:
-            files, atoms, review, scan_ok = process_one_folder(connection, folder, now)
-            total_files += files
-            total_atoms += atoms
-            total_review += review
-            any_scan_failed = any_scan_failed or not scan_ok
-        connection.commit()
+        if not REGISTRY_DB.exists():
+            migrations.migrate(REGISTRY_DB, target_version=migrations.CRAWLER_SOURCE_REGISTRY_VERSION)
+
+        now = now_iso()
+        connection = sqlite3.connect(REGISTRY_DB)
+        total_files = total_atoms = total_review = 0
+        any_scan_failed = False
+        try:
+            for folder in ARTIST_FOLDERS:
+                files, atoms, review, scan_ok = process_one_folder(connection, folder, now)
+                total_files += files
+                total_atoms += atoms
+                total_review += review
+                any_scan_failed = any_scan_failed or not scan_ok
+            connection.commit()
+        finally:
+            connection.close()
+
+        _log_run_event({
+            "event": "run_complete", "at": now,
+            "files_processed": total_files, "atoms_built": total_atoms,
+            "needing_review": total_review, "scan_failed": any_scan_failed,
+        })
+
+        if any_scan_failed:
+            notify("GMV Crawler", "Errore: impossibile leggere Dropbox (token scaduto?). Controlla run_log.jsonl.")
+        elif total_files == 0 and total_review == 0:
+            notify("GMV Crawler", "Nessun file nuovo da elaborare stanotte.")
+        else:
+            notify(
+                "GMV Crawler",
+                f"{total_atoms} atomi nuovi, {total_review} da verificare -- apri OpenWebUI quando vuoi.",
+            )
     finally:
-        connection.close()
-
-    _log_run_event({
-        "event": "run_complete", "at": now,
-        "files_processed": total_files, "atoms_built": total_atoms,
-        "needing_review": total_review, "scan_failed": any_scan_failed,
-    })
-
-    if any_scan_failed:
-        notify("GMV Crawler", "Errore: impossibile leggere Dropbox (token scaduto?). Controlla run_log.jsonl.")
-    elif total_files == 0 and total_review == 0:
-        notify("GMV Crawler", "Nessun file nuovo da elaborare stanotte.")
-    else:
-        notify(
-            "GMV Crawler",
-            f"{total_atoms} atomi nuovi, {total_review} da verificare -- apri OpenWebUI quando vuoi.",
-        )
+        RUN_PID_FILE.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ title: GMV Crawler Review
 description: Legge e corregge le code di revisione del crawler GMV (predicati non riconosciuti, tipi di entita' da verificare).
 """
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -15,6 +16,30 @@ REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
 ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
 RUN_LOG_PATH = RUNTIME_DIR / "run_log.jsonl"
 RUN_NIGHTLY_SCRIPT = REPO_ROOT / "automation" / "run_nightly.sh"
+# Chat-triggered runs used to redirect to DEVNULL -- a run that failed to
+# even start (wrong path, bad env) looked identical to "started fine" from
+# here, and check_last_run_status() could only ever report the last
+# COMPLETED run, so a run still in progress looked like a stale failure.
+# Found live 2026-09-18 when a chat-triggered run apparently never started
+# (no process, no log) and the user was shown Dropbox history from hours
+# earlier. Real files + a PID lock fix both problems at once.
+CHAT_STDOUT_LOG = RUNTIME_DIR / "chat_triggered_stdout.log"
+CHAT_STDERR_LOG = RUNTIME_DIR / "chat_triggered_stderr.log"
+RUN_PID_FILE = RUNTIME_DIR / "current_run.pid"
+
+
+def _running_pid() -> int | None:
+    """None if no run is in progress. Self-healing: a PID file left over
+    from a crashed/killed run is detected as stale (os.kill probe fails)
+    and treated as not-running, no separate cleanup step needed."""
+    if not RUN_PID_FILE.exists():
+        return None
+    try:
+        pid = int(RUN_PID_FILE.read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+    except (ValueError, ProcessLookupError, PermissionError):
+        return None
+    return pid
 
 
 class Tools:
@@ -30,11 +55,20 @@ class Tools:
         dopo un paio di minuti)."""
         if not RUN_NIGHTLY_SCRIPT.exists():
             return f"ERRORE: script non trovato in {RUN_NIGHTLY_SCRIPT}."
-        subprocess.Popen(  # noqa: S603 -- fixed local script path, no external input
-            [str(RUN_NIGHTLY_SCRIPT)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        already_running = _running_pid()
+        if already_running is not None:
+            return (
+                f"Una scansione e' gia' in corso (processo {already_running}) -- "
+                "non ne avvio una seconda in parallelo. Chiedimi 'controlla l'ultima "
+                "esecuzione' per lo stato, oppure riprova piu' tardi."
+            )
+        with CHAT_STDOUT_LOG.open("a", encoding="utf-8") as out, CHAT_STDERR_LOG.open("a", encoding="utf-8") as err:
+            process = subprocess.Popen(  # noqa: S603 -- fixed local script path, no external input
+                [str(RUN_NIGHTLY_SCRIPT)],
+                stdout=out, stderr=err,
+                start_new_session=True,
+            )
+        RUN_PID_FILE.write_text(str(process.pid), encoding="utf-8")
         return (
             "Scansione avviata in background sulle cartelle artista configurate. "
             "Richiedimi 'controlla l'ultima esecuzione' tra un paio di minuti per sapere l'esito."
@@ -46,6 +80,14 @@ class Tools:
         questo strumento per primo quando l'utente chiede com'e' andata
         la notte o se ci sono novita' -- le altre funzioni leggono solo
         le code, non dicono se la scansione stessa e' riuscita."""
+        running_pid = _running_pid()
+        if running_pid is not None:
+            return (
+                f"Una scansione e' attualmente in corso (processo {running_pid}). "
+                "Non e' ancora finita -- il risultato qui sotto, se presente, si "
+                "riferisce all'esecuzione PRECEDENTE, non a questa. Richiedi di nuovo "
+                "tra qualche minuto."
+            )
         if not RUN_LOG_PATH.exists():
             return "Il crawler non ha ancora mai completato un'esecuzione."
         last_complete = None
