@@ -67,6 +67,48 @@ ARTIST_FOLDERS = [
     # caso di test durante lo sviluppo, mai esteso fino ad ora).
 ]
 
+# Roster completo, 01_ARTISTS/ -- verificato dal vivo 2026-09-18: 46
+# cartelle artista, quasi 3900 file totali, struttura NON uniforme.
+# Ogni root qui sotto e' l'intera cartella dell'artista (un connector_id
+# = uno scan del registry); il filtro sui soli testi/bio avviene DOPO,
+# in TEXT_SUBFOLDER_MARKERS piu' sotto -- non qui, perche' filtrare gia'
+# a livello di connector.list() richiederebbe toccare gmv_crawler_registry.py,
+# un modulo condiviso, per un bisogno specifico solo di questo script.
+ARTIST_ROSTER_ROOT = "/GMV_MASTER_SYSTEM/01_AREA35_MASTER/01_ARTISTS"
+ARTIST_ROSTER_NAMES = [
+    "bertola_francesco", "bonfanti_manuel", "bonzano_stefano", "bruck_florencia",
+    "bucchi_danilo", "calaj_renato", "cascella_marco", "cerri_giovanni",
+    "chiodi_italo", "colombo_barbara", "dall'olio_giulia", "dawson_dennis",
+    "dilella_katia", "ducoli_carola", "evangelisti_nicola", "fincato_giorgia",
+    "finelli_pietro", "fuku_naoki", "garibaldi_federico", "gasparini_gian_piero",
+    "genna_davide", "geranzani_pietro", "girella_alessio", "hromec_robert",
+    "lucido_lorenzo_di", "manos_gaspare", "mendeni_marco", "morales_ernesto",
+    "nazeraj_erjon", "nicolela_kika", "pasini_giovanni", "paternò_castello_riccardo",
+    "pozzo_di_borgo_camille", "qi_luo", "rocca_guido", "schiavo_alessio",
+    "schiavocampo_paolo", "seli_yuki", "snape_neil", "tomasi_marcello",
+    "topy_paolo", "toussaint_jacques", "valenti_fabio", "valli_giorgia",
+    "vanetti_giacomo", "yalvac_melis",
+]
+ARTIST_FOLDERS.extend(f"{ARTIST_ROSTER_ROOT}/{name}" for name in ARTIST_ROSTER_NAMES)
+
+# Deciso con l'utente 2026-09-18: scope "solo testi/bio" per tutti i 46
+# artisti, non tutto il materiale grezzo. Per gli artisti gia' organizzati
+# (7-12 su 46) i testi puliti vivono in 00_master/03_testi. Per gli altri
+# 34, ancora in stato grezzo, la stessa informazione e' gia' stata
+# convertita in markdown dentro 10_md_processed_files -- 09_temp_import
+# (l'originale grezzo: foto, video, contratti, pdf misti) resta escluso
+# di proposito, cosi' come 06_contratti/05_mercato/04_video/02_mostre.
+TEXT_SUBFOLDER_MARKERS = ("/00_master/", "/03_testi/", "/10_md_processed_files/")
+
+
+def _is_allowed_locator(connector_id: str, locator: str) -> bool:
+    """MUTUALART_2026 entries (already curated exports) keep every file
+    they have; only the full 01_ARTISTS roster needs the text-only
+    filter, since that's the one with raw/mixed material mixed in."""
+    if connector_id.startswith(ARTIST_ROSTER_ROOT):
+        return any(marker in locator for marker in TEXT_SUBFOLDER_MARKERS)
+    return True
+
 RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
 REGISTRY_DB = RUNTIME_DIR / "registry.db"
 REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
@@ -150,7 +192,10 @@ def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) ->
         "WHERE connector = ? AND state != 'DELETED'",
         (connector_id,),
     ).fetchall()
-    rows = [row for row in rows if row[0] not in processed_hashes]
+    rows = [
+        row for row in rows
+        if row[0] not in processed_hashes and _is_allowed_locator(connector_id, row[1])
+    ]
 
     files_processed = 0
     atoms_built = 0
