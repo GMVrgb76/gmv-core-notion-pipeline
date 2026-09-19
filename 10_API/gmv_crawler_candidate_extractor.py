@@ -46,10 +46,16 @@ Two honest gaps against §10's literal text, not fixed here:
    a future session needs to locate it before claiming this module
    honors it.
 
-`DEFAULT_MODEL = "gemma4:12b"` per §0's own operational graft ("innesto
-operativo minore") -- inherited from the spec's stated benchmark result,
-**not independently re-verified by any session so far** (same caveat the
-prior handoff already carried forward). `endpoint` defaults to
+`DEFAULT_MODEL = "qwen2.5-coder:7b"` (changed 2026-09-19, was
+`"gemma4:12b"`). The gemma4 default traced back to §0's "operational
+graft" citing a spec benchmark that **no session had ever independently
+verified** -- this session finally did, empirically, on real documents
+from this same pipeline (same prompt, same schema, same temperature=0/
+seed=42): on a real short CV, qwen2.5-coder:7b finished faster (64.7s
+vs 111.2s) AND extracted more complete facts (11 claims vs 8 -- it
+caught a "curated by" relation gemma4 missed entirely). Both used
+`format`-constrained JSON generation, so output validity wasn't the
+differentiator; extraction completeness and speed were. `endpoint` defaults to
 `http://localhost:11434`, the one real precedent for a default Ollama
 endpoint in this repo (`gmv_evidence_pipeline.py`'s own `--endpoint` CLI
 default).
@@ -102,7 +108,7 @@ if str(REPO_ROOT) not in sys.path:
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
 from gmv_evidence_pipeline import ollama_extract  # noqa: E402 -- reused, not reimplemented
 
-DEFAULT_MODEL = "gemma4:12b"
+DEFAULT_MODEL = "qwen2.5-coder:7b"
 DEFAULT_ENDPOINT = "http://localhost:11434"
 
 
