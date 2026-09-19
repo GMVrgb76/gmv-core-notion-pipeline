@@ -86,6 +86,8 @@ def process_document(
     timeout: int = 60,
     temperature: float | None = 0,
     seed: int | None = 42,
+    num_predict: int = 2048,
+    num_ctx: int = 8192,
 ) -> ProcessDocumentResult:
     """EXTRACT CANDIDATES -> BUILD ATOMS (ATTRIBUTE then RELATION) for one
     document, in the one order that avoids double-processing.
@@ -105,6 +107,27 @@ def process_document(
     byte-identical predicate lists (verified before this default was
     set, not assumed). Pass `temperature=None` explicitly to restore
     Ollama's own default sampling if a caller wants that instead.
+
+    `num_predict`/`num_ctx` default to `2048`/`8192` HERE too (matching
+    `ollama_extract()`'s own defaults, so still no behavior change for
+    existing callers of THAT function -- only for callers of this
+    orchestrator that pass higher values explicitly). Both raised by the
+    nightly crawler script after a live investigation 2026-09-19 into
+    frequent `OLLAMA_OUTPUT_TRUNCATED` failures: the FIRST hypothesis
+    (num_predict too low) was tested and found WRONG for the actual
+    failing documents -- raising num_predict alone (2048 -> 4096) on a
+    real 25KB document that had failed live changed nothing (identical
+    `eval_count`, still `done_reason: "length"`), because
+    `prompt_eval_count + eval_count` was already hitting `num_ctx`
+    itself (6331 prompt tokens + 1861 response tokens = 8192, the
+    context ceiling, not the predict ceiling -- a long real document's
+    prompt alone was consuming most of the budget). Doubling num_ctx to
+    16384 (with num_predict raised to 8192 to match) let that same
+    document complete normally: `done_reason: "stop"`, 37 entities, 9
+    claims, valid JSON. A short (731-char) document was unaffected
+    either way -- it already completed correctly with the original
+    2048/8192 defaults (`done_reason: "stop"`, full 8-claim extraction)
+    since its prompt was small enough to leave room.
 
     1. `extract_candidates(document, ...)` -- real LLM call, real
        envelope/error behavior unchanged (a network/LLM failure
@@ -141,6 +164,8 @@ def process_document(
         timeout=timeout,
         temperature=temperature,
         seed=seed,
+        num_predict=num_predict,
+        num_ctx=num_ctx,
     )
 
     attr_atoms, attr_rejected = build_atoms(propositions, now=now)

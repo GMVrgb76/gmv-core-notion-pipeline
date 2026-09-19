@@ -245,7 +245,13 @@ def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) ->
         try:
             result = process_document(
                 document, evidence_ids=(f"{locator}#{now}",), now=now,
-                timeout=280,
+                # timeout/num_ctx/num_predict raised together 2026-09-19: a
+                # real 25KB document that failed OLLAMA_OUTPUT_TRUNCATED at
+                # the 8192/2048 defaults completed correctly (done_reason
+                # "stop", 37 entities, 9 claims) at 16384/8192 -- but took
+                # 267.8s doing it, too close to the old 280s timeout to be
+                # safe margin, not just correctness.
+                timeout=450, num_ctx=16384, num_predict=8192,
             )
         except Exception as exc:
             _log_run_event({"event": "processing_failed", "locator": locator, "error": str(exc), "at": now})

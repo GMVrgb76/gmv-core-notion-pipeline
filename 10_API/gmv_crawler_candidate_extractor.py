@@ -191,6 +191,8 @@ def extract_candidates(
     timeout: int = 60,
     temperature: float | None = None,
     seed: int | None = None,
+    num_predict: int = 2048,
+    num_ctx: int = 8192,
 ) -> tuple[tuple[CandidateEntity, ...], tuple[CandidateProposition, ...], tuple[str, ...]]:
     """Run `ollama_extract()` against `document.text` and map its raw
     output to this module's Candidate dataclasses. `temperature`/`seed`
@@ -241,7 +243,7 @@ def extract_candidates(
     result = ollama_extract(
         record, endpoint=endpoint, model=model,
         max_prompt_chars=max_prompt_chars, timeout=timeout,
-        temperature=temperature, seed=seed,
+        temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
     )
     entities: list[CandidateEntity] = []
     propositions: list[CandidateProposition] = []
