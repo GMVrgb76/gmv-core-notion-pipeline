@@ -249,9 +249,13 @@ def test_extract_candidates_default_model_and_endpoint_match_repo_precedent(monk
 
     monkeypatch.setattr(candidate_extractor, "ollama_extract", spy)
     extract_candidates(make_document(), evidence_ids=("ev-1",))
-    # gemma4:12b -> qwen2.5-coder:7b, 2026-09-19: empirically verified faster
-    # AND more complete on a real document with the crawler's own real
-    # prompt/schema (64.7s vs 111.2s, 11 claims found vs 8) -- the old
-    # gemma4 default had never been independently benchmarked at all.
-    assert captured["model"] == "qwen2.5-coder:7b"
+    # gemma4:12b -> qwen2.5-coder:7b -> deepseek-coder-v2:16b, all 2026-09-19.
+    # qwen2.5-coder won the first (single-document) test but then hit a
+    # documented Qwen-family repetition-loop bug in real batch use; gemma4
+    # re-tested on that same failing document also timed out. deepseek-
+    # coder-v2 is the only one of the three with zero failures across
+    # every real document tested -- chosen for reliability over the
+    # completeness it trades away (see module docstring for the full,
+    # non-simplified history).
+    assert captured["model"] == "deepseek-coder-v2:16b"
     assert captured["endpoint"] == "http://localhost:11434"

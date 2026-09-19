@@ -46,16 +46,33 @@ Two honest gaps against §10's literal text, not fixed here:
    a future session needs to locate it before claiming this module
    honors it.
 
-`DEFAULT_MODEL = "qwen2.5-coder:7b"` (changed 2026-09-19, was
-`"gemma4:12b"`). The gemma4 default traced back to §0's "operational
-graft" citing a spec benchmark that **no session had ever independently
-verified** -- this session finally did, empirically, on real documents
-from this same pipeline (same prompt, same schema, same temperature=0/
-seed=42): on a real short CV, qwen2.5-coder:7b finished faster (64.7s
-vs 111.2s) AND extracted more complete facts (11 claims vs 8 -- it
-caught a "curated by" relation gemma4 missed entirely). Both used
-`format`-constrained JSON generation, so output validity wasn't the
-differentiator; extraction completeness and speed were. `endpoint` defaults to
+`DEFAULT_MODEL = "deepseek-coder-v2:16b"` (changed 2026-09-19, twice in
+one day). History, not simplified, because each step was a real,
+falsified hypothesis: (1) original default `"gemma4:12b"` traced back
+to §0's "operational graft" citing a spec benchmark **no session had
+ever independently verified**. (2) First empirical test (one real short
+CV, this pipeline's own prompt/schema/temperature=0/seed=42):
+qwen2.5-coder:7b beat gemma4 on that document (64.7s vs 111.2s, 11
+claims vs 8) -- changed the default on that basis. (3) In the very next
+real batch run, qwen2.5-coder repeatedly hit `OLLAMA_OUTPUT_TRUNCATED`
+on documents gemma4 had handled fine -- traced to a documented Ollama/
+llama.cpp bug where Qwen-family models enter a repetition loop during
+constrained JSON generation and never terminate on their own (raising
+num_ctx/num_predict cannot fix a loop, it just delays hitting the
+ceiling). (4) Re-tested gemma4:12b specifically on the document that
+had defeated qwen -- gemma4 TIMED OUT on it too (>280s), so it was
+never actually a safe fallback either; a similar Ollama repetition-loop
+report exists for gemma4:31b on constrained JSON with long free-text
+fields (issue ollama/ollama#15502), suggesting the family isn't
+inherently safe just because THIS session's first CV test happened not
+to trigger it. (5) `deepseek-coder-v2:16b`, tested on both real
+documents (the short CV and the one that defeated both other models),
+completed both cleanly (`done_reason: "stop"`, no loop) -- the only
+model of the three with zero failures across every real document
+tested, at the cost of shallower extraction on the easy case (1 claim
+vs gemma4's 8 on the CV). Chosen for reliability over completeness: a
+document that fails outright yields zero atoms, one that extracts
+fewer facts still yields some. `endpoint` defaults to
 `http://localhost:11434`, the one real precedent for a default Ollama
 endpoint in this repo (`gmv_evidence_pipeline.py`'s own `--endpoint` CLI
 default).
@@ -108,7 +125,7 @@ if str(REPO_ROOT) not in sys.path:
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
 from gmv_evidence_pipeline import ollama_extract  # noqa: E402 -- reused, not reimplemented
 
-DEFAULT_MODEL = "qwen2.5-coder:7b"
+DEFAULT_MODEL = "deepseek-coder-v2:16b"
 DEFAULT_ENDPOINT = "http://localhost:11434"
 
 
