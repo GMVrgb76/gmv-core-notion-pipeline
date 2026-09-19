@@ -93,28 +93,22 @@ ARTIST_ROSTER_NAMES = [
 ARTIST_FOLDERS.extend(f"{ARTIST_ROSTER_ROOT}/{name}" for name in ARTIST_ROSTER_NAMES)
 
 # Deciso con l'utente 2026-09-18: scope "solo testi/bio" per tutti i 46
-# artisti, non tutto il materiale grezzo. Per gli artisti gia' organizzati
-# (7-12 su 46) i testi puliti vivono in 00_master/03_testi. Per gli altri
-# 34, ancora in stato grezzo, la stessa informazione e' gia' stata
-# convertita in markdown dentro 10_md_processed_files -- 09_temp_import
-# (l'originale grezzo: foto, video, contratti, pdf misti) resta escluso
-# di proposito, cosi' come 06_contratti/05_mercato/04_video/02_mostre.
+# artisti, non tutto il materiale grezzo (niente foto/video/contratti/
+# prezzi come file ORIGINALI). Per gli artisti gia' organizzati (7-12 su
+# 46) i testi puliti vivono in 00_master/03_testi. Per gli altri 34,
+# ancora in stato grezzo, la stessa informazione e' gia' stata convertita
+# in markdown dentro 10_md_processed_files -- 09_temp_import (l'originale
+# grezzo: foto, video, pdf misti) resta escluso in quella forma.
+#
+# Un contratto o un listino gia' convertito in markdown dentro
+# 10_md_processed_files viene invece processato come qualsiasi altro
+# testo -- decisione esplicita dell'utente 2026-09-18 dopo aver visto un
+# caso reale (una conversione da 06_contratti e una da 05_mercato erano
+# state escluse per un timore di privacy che l'utente non condivide): se
+# c'e' un contratto o un listino, va analizzato anche quello; se
+# l'estrazione fallisce (come gia' successo, OLLAMA_OUTPUT_TRUNCATED) va
+# bene comunque, non e' un problema da prevenire a monte.
 TEXT_SUBFOLDER_MARKERS = ("/00_master/", "/03_testi/", "/10_md_processed_files/")
-
-# BUG REALE trovato dal vivo 2026-09-18 durante il test del rinnovo token:
-# 10_md_processed_files e' una cartella PIATTA con le conversioni markdown
-# di file da QUALSIASI cartella originale (il nome del file porta il
-# prefisso della cartella sorgente, es. "06_contratti__...pdf.md",
-# "05_mercato__sales__...pdf.md") -- includerla per intero, come fatto
-# sopra, ha fatto passare un vero contratto (clausole di pagamento,
-# residenza, durata, recesso) e un vero file di vendita/prezzi dentro la
-# pipeline LLM, con frasi finite realmente in rejection_queue.jsonl
-# (rimosse a mano dopo la scoperta). Filtro per prefisso, non per
-# contenuto: un contratto non ancora smistato dentro 09_temp_import
-# (cartella "tutto quello che capita", non solo testi) NON verrebbe
-# comunque intercettato da questo controllo -- rischio residuo dichiarato,
-# non silenziato.
-SENSITIVE_ORIGIN_PREFIXES = ("06_contratti__", "05_mercato__")
 
 
 def _is_allowed_locator(connector_id: str, locator: str) -> bool:
@@ -122,10 +116,7 @@ def _is_allowed_locator(connector_id: str, locator: str) -> bool:
     they have; only the full 01_ARTISTS roster needs the text-only
     filter, since that's the one with raw/mixed material mixed in."""
     if connector_id.startswith(ARTIST_ROSTER_ROOT):
-        if not any(marker in locator for marker in TEXT_SUBFOLDER_MARKERS):
-            return False
-        basename = locator.rsplit("/", 1)[-1]
-        return not basename.startswith(SENSITIVE_ORIGIN_PREFIXES)
+        return any(marker in locator for marker in TEXT_SUBFOLDER_MARKERS)
     return True
 
 RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
