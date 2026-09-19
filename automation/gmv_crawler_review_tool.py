@@ -30,14 +30,29 @@ RUN_PID_FILE = RUNTIME_DIR / "current_run.pid"
 
 def _running_pid() -> int | None:
     """None if no run is in progress. Self-healing: a PID file left over
-    from a crashed/killed run is detected as stale (os.kill probe fails)
-    and treated as not-running, no separate cleanup step needed."""
+    from a crashed/killed run is detected as stale and treated as
+    not-running, no separate cleanup step needed.
+
+    Real bug found live 2026-09-19: os.kill(pid, 0) alone isn't enough --
+    a process killed via pkill can sit as a <defunct> ZOMBIE for a while,
+    still holding its PID slot, so kill(0) alone kept reporting "still
+    running" and blocked every real run behind it. `ps -o stat=` reveals
+    the zombie state (leading 'Z') that kill(0) cannot see."""
     if not RUN_PID_FILE.exists():
         return None
     try:
         pid = int(RUN_PID_FILE.read_text(encoding="utf-8").strip())
         os.kill(pid, 0)
     except (ValueError, ProcessLookupError, PermissionError):
+        return None
+    try:
+        stat = subprocess.run(  # noqa: S603, S607 -- fixed system binary, pid is our own int
+            ["/bin/ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001 -- if we can't tell, err toward "still running" (safer than a duplicate run)
+        return pid
+    if stat.startswith("Z"):
         return None
     return pid
 

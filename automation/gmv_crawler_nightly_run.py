@@ -288,15 +288,34 @@ def _log_run_event(event: dict) -> None:
 
 def _other_instance_running() -> int | None:
     """None if no run is currently in progress. Self-healing: a PID file
-    left over from a killed/crashed run is detected as stale (the kill(0)
-    liveness probe fails) and treated as not-running -- no separate
-    cleanup step needed on the failure path."""
+    left over from a killed/crashed run is detected as stale and treated
+    as not-running -- no separate cleanup step needed on the failure
+    path.
+
+    Real bug found live 2026-09-19: `os.kill(pid, 0)` alone is NOT
+    enough -- a process killed via `pkill` (SIGTERM, not caught by a
+    plain Python process, so its `finally: RUN_PID_FILE.unlink()` never
+    ran) can sit as a <defunct> ZOMBIE for a while afterwards. A zombie
+    still holds its PID slot, so `kill(pid, 0)` succeeds and this lock
+    kept reporting "still running" for a process that was doing
+    nothing at all, blocking every real run behind it indefinitely.
+    `ps -o stat=` reveals the zombie state (leading `Z`) that kill(0)
+    cannot see -- checked in addition to, not instead of, kill(0)."""
     if not RUN_PID_FILE.exists():
         return None
     try:
         pid = int(RUN_PID_FILE.read_text(encoding="utf-8").strip())
         os.kill(pid, 0)
     except (ValueError, ProcessLookupError, PermissionError):
+        return None
+    try:
+        stat = subprocess.run(  # noqa: S603, S607 -- fixed system binary, pid is our own int
+            ["/bin/ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001 -- if we can't tell, err toward "still running" (safer than a duplicate run)
+        return pid
+    if stat.startswith("Z"):
         return None
     return pid
 
