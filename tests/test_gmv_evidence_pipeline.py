@@ -485,3 +485,139 @@ def test_analyze_manifest_survives_no_trailing_newline(tmp_path):
     path.write_text(body, encoding="utf-8")
     manifest = evidence.load_analyze_manifest(tmp_path)
     assert manifest["sha256:abc123"]["status"] == "valid"
+
+
+class _FakeHTTPResponse:
+    """json.load(response) only ever calls .read(); no other file-like
+    behavior is needed for ollama_extract's own usage."""
+    def __init__(self, payload: dict):
+        self._data = json.dumps(payload).encode()
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        return False
+    def read(self, *a, **k):
+        return self._data
+
+
+def test_ollama_extract_generate_is_default_and_unchanged(monkeypatch):
+    """Regression guard for the pre-existing /api/generate behavior: adding
+    api_style must not change what gets sent or how the response is read
+    when the caller doesn't opt into "chat_template"."""
+    captured = {}
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data)
+        return _FakeHTTPResponse({"response": json.dumps({
+            "entities": [{"name": "Federico Garibaldi", "evidence_excerpt": "e"}],
+            "claims": [{"subject_raw": "Federico Garibaldi", "predicate": "born in", "object_raw": "Paris", "evidence_excerpt": "e"}],
+        }), "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "Federico Garibaldi was born in Paris."}
+    out = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="gemma4:12b")
+    assert captured["url"].endswith("/api/generate")
+    assert "prompt" in captured["body"] and "messages" not in captured["body"]
+    assert out["entities"][0]["name"] == "Federico Garibaldi"
+    assert out["claims"][0]["predicate"] == "born in"
+
+
+def test_ollama_extract_chat_template_hits_chat_endpoint_with_template_role(monkeypatch):
+    """NuExtract3's own Ollama Modelfile only switches into structured-output
+    mode when a "template" role message is present -- this is the request
+    shape that actually exercises that path, not just a parameter name."""
+    captured = {}
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data)
+        return _FakeHTTPResponse({"message": {"content": json.dumps({
+            "entities": [{"name": "Federico Garibaldi", "evidence_excerpt": "e"}],
+            "claims": [{"subject_raw": "Federico Garibaldi", "predicate": "born in", "object_raw": "Paris", "evidence_excerpt": "e"}],
+        })}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "Federico Garibaldi was born in Paris."}
+    out = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="numind/nuextract3:q4_k_m", api_style="chat_template")
+    assert captured["url"].endswith("/api/chat")
+    roles = {m["role"] for m in captured["body"]["messages"]}
+    assert roles == {"template", "instructions", "user"}
+    template_message = next(m for m in captured["body"]["messages"] if m["role"] == "template")
+    assert json.loads(template_message["content"]) == evidence.NUEXTRACT_CHAT_TEMPLATE
+    user_message = next(m for m in captured["body"]["messages"] if m["role"] == "user")
+    assert user_message["content"] == record["text"]
+    assert out["entities"][0]["name"] == "Federico Garibaldi"
+
+
+def test_ollama_extract_unknown_api_style_rejected_before_any_http_call(monkeypatch):
+    def fail_if_called(*a, **k):
+        raise AssertionError("urlopen must not be called for an invalid api_style")
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fail_if_called)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "x"}
+    try:
+        evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m", api_style="not_a_real_style")
+    except evidence.EvidenceError as exc:
+        assert str(exc) == "UNKNOWN_API_STYLE"
+    else:
+        assert False
+
+
+def test_semantic_extract_batch_threads_api_style_and_records_it_in_manifest(monkeypatch, tmp_path):
+    seen = {}
+    def _spy(record, **kwargs):
+        seen["api_style"] = kwargs.get("api_style")
+        return {"file_id": record["file_id"], "entities": [], "claims": [], "_runtime": {"done_reason": "stop"}}
+    monkeypatch.setattr(evidence, "ollama_extract", _spy)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    evidence.semantic_extract_batch([record], tmp_path, artist="A", endpoint="x", model="m", api_style="chat_template")
+    assert seen["api_style"] == "chat_template"
+    manifest = evidence.read_json(tmp_path / "semantic" / "run_manifest.json", {})
+    assert manifest["api_style"] == "chat_template"
+
+
+def test_nuextract_chat_template_field_names_match_semantic_output_schema():
+    """Canary for a silent drift: NUEXTRACT_CHAT_TEMPLATE is a hand-written
+    NuExtract-style template shown to the model; SEMANTIC_OUTPUT_SCHEMA is the
+    JSON-schema grammar Ollama actually enforces on the response. They must
+    keep describing the same fields, or the model gets told to look for
+    fields the validator/schema no longer requires (or vice versa)."""
+    schema_entity_fields = set(evidence.SEMANTIC_OUTPUT_SCHEMA["properties"]["entities"]["items"]["properties"])
+    schema_claim_fields = set(evidence.SEMANTIC_OUTPUT_SCHEMA["properties"]["claims"]["items"]["properties"])
+    template_entity_fields = set(evidence.NUEXTRACT_CHAT_TEMPLATE["entities"][0])
+    template_claim_fields = set(evidence.NUEXTRACT_CHAT_TEMPLATE["claims"][0])
+    assert template_entity_fields == schema_entity_fields
+    assert template_claim_fields == schema_claim_fields
+
+
+def test_ollama_extract_rejects_echoed_template_placeholder(monkeypatch):
+    """Live-reproduced 2026-09-20: calling a non-NuExtract model with
+    api_style="chat_template" (a wrong but not-otherwise-rejected combination)
+    made it echo the template's own type placeholder ("string") back as a
+    literal status instead of a real one. Must fail loudly, not flow through
+    as a schema-valid but meaningless claim."""
+    def fake_urlopen(request, timeout):
+        return _FakeHTTPResponse({"message": {"content": json.dumps({
+            "entities": [{"name": "Federico Garibaldi", "evidence_excerpt": "e", "status": "STRING"}],
+            "claims": [],
+        })}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "Federico Garibaldi."}
+    try:
+        evidence.ollama_extract(record, endpoint="http://localhost:11434", model="gemma4:12b", api_style="chat_template")
+    except evidence.OllamaResponseError as exc:
+        assert str(exc) == "OLLAMA_SCHEMA_INVALID"
+    else:
+        assert False
+
+
+def test_cli_api_style_flag_reaches_semantic_extract_batch(monkeypatch, tmp_path):
+    """End-to-end check of the --api-style flag through gmv_run.py's own
+    argparse/run() wiring, not just the underlying functions directly."""
+    sys.path.insert(0, str(Path(__file__).parents[1] / "10_API"))
+    import gmv_run
+    seen = {}
+    def fake_batch(records, evidence_root, **kwargs):
+        seen["api_style"] = kwargs.get("api_style")
+        return {"entities": [], "claims": []}
+    monkeypatch.setattr(gmv_run, "scan", lambda *a, **k: None)
+    monkeypatch.setattr(gmv_run, "extract", lambda *a, **k: [])
+    monkeypatch.setattr(gmv_run, "semantic_extract_batch", fake_batch)
+    gmv_run.run(tmp_path / "dropbox", tmp_path / "evidence", model="numind/nuextract3:q4_k_m", api_style="chat_template")
+    assert seen["api_style"] == "chat_template"

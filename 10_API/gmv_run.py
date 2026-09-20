@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from gmv_evidence_pipeline import (
+    API_STYLES,
     EvidenceError,
     consolidate_claims,
     extract,
@@ -44,6 +45,7 @@ def run(
     num_predict: int = 2048,
     min_adaptive_chunk_chars: int = 500,
     max_adaptive_depth: int = 4,
+    api_style: str = "generate",
     max_file_bytes: int = 50_000_000,
     notion_rows: Path | None = None,
     aliases: Path | None = None,
@@ -65,6 +67,7 @@ def run(
         resume=resume, retry_limit=retry_limit, timeout=timeout, max_chunk_chars=max_chunk_chars,
         context=ollama_context, num_predict=num_predict,
         min_adaptive_chunk_chars=min_adaptive_chunk_chars, max_adaptive_depth=max_adaptive_depth,
+        api_style=api_style,
     )
     result["analyze"] = {"status": "DONE", "claims": len(analyzed.get("claims", []))}
 
@@ -122,6 +125,7 @@ def main() -> int:
     p.add_argument("--num-predict", type=int, default=2048)
     p.add_argument("--min-adaptive-chunk-chars", type=int, default=500)
     p.add_argument("--max-adaptive-depth", type=int, default=4)
+    p.add_argument("--api-style", choices=sorted(API_STYLES), default="generate")
     p.add_argument("--max-file-bytes", type=int, default=50_000_000)
     p.add_argument("--notion-rows", type=Path)
     p.add_argument("--aliases", type=Path)
@@ -135,7 +139,7 @@ def main() -> int:
             resume=a.resume, retry_limit=a.retry_limit, timeout=a.timeout,
             max_chunk_chars=a.max_chunk_chars, ollama_context=a.ollama_context,
             num_predict=a.num_predict, min_adaptive_chunk_chars=a.min_adaptive_chunk_chars,
-            max_adaptive_depth=a.max_adaptive_depth, max_file_bytes=a.max_file_bytes,
+            max_adaptive_depth=a.max_adaptive_depth, api_style=a.api_style, max_file_bytes=a.max_file_bytes,
             notion_rows=a.notion_rows, aliases=a.aliases, notion_config=a.notion_config,
             entity_name=a.entity_name, entity_type=a.entity_type,
         )
