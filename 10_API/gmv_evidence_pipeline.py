@@ -68,6 +68,77 @@ class OllamaResponseError(EvidenceError):
         super().__init__(code); self.runtime = runtime or {}; self.raw_output = raw_output
 
 
+# NuExtract3's own Ollama Modelfile only switches its internal $mode to
+# "structured" when a "template" role message is present in the chat request
+# -- a flat /api/generate prompt silently runs it in generic "content" mode
+# instead and never applies the template below (confirmed against
+# ollama.com/numind/nuextract3 and `ollama show numind/nuextract3:q4_k_m
+# --modelfile`, 2026-09-20). `format=SEMANTIC_OUTPUT_SCHEMA` still forces
+# syntactically valid JSON either way, so the observed symptom of calling
+# NuExtract3 via /api/generate is not a hard failure: it's slower and more
+# prone to redundant/hallucinated claims than the same model called with the
+# template role (measured live, 2026-09-20: 19.1s w/ 6 near-duplicate claims
+# including one nonsensical reversed one, vs 7.5s w/ 1 clean claim).
+NUEXTRACT_CHAT_TEMPLATE = {
+    "entities": [{"name": "verbatim-string", "evidence_excerpt": "verbatim-string", "status": "string"}],
+    "claims": [{"subject_raw": "verbatim-string", "predicate": "verbatim-string", "object_raw": "verbatim-string",
+                "evidence_excerpt": "verbatim-string", "status": "string"}],
+}
+NUEXTRACT_CHAT_INSTRUCTIONS = ("Extract only information explicitly present in the text. "
+                                "Do not infer. Omit fields that are not stated.")
+
+# NuExtract's own template type vocabulary (verbatim-string, integer,
+# date-time, ...), used as literal placeholder values in
+# NUEXTRACT_CHAT_TEMPLATE above. A model given the wrong request shape for
+# its training -- e.g. a non-NuExtract model called with
+# api_style="chat_template", or a NuExtract model called with "generate" --
+# can echo one of these placeholders back as if it were real extracted
+# content instead of erroring. Observed live, 2026-09-20: gemma4:12b called
+# with api_style="chat_template" returned a claim with status="STRING" (the
+# placeholder, upper-cased by the normalization below) rather than a real
+# status. Checked in ollama_extract() below so this fails loudly
+# (OLLAMA_SCHEMA_INVALID) instead of silently becoming a schema-valid but
+# meaningless claim downstream.
+_TEMPLATE_PLACEHOLDER_VALUES = {"verbatim-string", "string", "integer", "number", "date-time", "boolean"}
+
+
+def _echoes_template_placeholder(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in _TEMPLATE_PLACEHOLDER_VALUES
+
+
+def _build_ollama_options(num_ctx: int, num_predict: int, temperature: float | None, seed: int | None) -> dict:
+    options = {"num_ctx": num_ctx, "num_predict": num_predict}
+    if temperature is not None: options["temperature"] = temperature
+    if seed is not None: options["seed"] = seed
+    return options
+
+
+def _generate_request(text: str, model: str, *, num_ctx: int, num_predict: int, think: bool,
+                      temperature: float | None, seed: int | None) -> tuple[str, dict]:
+    prompt = ("Extract entities and factual claims from this archive text. Return ONLY JSON with entities and claims. "
+              "entities MUST be an array; every entity must contain name,evidence_excerpt,status. "
+              "Every claim must contain subject_raw,predicate,object_raw,evidence_excerpt,status. Do not infer.\nTEXT:\n" + text)
+    return "/api/generate", {"model": model, "prompt": prompt, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
+                              "think": think, "options": _build_ollama_options(num_ctx, num_predict, temperature, seed)}
+
+
+def _chat_template_request(text: str, model: str, *, num_ctx: int, num_predict: int, think: bool,
+                           temperature: float | None, seed: int | None) -> tuple[str, dict]:
+    messages = [{"role": "template", "content": canonical(NUEXTRACT_CHAT_TEMPLATE)},
+                {"role": "instructions", "content": NUEXTRACT_CHAT_INSTRUCTIONS},
+                {"role": "user", "content": text}]
+    return "/api/chat", {"model": model, "messages": messages, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
+                          "think": think, "options": _build_ollama_options(num_ctx, num_predict, temperature, seed)}
+
+
+# "generate" (the original /api/generate + free-text-instruction shape) stays
+# the default everywhere below -- it's what every existing caller/cache entry
+# was built against. "chat_template" is the NuExtract3-shaped alternative
+# (see NUEXTRACT_CHAT_TEMPLATE's comment above): an explicit opt-in, never a
+# silent default switch.
+API_STYLES = {"generate": _generate_request, "chat_template": _chat_template_request}
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -308,7 +379,7 @@ def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50
 def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars: int = 24000,
                    timeout: int = 60, num_ctx: int = 8192, num_predict: int = 2048,
                    think: bool = False, temperature: float | None = None,
-                   seed: int | None = None) -> dict:
+                   seed: int | None = None, api_style: str = "generate") -> dict:
     """`temperature`/`seed` are optional (default None -> omitted from
     `options`, byte-for-byte the same request every existing caller has
     always sent -- no behavior change unless a caller opts in). Added
@@ -320,23 +391,24 @@ def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars:
     separate calls on the same text produce byte-identical claim lists.
     Left opt-in here (not the new default) because this function is also
     used by gmv_evidence_pipeline.py's own SEMANTIC extraction stage,
-    a different, unrelated caller this change must not silently affect."""
+    a different, unrelated caller this change must not silently affect.
+
+    `api_style` ("generate", unchanged default, or "chat_template") picks
+    which Ollama endpoint/request shape to use -- see API_STYLES and
+    NUEXTRACT_CHAT_TEMPLATE's comment above for why NuExtract3 specifically
+    requires "chat_template" to run in its structured-extraction mode."""
     if record.get("extraction_status") != "SUCCESS": raise EvidenceError("Extraction is not successful")
+    if api_style not in API_STYLES: raise EvidenceError("UNKNOWN_API_STYLE", detail=api_style)
     text = record["text"]; truncated = len(text) > max_prompt_chars
     if truncated: text = text[:max_prompt_chars // 2] + "\n[...TRUNCATED...]\n" + text[-max_prompt_chars // 2:]
-    prompt = ("Extract entities and factual claims from this archive text. Return ONLY JSON with entities and claims. "
-              "entities MUST be an array; every entity must contain name,evidence_excerpt,status. "
-              "Every claim must contain subject_raw,predicate,object_raw,evidence_excerpt,status. Do not infer.\nTEXT:\n" + text)
-    options = {"num_ctx": num_ctx, "num_predict": num_predict}
-    if temperature is not None: options["temperature"] = temperature
-    if seed is not None: options["seed"] = seed
-    payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
-                          "think": think, "options": options}).encode()
-    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate", data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
+    path, body = API_STYLES[api_style](text, model, num_ctx=num_ctx, num_predict=num_predict, think=think,
+                                        temperature=temperature, seed=seed)
+    payload = json.dumps(body).encode()
+    request = urllib.request.Request(endpoint.rstrip("/") + path, data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
             envelope = json.load(response)
-            raw_output = envelope.get("response", "")
+            raw_output = envelope.get("response", "") if api_style == "generate" else (envelope.get("message") or {}).get("content", "")
             runtime = {k: envelope.get(k) for k in ("done_reason", "eval_count", "prompt_eval_count", "prompt_eval_duration", "eval_duration")}
             if envelope.get("done_reason") in {"length", "max_tokens"}:
                 raise OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime=runtime, raw_output=raw_output)
@@ -357,9 +429,13 @@ def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars:
     for entity in entities:
         if not entity.get("name") or not entity.get("evidence_excerpt"):
             raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
+        if any(_echoes_template_placeholder(entity.get(k)) for k in ("name", "evidence_excerpt", "status")):
+            raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
         entity.update({"file_id": record["file_id"], "status": str(entity.get("status", "SUPPORTED_BY_ARCHIVE")).upper()})
     for i, claim in enumerate(claims):
         if not all(claim.get(k) for k in ("subject_raw", "predicate", "object_raw", "evidence_excerpt")):
+            raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
+        if any(_echoes_template_placeholder(claim.get(k)) for k in ("subject_raw", "predicate", "object_raw", "evidence_excerpt", "status")):
             raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
         claim.update({"file_id": record["file_id"], "extraction_claim_ref": f"{record['file_id']}#{i}", "truncated_source": truncated, "status": str(claim.get("status", "SUPPORTED_BY_ARCHIVE")).upper()})
     return {"file_id": record["file_id"], "entities": entities, "claims": claims,
@@ -368,13 +444,16 @@ def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars:
 
 
 def cached_ollama_extract(record: dict, evidence_root: Path, *, endpoint: str, model: str,
-                          max_prompt_chars: int = 24000, timeout: int = 60, prompt_version: str = "0.1") -> dict:
-    """Global semantic cache keyed by content identity, prompt version and model."""
+                          max_prompt_chars: int = 24000, timeout: int = 60, prompt_version: str = "0.1",
+                          api_style: str = "generate") -> dict:
+    """Global semantic cache keyed by content identity, prompt version, model
+    and api_style -- api_style changes the actual request/response shape sent
+    to Ollama, so two different styles must never collide on one cache entry."""
     _, cache = paths(evidence_root)
-    identity = hashlib.sha256(f"{record['file_id']}|{prompt_version}|{model}".encode()).hexdigest()
+    identity = hashlib.sha256(f"{record['file_id']}|{prompt_version}|{model}|{api_style}".encode()).hexdigest()
     cache_path = cache / "semantic" / f"{identity}.json"
     if cache_path.exists(): return read_json(cache_path, {})
-    result = ollama_extract(record, endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout)
+    result = ollama_extract(record, endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout, api_style=api_style)
     result["semantic_prompt_version"] = prompt_version
     result["model"] = model
     write_json(cache_path, result)
@@ -451,7 +530,8 @@ def semantic_extract_batch(records: list[dict], evidence_root: Path, *, artist: 
                            context: int = 8192, num_predict: int = 2048,
                            think: bool = False, min_adaptive_chunk_chars: int = 500,
                            max_adaptive_depth: int = 4, log_path: Path | None = None,
-                           resume: bool = False, retry_limit: int = 1) -> dict:
+                           resume: bool = False, retry_limit: int = 1,
+                           api_style: str = "generate") -> dict:
     """Sequential, bounded semantic extraction with optional resume and retry."""
     all_entities, all_claims = [], []
     log_path = log_path or (evidence_root / "semantic" / "runtime.jsonl")
@@ -472,7 +552,7 @@ def semantic_extract_batch(records: list[dict], evidence_root: Path, *, artist: 
         try:
             started = time.monotonic(); result = ollama_extract(node, endpoint=endpoint, model=model,
                 max_prompt_chars=max_chunk_chars, timeout=timeout, num_ctx=context,
-                num_predict=num_predict, think=think)
+                num_predict=num_predict, think=think, api_style=api_style)
             for i, claim in enumerate(result.get("claims", [])):
                 claim["extraction_claim_ref"] = f"{node['file_id']}#{node_id}:{i}"
                 claim["leaf_chunk_id"] = node_id; claim["original_chunk_id"] = str(node.get("original_chunk_id", node_id))
@@ -551,11 +631,11 @@ def semantic_extract_batch(records: list[dict], evidence_root: Path, *, artist: 
         write_json(evidence_root / "semantic" / "run_manifest.json", {"artist": artist, "model": model, "context": context,
             "num_ctx": context, "num_predict": num_predict, "thinking": think, "timeout": timeout,
             "max_chunk_chars": max_chunk_chars, "min_adaptive_chunk_chars": min_adaptive_chunk_chars,
-            "max_adaptive_depth": max_adaptive_depth, "status": "BLOCKED", "failure_class": str(exc),
+            "max_adaptive_depth": max_adaptive_depth, "api_style": api_style, "status": "BLOCKED", "failure_class": str(exc),
             "attempts": attempts_manifest, "nodes": nodes_manifest})
         raise
     write_json(evidence_root / "semantic" / "run_manifest.json", {"artist": artist, "model": model, "context": context,
-        "num_ctx": context, "num_predict": num_predict, "thinking": think,
+        "num_ctx": context, "num_predict": num_predict, "thinking": think, "api_style": api_style,
         "timeout": timeout, "max_chunk_chars": max_chunk_chars, "min_adaptive_chunk_chars": min_adaptive_chunk_chars,
         "max_adaptive_depth": max_adaptive_depth, "status": "SUCCESS", "attempts": attempts_manifest, "nodes": nodes_manifest})
     return {"entities": all_entities, "claims": all_claims}
@@ -718,14 +798,14 @@ def main() -> int:
     sub = p.add_subparsers(dest="command", required=True)
     scan_p = sub.add_parser("scan"); scan_p.add_argument("root", type=Path)
     ext_p = sub.add_parser("extract"); ext_p.add_argument("root", type=Path); ext_p.add_argument("--max-file-bytes", type=int, default=50_000_000)
-    analyze_p = sub.add_parser("analyze"); analyze_p.add_argument("record", type=Path); analyze_p.add_argument("--endpoint", default="http://localhost:11434"); analyze_p.add_argument("--model", required=True); analyze_p.add_argument("--artist", default="unknown"); analyze_p.add_argument("--timeout", type=int, default=180); analyze_p.add_argument("--max-chunk-chars", type=int, default=8000); analyze_p.add_argument("--ollama-context", type=int, default=8192); analyze_p.add_argument("--num-predict", type=int, default=2048); analyze_p.add_argument("--min-adaptive-chunk-chars", type=int, default=500); analyze_p.add_argument("--max-adaptive-depth", type=int, default=4); analyze_p.add_argument("--retry-limit", type=int, default=1, help="Max attempts per file for transient TIMEOUT/OLLAMA_UNAVAILABLE errors"); analyze_p.add_argument("--resume", action="store_true", default=False, help="Skip files already marked valid in analyze_manifest.json")
+    analyze_p = sub.add_parser("analyze"); analyze_p.add_argument("record", type=Path); analyze_p.add_argument("--endpoint", default="http://localhost:11434"); analyze_p.add_argument("--model", required=True); analyze_p.add_argument("--artist", default="unknown"); analyze_p.add_argument("--timeout", type=int, default=180); analyze_p.add_argument("--max-chunk-chars", type=int, default=8000); analyze_p.add_argument("--ollama-context", type=int, default=8192); analyze_p.add_argument("--num-predict", type=int, default=2048); analyze_p.add_argument("--min-adaptive-chunk-chars", type=int, default=500); analyze_p.add_argument("--max-adaptive-depth", type=int, default=4); analyze_p.add_argument("--retry-limit", type=int, default=1, help="Max attempts per file for transient TIMEOUT/OLLAMA_UNAVAILABLE errors"); analyze_p.add_argument("--resume", action="store_true", default=False, help="Skip files already marked valid in analyze_manifest.json"); analyze_p.add_argument("--api-style", choices=sorted(API_STYLES), default="generate", help="'generate' (default, /api/generate + free-text instruction) or 'chat_template' (/api/chat with a template role, required by NuExtract-family models)")
     resolve_p = sub.add_parser("resolve"); resolve_p.add_argument("claims", type=Path); resolve_p.add_argument("--rows", type=Path, required=True); resolve_p.add_argument("--aliases", type=Path)
     resolve_p.add_argument("--extra-claims", type=Path, action="append", default=[], help="Additional raw-claims JSON to merge before resolving (e.g. gmv_artist_web_retrieve.py ingest output)")
     args = p.parse_args()
     try:
         if args.command == "scan": output = scan(args.root, args.evidence_root)
         elif args.command == "extract": output = extract(args.evidence_root, args.root, max_file_bytes=args.max_file_bytes)
-        elif args.command == "analyze": output = semantic_extract_batch([read_json(args.record, {})], args.evidence_root, artist=args.artist, endpoint=args.endpoint, model=args.model, max_chunk_chars=args.max_chunk_chars, timeout=args.timeout, context=args.ollama_context, num_predict=args.num_predict, min_adaptive_chunk_chars=args.min_adaptive_chunk_chars, max_adaptive_depth=args.max_adaptive_depth, resume=args.resume, retry_limit=args.retry_limit)
+        elif args.command == "analyze": output = semantic_extract_batch([read_json(args.record, {})], args.evidence_root, artist=args.artist, endpoint=args.endpoint, model=args.model, max_chunk_chars=args.max_chunk_chars, timeout=args.timeout, context=args.ollama_context, num_predict=args.num_predict, min_adaptive_chunk_chars=args.min_adaptive_chunk_chars, max_adaptive_depth=args.max_adaptive_depth, resume=args.resume, retry_limit=args.retry_limit, api_style=args.api_style)
         else:
             claim_document = read_json(args.claims, {})
             raw = claim_document.get("claims", []) if isinstance(claim_document, dict) else claim_document

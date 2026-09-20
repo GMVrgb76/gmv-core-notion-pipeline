@@ -51,6 +51,7 @@ from gmv_crawler_atom_builder import (  # noqa: E402 -- reused, not reimplemente
     build_atoms,
 )
 from gmv_crawler_candidate_extractor import (  # noqa: E402 -- reused, not reimplemented
+    DEFAULT_API_STYLE,
     DEFAULT_ENDPOINT,
     DEFAULT_MODEL,
     CandidateEntity,
@@ -88,9 +89,17 @@ def process_document(
     seed: int | None = 42,
     num_predict: int = 2048,
     num_ctx: int = 8192,
+    api_style: str = DEFAULT_API_STYLE,
 ) -> ProcessDocumentResult:
     """EXTRACT CANDIDATES -> BUILD ATOMS (ATTRIBUTE then RELATION) for one
     document, in the one order that avoids double-processing.
+
+    `api_style` defaults to `DEFAULT_API_STYLE` (currently "chat_template",
+    matching `DEFAULT_MODEL` -- see that constant's own comment in
+    gmv_crawler_candidate_extractor.py) and is passed straight through to
+    `extract_candidates()`/`ollama_extract()`. It only affects candidate
+    extraction, not `build_relation_atoms()`'s `classify_entity_types()`
+    call below, which uses its own separate request shape.
 
     `temperature`/`seed` default to `0`/`42` HERE (unlike
     `extract_candidates()`/`ollama_extract()`, which both default to
@@ -166,6 +175,7 @@ def process_document(
         seed=seed,
         num_predict=num_predict,
         num_ctx=num_ctx,
+        api_style=api_style,
     )
 
     attr_atoms, attr_rejected = build_atoms(propositions, now=now)

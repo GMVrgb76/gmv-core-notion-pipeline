@@ -125,7 +125,37 @@ if str(REPO_ROOT) not in sys.path:
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
 from gmv_evidence_pipeline import ollama_extract  # noqa: E402 -- reused, not reimplemented
 
-DEFAULT_MODEL = "deepseek-coder-v2:16b"
+# `DEFAULT_MODEL = "numind/nuextract3:q4_k_m"` / `DEFAULT_API_STYLE =
+# "chat_template"` (changed 2026-09-20, was `"deepseek-coder-v2:16b"` /
+# "generate"). Evidence basis, stated plainly because it is NOT the same
+# rigor as the qwen/gemma4/deepseek history above: an A/B benchmark on 4
+# real Area35 documents from a DIFFERENT artist's archive (Federico
+# Garibaldi -- this crawler's own empirical tests so far used a CV and one
+# long document, not that corpus), comparing gemma4:12b against
+# numind/nuextract3:q4_k_m called correctly (`ollama.com/numind/nuextract3`:
+# NuExtract3 only enters its structured-extraction mode via Ollama's
+# /api/chat with a "template" role message -- calling it with a flat
+# /api/generate prompt, as this file did for every model until now, leaves
+# it in a generic, unreliable mode). Result: nuextract3:q4_k_m was 2-3x
+# faster and hallucinated less than gemma4:12b (measured as
+# evidence_excerpt not being a verbatim substring of the source text: ~4.5%
+# vs ~15.7% across the 4 documents) and extracted MORE total entities/
+# claims. deepseek-coder-v2:16b was never part of that specific A/B (it was
+# the crawler's own prior default, chosen for the different reason of
+# zero-failure reliability on ITS two test documents) -- but the real
+# nightly batch run of 2026-09-20T01:00:05Z (`01_RUNTIME/gmv_crawler/
+# run_log.jsonl`) shows deepseek-coder-v2:16b failed on 100% of documents
+# in that run (`OLLAMA_SCHEMA_INVALID`/`OLLAMA_OUTPUT_TRUNCATED`, 0 of
+# however-many-were-attempted succeeded, 0 atoms), so it was not actually a
+# safe incumbent to preserve by default either.
+# THIS HAS NOT YET BEEN VALIDATED AT THIS CRAWLER'S OWN FULL-ROSTER BATCH
+# SCALE the way qwen2.5-coder and deepseek-coder-v2 were (see history
+# above, and the pattern that a small-sample win doesn't guarantee it) --
+# the next real nightly run against the full 46-artist roster is the actual
+# test. If it fails at scale the way qwen did, follow the same discipline:
+# record the real failure mode here before changing the default again.
+DEFAULT_MODEL = "numind/nuextract3:q4_k_m"
+DEFAULT_API_STYLE = "chat_template"
 DEFAULT_ENDPOINT = "http://localhost:11434"
 
 
@@ -216,6 +246,7 @@ def extract_candidates(
     seed: int | None = None,
     num_predict: int = 2048,
     num_ctx: int = 8192,
+    api_style: str = DEFAULT_API_STYLE,
 ) -> tuple[tuple[CandidateEntity, ...], tuple[CandidateProposition, ...], tuple[str, ...]]:
     """Run `ollama_extract()` against `document.text` and map its raw
     output to this module's Candidate dataclasses. `temperature`/`seed`
@@ -224,7 +255,12 @@ def extract_candidates(
     that function's own docstring for why they exist (a live, reproduced
     finding: re-extracting the same text with default sampling produces
     different predicate phrasing every call, which defeats any exact-
-    text predicate mapping downstream). Raises `ValueError` for
+    text predicate mapping downstream). `api_style` defaults to
+    `DEFAULT_API_STYLE` ("chat_template", matching `DEFAULT_MODEL` -- see
+    that constant's own comment) rather than `ollama_extract()`'s own
+    "generate" default, since calling THIS module's default model with
+    the wrong api_style would defeat the whole point of choosing it.
+    Raises `ValueError` for
     a caller bug (document not successfully extracted, no evidence_ids
     supplied) -- these are not extraction outcomes to report via a status
     field the way `extract_document()` (step 10) reports format failures;
@@ -267,6 +303,7 @@ def extract_candidates(
         record, endpoint=endpoint, model=model,
         max_prompt_chars=max_prompt_chars, timeout=timeout,
         temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
+        api_style=api_style,
     )
     entities: list[CandidateEntity] = []
     propositions: list[CandidateProposition] = []

@@ -249,13 +249,31 @@ def test_extract_candidates_default_model_and_endpoint_match_repo_precedent(monk
 
     monkeypatch.setattr(candidate_extractor, "ollama_extract", spy)
     extract_candidates(make_document(), evidence_ids=("ev-1",))
-    # gemma4:12b -> qwen2.5-coder:7b -> deepseek-coder-v2:16b, all 2026-09-19.
-    # qwen2.5-coder won the first (single-document) test but then hit a
-    # documented Qwen-family repetition-loop bug in real batch use; gemma4
-    # re-tested on that same failing document also timed out. deepseek-
-    # coder-v2 is the only one of the three with zero failures across
-    # every real document tested -- chosen for reliability over the
-    # completeness it trades away (see module docstring for the full,
-    # non-simplified history).
-    assert captured["model"] == "deepseek-coder-v2:16b"
+    # gemma4:12b -> qwen2.5-coder:7b -> deepseek-coder-v2:16b (all
+    # 2026-09-19) -> numind/nuextract3:q4_k_m (2026-09-20). deepseek-coder-v2
+    # was the only one of the first three with zero failures across every
+    # real document tested THAT session -- but the real nightly batch run of
+    # 2026-09-20T01:00:05Z (01_RUNTIME/gmv_crawler/run_log.jsonl) shows it
+    # failed on 100% of documents (OLLAMA_SCHEMA_INVALID/
+    # OLLAMA_OUTPUT_TRUNCATED), so it was never actually the safe default its
+    # own history suggested. nuextract3:q4_k_m + api_style="chat_template"
+    # beat gemma4:12b on speed and hallucination rate in a 4-document A/B
+    # (see DEFAULT_MODEL's own comment) -- not yet validated at this
+    # crawler's own batch scale the way the first three swaps were.
+    assert captured["model"] == "numind/nuextract3:q4_k_m"
     assert captured["endpoint"] == "http://localhost:11434"
+    assert captured["api_style"] == "chat_template"
+
+
+def test_extract_candidates_api_style_override_reaches_ollama_extract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A caller that explicitly wants the old /api/generate shape (e.g. to
+    use a non-NuExtract model) must be able to override the new default."""
+    captured = {}
+
+    def spy(record, **kwargs):
+        captured.update(kwargs)
+        return {"file_id": record["file_id"], "entities": [], "claims": []}
+
+    monkeypatch.setattr(candidate_extractor, "ollama_extract", spy)
+    extract_candidates(make_document(), evidence_ids=("ev-1",), api_style="generate")
+    assert captured["api_style"] == "generate"
