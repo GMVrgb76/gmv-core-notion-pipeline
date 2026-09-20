@@ -138,20 +138,25 @@ def test_extract_candidates_maps_real_ollama_extract_output(monkeypatch: pytest.
             subject_raw="Federico Garibaldi", predicate="nato a", object_raw="Nizza",
             evidence_excerpt="nacque a Nizza nel 1807", status="SUPPORTED_BY_ARCHIVE",
             source_id=document.source_id, evidence_id=("ev-1", "ev-2"),
-            truncated_source=False, extraction_claim_ref="sha256:" + "a" * 64 + "#0",
+            truncated_source=False, extraction_claim_ref="sha256:" + "a" * 64 + "#0:0",
         ),
     )
     assert rejected == ()
 
 
-def test_extract_candidates_propagates_truncated_source_and_claim_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extract_candidates_propagates_truncated_source_and_recomputes_claim_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`truncated_source` passes through from ollama_extract() untouched, but
+    `extraction_claim_ref` is always recomputed from chunk position -- see
+    extract_candidates()'s own docstring on why ollama_extract()'s per-call
+    numbering can't be trusted once a document spans multiple chunks."""
     monkeypatch.setattr(
         candidate_extractor, "ollama_extract",
         fake_ollama_result(claims=[make_claim(truncated_source=True, extraction_claim_ref="sha256:" + "b" * 64 + "#3")]),
     )
-    _, propositions, _ = extract_candidates(make_document(), evidence_ids=("ev-1",))
+    document = make_document()
+    _, propositions, _ = extract_candidates(document, evidence_ids=("ev-1",))
     assert propositions[0].truncated_source is True
-    assert propositions[0].extraction_claim_ref == "sha256:" + "b" * 64 + "#3"
+    assert propositions[0].extraction_claim_ref == f"{document.source_id}#0:0"
 
 
 def test_extract_candidates_mixed_batch_survives_one_unusual_status_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,12 +195,13 @@ def test_extract_candidates_rejects_only_the_malformed_item_not_the_whole_batch(
             claims=[make_claim(), make_claim(status="", extraction_claim_ref="sha256:" + "c" * 64 + "#1")],
         ),
     )
-    entities, propositions, rejected = extract_candidates(make_document(), evidence_ids=("ev-1",))
+    document = make_document()
+    entities, propositions, rejected = extract_candidates(document, evidence_ids=("ev-1",))
     assert [e.name for e in entities] == ["Good Entity"]
     assert len(propositions) == 1
     assert len(rejected) == 2
     assert any("Bad Entity" in reason for reason in rejected)
-    assert any("#1" in reason for reason in rejected)
+    assert any(f"{document.source_id}#0:1" in reason for reason in rejected)
 
 
 def test_extract_candidates_empty_lists_produce_empty_tuples(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,3 +283,76 @@ def test_extract_candidates_api_style_override_reaches_ollama_extract(monkeypatc
     monkeypatch.setattr(candidate_extractor, "ollama_extract", spy)
     extract_candidates(make_document(), evidence_ids=("ev-1",), api_style="generate")
     assert captured["api_style"] == "generate"
+
+
+# --- chunking / adaptive-retry (2026-09-20: real nuextract3 OLLAMA_OUTPUT_TRUNCATED
+# on a long real Area35 bio listing dozens of exhibitions -- see extract_candidates()'s
+# own docstring for the full live finding) ---
+
+def test_extract_candidates_chunks_long_document_and_merges_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A document longer than max_chunk_chars must be split into multiple
+    ollama_extract() calls, with results merged and each claim's
+    extraction_claim_ref made unique by chunk position."""
+    calls = []
+
+    def spy(record, **kwargs):
+        calls.append(record["text"])
+        i = len(calls) - 1
+        return {
+            "file_id": record["file_id"],
+            "entities": [{"name": f"Entity{i}", "evidence_excerpt": "e", "status": "SUPPORTED_BY_ARCHIVE"}],
+            "claims": [make_claim(extraction_claim_ref="ignored-should-be-recomputed")],
+        }
+
+    monkeypatch.setattr(candidate_extractor, "ollama_extract", spy)
+    document = make_document(text="Federico Garibaldi nacque a Nizza nel 1807. Poi si trasferi' a Roma nel 1820.")
+    entities, propositions, rejected = extract_candidates(document, evidence_ids=("ev-1",), max_chunk_chars=20)
+    assert len(calls) >= 2, "a document well over max_chunk_chars=20 must be split into more than one call"
+    assert len(entities) == len(calls)
+    assert len(propositions) == len(calls)
+    assert rejected == ()
+    # Every claim's ref must be unique across chunks (chunk-position-based, not the
+    # single ollama_extract()-internal index that would collide across separate calls).
+    refs = [p.extraction_claim_ref for p in propositions]
+    assert len(set(refs)) == len(refs)
+    assert all(ref.startswith(f"{document.source_id}#") for ref in refs)
+
+
+def test_extract_candidates_retries_truncated_chunk_via_adaptive_split(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A chunk that overflows num_predict (OLLAMA_OUTPUT_TRUNCATED) must be
+    bisected and retried rather than failing the whole document -- the same
+    live failure mode found on a real Area35 document, reproduced here
+    without a real Ollama call."""
+    calls = []
+
+    def spy(record, **kwargs):
+        calls.append(record.get("chunk_id"))
+        if record.get("chunk_id") == "0":
+            raise candidate_extractor.OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={}, raw_output="{incomplete")
+        return {
+            "file_id": record["file_id"],
+            "entities": [],
+            "claims": [make_claim()],
+        }
+
+    monkeypatch.setattr(candidate_extractor, "ollama_extract", spy)
+    document = make_document(text="Federico Garibaldi nacque a Nizza nel 1807. Poi si trasferi' a Roma nel 1820.")
+    _, propositions, _ = extract_candidates(
+        document, evidence_ids=("ev-1",), max_chunk_chars=1000, min_adaptive_chunk_chars=10,
+    )
+    assert calls[0] == "0"
+    assert set(calls[1:]) == {"0.0", "0.1"}
+    assert len(propositions) == 2
+
+
+def test_extract_candidates_adaptive_split_exhausted_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A chunk already at or below min_adaptive_chunk_chars that still
+    overflows must raise rather than loop -- mirrors
+    semantic_extract_batch()'s own ADAPTIVE_CHUNK_MINIMUM_EXHAUSTED."""
+    def always_truncated(record, **kwargs):
+        raise candidate_extractor.OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={}, raw_output="{incomplete")
+
+    monkeypatch.setattr(candidate_extractor, "ollama_extract", always_truncated)
+    document = make_document()
+    with pytest.raises(candidate_extractor.EvidenceError, match="ADAPTIVE_CHUNK_MINIMUM_EXHAUSTED"):
+        extract_candidates(document, evidence_ids=("ev-1",), min_adaptive_chunk_chars=1000)

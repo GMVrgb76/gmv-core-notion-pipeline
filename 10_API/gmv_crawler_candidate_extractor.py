@@ -123,7 +123,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
-from gmv_evidence_pipeline import ollama_extract  # noqa: E402 -- reused, not reimplemented
+from gmv_evidence_pipeline import (  # noqa: E402 -- reused, not reimplemented
+    EvidenceError,
+    OllamaResponseError,
+    adaptive_split_chunk,
+    deterministic_chunks,
+    ollama_extract,
+)
 
 # `DEFAULT_MODEL = "numind/nuextract3:q4_k_m"` / `DEFAULT_API_STYLE =
 # "chat_template"` (changed 2026-09-20, was `"deepseek-coder-v2:16b"` /
@@ -247,6 +253,9 @@ def extract_candidates(
     num_predict: int = 2048,
     num_ctx: int = 8192,
     api_style: str = DEFAULT_API_STYLE,
+    max_chunk_chars: int = 8000,
+    min_adaptive_chunk_chars: int = 500,
+    max_adaptive_depth: int = 4,
 ) -> tuple[tuple[CandidateEntity, ...], tuple[CandidateProposition, ...], tuple[str, ...]]:
     """Run `ollama_extract()` against `document.text` and map its raw
     output to this module's Candidate dataclasses. `temperature`/`seed`
@@ -287,6 +296,28 @@ def extract_candidates(
     nowhere, consistent with this session's general stance against silent
     loss (see Correction 6's `DELETED`-not-`del` fix elsewhere in this
     crawler).
+
+    `max_chunk_chars`/`min_adaptive_chunk_chars`/`max_adaptive_depth` reuse
+    `gmv_evidence_pipeline.py`'s own `deterministic_chunks()`/
+    `adaptive_split_chunk()` (the exact functions `semantic_extract_batch()`
+    already uses for this same problem) instead of reimplementing chunking
+    here. Added 2026-09-20 after a live, reproduced finding: a real Area35
+    document (an artist bio listing dozens of exhibitions) made
+    numind/nuextract3:q4_k_m generate one claim per exhibition and exceed
+    `num_predict` before it could close the JSON -- `OLLAMA_OUTPUT_TRUNCATED`
+    -- even though every claim generated before the cutoff was accurate
+    (real museum names, real evidence_excerpt quotes). Not a comprehension
+    failure, a token-budget one: splitting the document into smaller pieces
+    first, extracting each independently, and merging the results fixes it
+    without lowering extraction quality. A chunk that itself still overflows
+    is recursively bisected via `adaptive_split_chunk()`, bounded by
+    `max_adaptive_depth`/`min_adaptive_chunk_chars`, mirroring
+    `semantic_extract_batch()`'s own retry semantics exactly (down to raising
+    `EvidenceError("ADAPTIVE_CHUNK_MINIMUM_EXHAUSTED"/"ADAPTIVE_CHUNK_MAX_DEPTH")`
+    on the same two exhaustion conditions). Each chunk's claims get a fresh
+    `extraction_claim_ref` keyed by chunk index (`ollama_extract()` numbers
+    claims `0..n` PER CALL, so without this every chunk after the first would
+    collide on `extraction_claim_ref` with the first chunk's).
     """
     _validate_evidence_id(evidence_ids)
     if document.status != "SUCCESS":
@@ -299,16 +330,40 @@ def extract_candidates(
         "text": document.text,
         "extraction_status": document.status,
     }
-    result = ollama_extract(
-        record, endpoint=endpoint, model=model,
-        max_prompt_chars=max_prompt_chars, timeout=timeout,
-        temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
-        api_style=api_style,
-    )
+
+    def _extract_node(node: dict, depth: int = 0) -> list[dict]:
+        chunk_id = str(node.get("chunk_id", node.get("chunk_index", "0")))
+        try:
+            result = ollama_extract(
+                node, endpoint=endpoint, model=model,
+                max_prompt_chars=max_prompt_chars, timeout=timeout,
+                temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
+                api_style=api_style,
+            )
+        except OllamaResponseError as exc:
+            if str(exc) != "OLLAMA_OUTPUT_TRUNCATED":
+                raise
+            if len(node.get("text", "")) <= min_adaptive_chunk_chars:
+                raise EvidenceError("ADAPTIVE_CHUNK_MINIMUM_EXHAUSTED") from exc
+            if depth >= max_adaptive_depth:
+                raise EvidenceError("ADAPTIVE_CHUNK_MAX_DEPTH") from exc
+            left, right = adaptive_split_chunk(node)
+            return _extract_node(left, depth + 1) + _extract_node(right, depth + 1)
+        for i, claim in enumerate(result.get("claims", [])):
+            claim["extraction_claim_ref"] = f"{document.source_id}#{chunk_id}:{i}"
+        return [result]
+
+    results: list[dict] = []
+    for index, chunk in enumerate(deterministic_chunks(record, max_chunk_chars)):
+        chunk["chunk_id"] = str(index)
+        results.extend(_extract_node(chunk))
+    all_entities = [entity for r in results for entity in r.get("entities", [])]
+    all_claims = [claim for r in results for claim in r.get("claims", [])]
+
     entities: list[CandidateEntity] = []
     propositions: list[CandidateProposition] = []
     rejected: list[str] = []
-    for entity in result["entities"]:
+    for entity in all_entities:
         try:
             entities.append(CandidateEntity(
                 name=entity["name"],
@@ -319,7 +374,7 @@ def extract_candidates(
             ))
         except ValueError as exc:
             rejected.append(f"entity {entity.get('name', '<unnamed>')!r}: {exc}")
-    for claim in result["claims"]:
+    for claim in all_claims:
         try:
             propositions.append(CandidateProposition(
                 subject_raw=claim["subject_raw"],
