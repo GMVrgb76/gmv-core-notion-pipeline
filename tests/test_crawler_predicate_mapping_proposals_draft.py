@@ -138,7 +138,7 @@ def test_no_direction_note_paired_with_a_proposal() -> None:
             )
 
 
-def test_governance_mapping_file_still_has_only_the_two_original_entries() -> None:
+def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> None:
     """This test originally pinned the file to exactly the 2 entries that
     existed when Task 11 ran, to prove Task 11 (an OpenCode delegation)
     never touched governance. 2026-09-17: a human (the directing session)
@@ -146,15 +146,24 @@ def test_governance_mapping_file_still_has_only_the_two_original_entries() -> No
     located_at mapping, verified against two separate live re-extractions
     of the same real sentence) -- a legitimate governance edit by the
     party this file's own "note_on_maintenance" says is allowed to make
-    one. Updated to match; the real invariant this test protects is
-    unchanged: every entry still maps to located_at only, and every
-    raw_predicate_text is one of the ones actually verified against real
-    data, never silently multiplying beyond what a human checked."""
+    one. 2026-09-21: a 4th entry ('ha esposto' -> participated_in) was
+    added via the new confirm_predicate_mapping Open WebUI tool -- and
+    caught, on review, having FIRST been confirmed as exhibited_at (wrong:
+    that predicate's domain is ARTWORK_INSTANCE, but the real example's
+    subject was the artist "Giovanni Cerri", a PERSON -- participated_in's
+    domain=[PERSON,ARTIST] is what actually matches), corrected before
+    this test was updated. The real invariant this test protects is
+    unchanged: every raw_predicate_text here is one that was actually
+    verified against real data (even if the first proposed predicate_id
+    was itself wrong and had to be corrected), never silently multiplying
+    beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 3, f"expected exactly the 3 known-verified entries, got {len(mappings)}"
-    raw_texts = {m["raw_predicate_text"] for m in mappings}
-    assert raw_texts == {"was held at", "was presented at", "was a solo exhibition at"}
-    assert all(m["predicate_id"] == "located_at" for m in mappings), (
-        "the real governance file must still map every entry to located_at only"
-    )
+    assert len(mappings) == 4, f"expected exactly the 4 known-verified entries, got {len(mappings)}"
+    by_text = {m["raw_predicate_text"]: m["predicate_id"] for m in mappings}
+    assert by_text == {
+        "was held at": "located_at",
+        "was presented at": "located_at",
+        "was a solo exhibition at": "located_at",
+        "ha esposto": "participated_in",
+    }

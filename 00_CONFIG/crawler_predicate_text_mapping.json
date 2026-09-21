@@ -17,6 +17,11 @@
       "raw_predicate_text": "was a solo exhibition at",
       "predicate_id": "located_at",
       "verified_against": "Confirmed on TWO separate re-extractions of the same real Garibaldi biography (gemma4:12b is not deterministic between runs): both times produced 'AttraversaMenti' | 'was a solo exhibition at' | 'Le Stanze della Fotografia, Venice (2025)' -- exact same subject/object shape already verified for 'was held at' above, a stable paraphrase, not a new semantic case."
+    },
+    {
+      "raw_predicate_text": "ha esposto",
+      "predicate_id": "participated_in",
+      "verified_against": "Corrected 2026-09-21 (was wrongly mapped to exhibited_at, which has domain=[ARTWORK_INSTANCE] -- the subject must be a specific artwork, not a person; caught on review, not caught by the confirming session itself). participated_in has domain=[PERSON,ARTIST] range=[EVENT,EXHIBITION,PROJECT], which matches the real case exactly: 'Giovanni Cerri' (subject=ARTIST) | 'ha esposto' | '54° Biennale di Venezia, Padiglione Italia' (object=EXHIBITION), from 'Nel 2011 l’artista ha esposto alla 54° Biennale di Venezia, Padiglione Italia, a cura di Vittorio Sgarbi.'"
     }
   ]
 }
