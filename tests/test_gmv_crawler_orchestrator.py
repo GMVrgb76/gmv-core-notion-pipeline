@@ -17,6 +17,16 @@ GOOD_HASH = "sha256:" + "a" * 64
 NOW = "2026-09-17T12:00:00Z"
 
 
+@pytest.fixture(autouse=True)
+def _stub_classify_document(monkeypatch: pytest.MonkeyPatch):
+    """classify_document() (added 2026-09-21) runs first in process_document()
+    now -- default every test to document_type="biography" (the original,
+    only, path before this change) so they stay pure/fast/deterministic (no
+    real Ollama call) unless a test explicitly overrides this stub itself
+    for a price_list/contract-routing test."""
+    monkeypatch.setattr(orchestrator, "classify_document", lambda *a, **k: {"document_type": "biography", "confidence": "high"})
+
+
 def make_document(text: str = "some real-looking text") -> ExtractionDocument:
     return ExtractionDocument(
         source_id="SRC-1", source_hash=GOOD_HASH, status="SUCCESS",
@@ -194,3 +204,95 @@ def test_all_entities_returned_verbatim_even_when_no_atom_uses_them(
     monkeypatch.setattr(orchestrator, "extract_candidates", _fake_extract)
     result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
     assert result.all_entities == entities
+
+
+# --- document-type routing (2026-09-21) ---
+
+def test_price_list_routes_to_price_extractor_not_entities_claims(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A price_list-classified document must never call extract_candidates()
+    at all -- see gmv_crawler_document_classifier.py's own docstring for why
+    entities/claims produces unmappable noise on this document type."""
+    from gmv_crawler_price_extractor import CandidateArtworkPrice
+
+    monkeypatch.setattr(orchestrator, "classify_document", lambda *a, **k: {"document_type": "price_list", "confidence": "high"})
+
+    def _fail_extract(*a, **k):
+        raise AssertionError("extract_candidates() must not be called for a price_list document")
+
+    price_entry = CandidateArtworkPrice(
+        title="Don Quijote", price=7500, evidence_excerpt="Prezzo: 7500",
+        source_id="SRC-1", evidence_id=("EV-1",), extraction_claim_ref="SRC-1#0",
+    )
+
+    def _fake_price_extract(*a, **k):
+        return (price_entry,), ()
+
+    monkeypatch.setattr(orchestrator, "extract_candidates", _fail_extract)
+    monkeypatch.setattr(orchestrator, "extract_price_entries", _fake_price_extract)
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.document_type == "price_list"
+    assert result.price_entries == (price_entry,)
+    assert result.price_rejected == ()
+    assert result.atoms == ()
+    assert result.all_entities == ()
+    assert result.contract_summary is None
+
+
+def test_contract_runs_both_entities_claims_and_contract_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A contract-classified document must run BOTH extract_candidates()
+    (parties as entities, obligations as claims) AND
+    extract_contract_summary() (structured commission/obligations) -- see
+    ProcessDocumentResult's own docstring for the live finding neither
+    alone is as complete as both together."""
+    from gmv_crawler_contract_extractor import CandidateContractSummary
+
+    monkeypatch.setattr(orchestrator, "classify_document", lambda *a, **k: {"document_type": "contract", "confidence": "high"})
+
+    entities = (make_entity("Area35 Art Factory"),)
+    propositions = (make_proposition("Area35 Art Factory", "edition_size", "5", ref="CLAIM-1"),)
+
+    def _fake_extract(*a, **k):
+        return entities, propositions, ()
+
+    summary = CandidateContractSummary(
+        evidence_excerpt="ACCORDO TRA ARTISTA E GALLERIA",
+        source_id="SRC-1", evidence_id=("EV-1",), extraction_claim_ref="SRC-1#0",
+        commission_percentage="50%",
+    )
+    calls = []
+
+    def _fake_contract_summary(*a, **k):
+        calls.append(True)
+        return summary
+
+    monkeypatch.setattr(orchestrator, "extract_candidates", _fake_extract)
+    monkeypatch.setattr(orchestrator, "extract_contract_summary", _fake_contract_summary)
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.document_type == "contract"
+    assert len(calls) == 1
+    assert result.contract_summary == summary
+    assert result.all_entities == entities
+    assert len(result.atoms) == 1  # the entities/claims -> atoms path still ran
+
+
+def test_biography_never_calls_price_or_contract_extractors(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fail(*a, **k):
+        raise AssertionError("must not be called for a biography document")
+
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), (), ()))
+    monkeypatch.setattr(orchestrator, "extract_price_entries", _fail)
+    monkeypatch.setattr(orchestrator, "extract_contract_summary", _fail)
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.document_type == "biography"
+    assert result.price_entries == ()
+    assert result.contract_summary is None
+
+
+def test_document_type_always_populated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orchestrator, "classify_document", lambda *a, **k: {"document_type": "press_release", "confidence": "medium"})
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), (), ()))
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.document_type == "press_release"

@@ -57,8 +57,17 @@ from gmv_crawler_candidate_extractor import (  # noqa: E402 -- reused, not reimp
     CandidateEntity,
     extract_candidates,
 )
+from gmv_crawler_contract_extractor import (  # noqa: E402 -- reused, not reimplemented
+    CandidateContractSummary,
+    extract_contract_summary,
+)
+from gmv_crawler_document_classifier import classify_document  # noqa: E402 -- reused, not reimplemented
 from gmv_crawler_entity_resolver import EntityTypeProposal  # noqa: E402 -- reused, not reimplemented
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
+from gmv_crawler_price_extractor import (  # noqa: E402 -- reused, not reimplemented
+    CandidateArtworkPrice,
+    extract_price_entries,
+)
 from gmv_crawler_relation_atom_builder import (  # noqa: E402 -- reused, not reimplemented
     build_relation_atoms,
 )
@@ -67,13 +76,41 @@ from gmv_crawler_relation_atom_builder import (  # noqa: E402 -- reused, not rei
 @dataclass(frozen=True, slots=True)
 class ProcessDocumentResult:
     """Everything one document produced, already routed -- no field here
-    requires the caller to re-derive which builder produced what."""
+    requires the caller to re-derive which builder produced what.
 
+    `document_type` (added 2026-09-21) is `classify_document()`'s own
+    verdict, always populated regardless of which extraction path ran --
+    a caller inspecting a stored result later should never have to
+    re-classify a document just to know why it went through the price/
+    contract/entities-claims path it did.
+
+    `price_entries`/`price_rejected` are populated only for
+    `document_type == "price_list"`, and `atoms`/`rejected`/
+    `entity_type_proposals_needing_verification`/`all_entities` are empty
+    for that document_type -- a price list does not go through
+    `extract_candidates()`/`build_atoms()` at all (see `process_document()`'s
+    own docstring for why: entities/claims produced one-off,
+    unmappable "predicates" per price-list row).
+
+    `contract_summary` is populated only for `document_type == "contract"`,
+    ADDITIONALLY to (not instead of) the normal `atoms`/`all_entities`
+    fields -- a contract runs through BOTH `extract_candidates()` (reliably
+    identifies the contract's parties as entities and its obligations as
+    claim text, verified live) AND `extract_contract_summary()`
+    (reliably extracts commission_percentage/key_obligations as clean
+    structured fields, verified live) because neither alone was as
+    complete as both together; see `gmv_crawler_contract_extractor.py`'s
+    own module docstring for the live-reproduced finding this is based on."""
+
+    document_type: str
     atoms: tuple[AtomCandidate, ...]
     rejected: tuple[RejectedCandidate, ...]
     entity_type_proposals_needing_verification: tuple[EntityTypeProposal, ...]
     extraction_rejected: tuple[str, ...]
     all_entities: tuple[CandidateEntity, ...]
+    price_entries: tuple[CandidateArtworkPrice, ...] = ()
+    price_rejected: tuple[str, ...] = ()
+    contract_summary: CandidateContractSummary | None = None
 
 
 def process_document(
@@ -91,8 +128,20 @@ def process_document(
     num_ctx: int = 8192,
     api_style: str = DEFAULT_API_STYLE,
 ) -> ProcessDocumentResult:
-    """EXTRACT CANDIDATES -> BUILD ATOMS (ATTRIBUTE then RELATION) for one
-    document, in the one order that avoids double-processing.
+    """CLASSIFY -> EXTRACT CANDIDATES -> BUILD ATOMS (ATTRIBUTE then RELATION)
+    for one document, in the one order that avoids double-processing.
+
+    `classify_document()` (added 2026-09-21) runs FIRST and decides which
+    extraction path the rest of this function takes -- see
+    `ProcessDocumentResult`'s own docstring for exactly what each
+    `document_type` produces. This branch exists because forcing every real
+    Area35 document through the entities/claims schema regardless of its
+    real type was producing schema-valid but useless one-off "predicates"
+    for price lists and contracts (see `gmv_crawler_document_classifier.py`'s
+    module docstring for the full audit). `technical_sheet`/`press_release`/
+    `invitation`/`certificate`/`other`/`biography` all still fall through to
+    the original entities/claims path unchanged -- only `price_list` and
+    `contract` have a dedicated schema built so far.
 
     `api_style` defaults to `DEFAULT_API_STYLE` (currently "chat_template",
     matching `DEFAULT_MODEL` -- see that constant's own comment in
@@ -164,6 +213,22 @@ def process_document(
        into `rejected`, since it describes a different stage's
        failures with a different contract).
     """
+    classification = classify_document(document.text, endpoint=endpoint, model=model, timeout=timeout)
+    document_type = classification["document_type"]
+
+    if document_type == "price_list":
+        price_entries, price_rejected = extract_price_entries(
+            document.text, source_id=document.source_id, evidence_ids=evidence_ids,
+            endpoint=endpoint, model=model, timeout=timeout,
+            temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
+        )
+        return ProcessDocumentResult(
+            document_type=document_type,
+            atoms=(), rejected=(), entity_type_proposals_needing_verification=(),
+            extraction_rejected=(), all_entities=(),
+            price_entries=price_entries, price_rejected=price_rejected,
+        )
+
     entities, propositions, extraction_rejected = extract_candidates(
         document,
         evidence_ids=evidence_ids,
@@ -206,10 +271,20 @@ def process_document(
         if built.object_type_proposal.needs_verification
     )
 
+    contract_summary = None
+    if document_type == "contract":
+        contract_summary = extract_contract_summary(
+            document.text, source_id=document.source_id, evidence_ids=evidence_ids,
+            endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout,
+            temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
+        )
+
     return ProcessDocumentResult(
+        document_type=document_type,
         atoms=atoms,
         rejected=rel_rejected,
         entity_type_proposals_needing_verification=proposals_needing_verification,
         extraction_rejected=extraction_rejected,
         all_entities=entities,
+        contract_summary=contract_summary,
     )
