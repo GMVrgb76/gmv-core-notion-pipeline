@@ -88,15 +88,30 @@ if _ATTRIBUTE_INTEGER_PREDICATE_IDS != frozenset({"edition_size", "edition_numbe
 @dataclass(frozen=True, slots=True)
 class RejectedCandidate:
     """A `CandidateProposition` this module refused to turn into an atom,
-    with a structured reason instead of a silent drop. The future
-    human-review queue's raw material -- building that queue is out of
-    scope here."""
+    with a structured reason instead of a silent drop. The human-review
+    queue's raw material.
+
+    `subject_raw`/`object_raw`/`evidence_excerpt` added 2026-09-21: without
+    them, a human reviewing `PREDICATE_TEXT_NOT_MAPPED` entries later could
+    see a raw predicate's TEXT and its FREQUENCY, but never who the claim
+    was actually about or the real sentence it came from -- exactly the
+    real-example domain/range check `00_CONFIG/crawler_predicate_text_
+    mapping.json`'s own governance note requires before adding a mapping
+    ("Every entry here was checked by a human against the target
+    predicate's real domain/range"). A live audit this session found the
+    OLD 5-field record made that verification impossible after the fact
+    (10296 real rejected claims accumulated with no way to recover their
+    subject/object/quote). These three fields were already on
+    `CandidateProposition` the whole time -- simply never copied over."""
 
     source_id: str
     extraction_claim_ref: str
     raw_predicate: str
     reason_code: str  # exactly one of the four documented below, never a fifth
     detail: str
+    subject_raw: str
+    object_raw: str
+    evidence_excerpt: str
 
 
 def _rejected(proposition: CandidateProposition, reason_code: str, detail: str) -> RejectedCandidate:
@@ -106,6 +121,9 @@ def _rejected(proposition: CandidateProposition, reason_code: str, detail: str) 
         raw_predicate=proposition.predicate,
         reason_code=reason_code,
         detail=detail,
+        subject_raw=proposition.subject_raw,
+        object_raw=proposition.object_raw,
+        evidence_excerpt=proposition.evidence_excerpt,
     )
 
 

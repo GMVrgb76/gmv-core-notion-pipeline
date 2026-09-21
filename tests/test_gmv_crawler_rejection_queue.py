@@ -30,6 +30,9 @@ QUEUE_FIELDS = {
     "raw_predicate",
     "reason_code",
     "detail",
+    "subject_raw",
+    "object_raw",
+    "evidence_excerpt",
     "queued_at",
 }
 
@@ -51,6 +54,9 @@ def rejected(
         raw_predicate=raw_predicate,
         reason_code=reason_code,
         detail=f"{reason_code} fixture detail",
+        subject_raw="Some Subject",
+        object_raw="Some Object",
+        evidence_excerpt="Some Subject " + raw_predicate + " Some Object",
     )
 
 

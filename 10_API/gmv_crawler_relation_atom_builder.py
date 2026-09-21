@@ -167,6 +167,9 @@ def _rejected(proposition: CandidateProposition, reason_code: str, detail: str) 
         raw_predicate=proposition.predicate,
         reason_code=reason_code,
         detail=detail,
+        subject_raw=proposition.subject_raw,
+        object_raw=proposition.object_raw,
+        evidence_excerpt=proposition.evidence_excerpt,
     )
 
 

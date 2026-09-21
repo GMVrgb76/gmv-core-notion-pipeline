@@ -49,7 +49,7 @@ if str(REPO_ROOT) not in sys.path:
 from gmv_crawler_atom_builder import RejectedCandidate  # noqa: E402 -- input type, not modified
 
 #: Exactly the JSON keys each queued line carries, in this order.
-_QUEUE_KEYS = ("source_id", "extraction_claim_ref", "raw_predicate", "reason_code", "detail")
+_QUEUE_KEYS = ("source_id", "extraction_claim_ref", "raw_predicate", "reason_code", "detail", "subject_raw", "object_raw", "evidence_excerpt")
 
 
 def append_rejected(rejected: Sequence[RejectedCandidate], queue_path: Path, *, now: str) -> None:

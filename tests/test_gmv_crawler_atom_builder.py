@@ -140,6 +140,22 @@ def test_build_atom_unknown_predicate_rejects() -> None:
     assert result.detail
 
 
+def test_build_atom_rejection_carries_subject_object_evidence_for_later_review() -> None:
+    """2026-09-21: a RejectedCandidate must carry the real subject/object/
+    evidence_excerpt, not just the predicate text -- otherwise a human
+    reviewing PREDICATE_TEXT_NOT_MAPPED entries later has no way to verify
+    the predicate's real domain/range against an actual case, exactly what
+    crawler_predicate_text_mapping.json's own governance note requires."""
+    result = build_atom(make_proposition(
+        predicate="foo_bar_predicate", subject_raw="Federico Garibaldi",
+        object_raw="Area35 Art Gallery", evidence_excerpt="Federico Garibaldi foo_bar_predicate Area35 Art Gallery",
+    ), now=NOW)
+    assert isinstance(result, RejectedCandidate)
+    assert result.subject_raw == "Federico Garibaldi"
+    assert result.object_raw == "Area35 Art Gallery"
+    assert result.evidence_excerpt == "Federico Garibaldi foo_bar_predicate Area35 Art Gallery"
+
+
 # --- PREDICATE_NOT_YET_SUPPORTED (real RELATION + real alias) ---
 
 def test_build_atom_relation_predicate_rejects_not_yet_supported() -> None:
