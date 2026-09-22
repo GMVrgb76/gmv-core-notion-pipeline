@@ -2,6 +2,7 @@
   "note": "Human-curated, verified list of real institutions/venues (museums, foundations, galleries, exhibition spaces) known to be real INSTITUTION-type entities for the crawler's entity-type classification (10_API/gmv_crawler_entity_resolver.py). Same 'verified fact, not inference' principle as area35_known_artists.json -- entries here are added only after a human confirms them (e.g. via the OpenWebUI review chat), never auto-populated from LLM output.",
   "note_on_maintenance": "Empty at creation (2026-09-17). Populated over time as real entities get confirmed during review -- see GMV_CRAWLER_HANDOFF.md for the review workflow this file supports.",
   "institutions": [
-    "Le Stanze della Fotografia"
+    "Le Stanze della Fotografia",
+    "Museo d’Arte Moderna dell’Alto Mantovano"
   ]
 }
