@@ -133,6 +133,86 @@ def test_chunker_splits_long_paragraph_losslessly_and_within_limit():
     assert len(set(c["text"] for c in chunks)) == len(chunks)
     assert [c["chunk_index"] for c in chunks] == list(range(len(chunks)))
 
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict):
+        self._data = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, *a, **k):
+        return self._data
+
+
+def test_ollama_extract_drops_one_malformed_claim_keeps_the_rest(monkeypatch):
+    """Live, reproduced 2026-09-22 (GMV Crawler nightly run, real Pasini
+    document): nuextract3 returned 27 real claims and 1 with an empty
+    object_raw (a descriptive sentence with no clean object). The prior
+    all-or-nothing check turned that single bad claim into
+    OLLAMA_SCHEMA_INVALID for the whole response, losing all 27 good ones."""
+    claims = [
+        {"subject_raw": "A", "predicate": "p1", "object_raw": "B", "evidence_excerpt": "e1"},
+        {"subject_raw": "C", "predicate": "p2", "object_raw": "", "evidence_excerpt": "e2"},
+        {"subject_raw": "D", "predicate": "p3", "object_raw": "E", "evidence_excerpt": "e3"},
+    ]
+
+    def fake_urlopen(request, timeout):
+        return _FakeHTTPResponse({
+            "message": {"content": json.dumps({"entities": [], "claims": claims})},
+            "done_reason": "stop",
+        })
+
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "f", "extraction_status": "SUCCESS", "text": "some text"}
+    result = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m", api_style="chat_template")
+    assert [c["subject_raw"] for c in result["claims"]] == ["A", "D"]
+    assert [c["extraction_claim_ref"] for c in result["claims"]] == ["f#0", "f#2"]
+
+
+def test_ollama_extract_drops_one_malformed_entity_keeps_the_rest(monkeypatch):
+    entities = [
+        {"name": "Real Entity", "evidence_excerpt": "e1"},
+        {"name": "", "evidence_excerpt": "e2"},
+        {"name": "Other Entity", "evidence_excerpt": "e3"},
+    ]
+
+    def fake_urlopen(request, timeout):
+        return _FakeHTTPResponse({
+            "message": {"content": json.dumps({"entities": entities, "claims": []})},
+            "done_reason": "stop",
+        })
+
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "f", "extraction_status": "SUCCESS", "text": "some text"}
+    result = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m", api_style="chat_template")
+    assert [e["name"] for e in result["entities"]] == ["Real Entity", "Other Entity"]
+
+
+def test_ollama_extract_placeholder_echo_still_fails_the_whole_batch(monkeypatch):
+    """Unlike a missing field, a placeholder echo means the request went to
+    the wrong model/api_style entirely -- a systemic problem, not a single
+    bad item -- so this must still raise, not silently drop one claim."""
+    claims = [
+        {"subject_raw": "A", "predicate": "p1", "object_raw": "B", "evidence_excerpt": "e1"},
+        {"subject_raw": "verbatim-string", "predicate": "p2", "object_raw": "C", "evidence_excerpt": "e2"},
+    ]
+
+    def fake_urlopen(request, timeout):
+        return _FakeHTTPResponse({
+            "message": {"content": json.dumps({"entities": [], "claims": claims})},
+            "done_reason": "stop",
+        })
+
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "f", "extraction_status": "SUCCESS", "text": "some text"}
+    with pytest.raises(evidence.OllamaResponseError) as exc_info:
+        evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m", api_style="chat_template")
+    assert exc_info.value.code == "OLLAMA_SCHEMA_INVALID"
+
+
 def test_adaptive_split_recursive_and_provenance(monkeypatch, tmp_path):
     original = evidence.ollama_extract
     def fake(record, **kwargs):

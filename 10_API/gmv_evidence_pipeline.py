@@ -426,19 +426,35 @@ def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars:
     if isinstance(entities, dict):
         entities = [{"name": name, **(value if isinstance(value, dict) else {})} for name, value in entities.items()]
     if not isinstance(claims, list) or not isinstance(entities, list): raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
+    # A missing required field on ONE entity/claim in an otherwise-good batch
+    # is dropped rather than discarding the whole response: live, reproduced
+    # 2026-09-22 (GMV Crawler nightly run, real Pasini document) -- nuextract3
+    # produced 27 real claims and 1 malformed one (a descriptive Italian
+    # sentence with no clean object, object_raw=""); the prior all-or-nothing
+    # check turned that single bad claim into a total loss of all 27 good
+    # ones, and this was the actual cause of a night's mass
+    # OLLAMA_SCHEMA_INVALID failures, not a classification or determinism bug.
+    # A placeholder echo is NOT downgraded the same way: it signals the
+    # whole request went to the wrong model/api_style (see
+    # _echoes_template_placeholder's own comment), a systemic problem no
+    # amount of per-item filtering fixes.
+    valid_entities = []
     for entity in entities:
         if not entity.get("name") or not entity.get("evidence_excerpt"):
-            raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
+            continue
         if any(_echoes_template_placeholder(entity.get(k)) for k in ("name", "evidence_excerpt", "status")):
             raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
         entity.update({"file_id": record["file_id"], "status": str(entity.get("status", "SUPPORTED_BY_ARCHIVE")).upper()})
+        valid_entities.append(entity)
+    valid_claims = []
     for i, claim in enumerate(claims):
         if not all(claim.get(k) for k in ("subject_raw", "predicate", "object_raw", "evidence_excerpt")):
-            raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
+            continue
         if any(_echoes_template_placeholder(claim.get(k)) for k in ("subject_raw", "predicate", "object_raw", "evidence_excerpt", "status")):
             raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
         claim.update({"file_id": record["file_id"], "extraction_claim_ref": f"{record['file_id']}#{i}", "truncated_source": truncated, "status": str(claim.get("status", "SUPPORTED_BY_ARCHIVE")).upper()})
-    return {"file_id": record["file_id"], "entities": entities, "claims": claims,
+        valid_claims.append(claim)
+    return {"file_id": record["file_id"], "entities": valid_entities, "claims": valid_claims,
             "_runtime": {k: envelope.get(k) for k in ("eval_count", "prompt_eval_count",
                          "prompt_eval_duration", "eval_duration")}}
 
