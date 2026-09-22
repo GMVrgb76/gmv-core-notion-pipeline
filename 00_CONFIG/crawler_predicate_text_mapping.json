@@ -22,6 +22,11 @@
       "raw_predicate_text": "ha esposto",
       "predicate_id": "participated_in",
       "verified_against": "Corrected 2026-09-21 (was wrongly mapped to exhibited_at, which has domain=[ARTWORK_INSTANCE] -- the subject must be a specific artwork, not a person; caught on review, not caught by the confirming session itself). participated_in has domain=[PERSON,ARTIST] range=[EVENT,EXHIBITION,PROJECT], which matches the real case exactly: 'Giovanni Cerri' (subject=ARTIST) | 'ha esposto' | '54° Biennale di Venezia, Padiglione Italia' (object=EXHIBITION), from 'Nel 2011 l’artista ha esposto alla 54° Biennale di Venezia, Padiglione Italia, a cura di Vittorio Sgarbi.'"
+    },
+    {
+      "raw_predicate_text": "partecipa",
+      "predicate_id": "participated_in",
+      "verified_against": "participated_in domain=[PERSON,ARTIST] range=[EVENT,EXHIBITION,PROJECT] -- checked against two real Bucchi cases: 'Danilo Bucchi' (subject=ARTIST) | 'partecipa' | 'EMERGENZE FESTIVAL' (object=EVENT/PROJECT), from 'partecipando, per esempio, a progetti come EMERGENZE FESTIVAL'; and 'Danilo Bucchi' | 'partecipa' | 'XVI Biennale di Venezia di Architettura' (object=EXHIBITION), from 'Nel 2016 con il progetto BIG CITY LIFE l'artista partecipa alla XVI Biennale di Venezia di Architettura'. Same domain/range shape already verified for 'ha esposto' above."
     }
   ]
 }

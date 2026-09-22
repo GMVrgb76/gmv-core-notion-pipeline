@@ -152,18 +152,21 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
     that predicate's domain is ARTWORK_INSTANCE, but the real example's
     subject was the artist "Giovanni Cerri", a PERSON -- participated_in's
     domain=[PERSON,ARTIST] is what actually matches), corrected before
-    this test was updated. The real invariant this test protects is
-    unchanged: every raw_predicate_text here is one that was actually
-    verified against real data (even if the first proposed predicate_id
-    was itself wrong and had to be corrected), never silently multiplying
-    beyond what a human checked."""
+    this test was updated. 2026-09-22: a 5th entry ('partecipa' ->
+    participated_in) was added, verified against two real Bucchi cases
+    with the same domain/range shape as 'ha esposto'. The real invariant
+    this test protects is unchanged: every raw_predicate_text here is one
+    that was actually verified against real data (even if the first
+    proposed predicate_id was itself wrong and had to be corrected),
+    never silently multiplying beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 4, f"expected exactly the 4 known-verified entries, got {len(mappings)}"
+    assert len(mappings) == 5, f"expected exactly the 5 known-verified entries, got {len(mappings)}"
     by_text = {m["raw_predicate_text"]: m["predicate_id"] for m in mappings}
     assert by_text == {
         "was held at": "located_at",
         "was presented at": "located_at",
         "was a solo exhibition at": "located_at",
         "ha esposto": "participated_in",
+        "partecipa": "participated_in",
     }
