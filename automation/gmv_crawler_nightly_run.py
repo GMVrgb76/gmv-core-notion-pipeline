@@ -124,6 +124,14 @@ REGISTRY_DB = RUNTIME_DIR / "registry.db"
 REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
 ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
 ATOMS_LOG_PATH = RUNTIME_DIR / "atoms_built.jsonl"
+# Added 2026-09-23: process_document() has computed result.price_entries/
+# result.contract_summary since the document-type routing work (2026-09-21),
+# but nothing here ever wrote them anywhere -- every real price-list row and
+# contract summary extracted by every run since then was silently discarded
+# right after extraction. Found live when asked to build an Open WebUI tool
+# to read this data and there was nothing on disk to read.
+PRICE_LOG_PATH = RUNTIME_DIR / "price_log.jsonl"
+CONTRACT_LOG_PATH = RUNTIME_DIR / "contract_log.jsonl"
 RUN_LOG_PATH = RUNTIME_DIR / "run_log.jsonl"
 PROCESSED_HASHES_PATH = RUNTIME_DIR / "processed_content_hashes.json"
 # Same lock file gmv_crawler_review_tool.py's run_crawler_now() checks
@@ -264,6 +272,15 @@ def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) ->
             with ATOMS_LOG_PATH.open("a", encoding="utf-8") as handle:
                 for atom in result.atoms:
                     handle.write(json.dumps(asdict(atom), ensure_ascii=False) + "\n")
+
+        if result.price_entries:
+            with PRICE_LOG_PATH.open("a", encoding="utf-8") as handle:
+                for entry in result.price_entries:
+                    handle.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+
+        if result.contract_summary is not None:
+            with CONTRACT_LOG_PATH.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(asdict(result.contract_summary), ensure_ascii=False) + "\n")
 
         if result.rejected:
             append_rejected(result.rejected, REJECTION_QUEUE_PATH, now=now)
