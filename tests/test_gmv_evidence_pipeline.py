@@ -213,6 +213,31 @@ def test_ollama_extract_placeholder_echo_still_fails_the_whole_batch(monkeypatch
     assert exc_info.value.code == "OLLAMA_SCHEMA_INVALID"
 
 
+def test_ollama_extract_placeholder_echo_in_status_falls_back_instead_of_failing(monkeypatch):
+    """Live, reproduced 2026-09-23 (real Garibaldi gallery contract,
+    correctly running nuextract3/chat_template): entities and claims were
+    entirely real, but entity status echoed the "string" placeholder for
+    abstract legal-concept entities ("Artist", "English law") while claim
+    status and every content field stayed genuine. Unlike a content-field
+    echo, this is not a wrong-model signal -- status already has a safe
+    default for when it's simply missing, so an echoed placeholder there
+    gets that same default instead of discarding real content."""
+    entities = [{"name": "Artist", "evidence_excerpt": "the Artist", "status": "string"}]
+    claims = [{"subject_raw": "A", "predicate": "p1", "object_raw": "B", "evidence_excerpt": "e1", "status": "STRING"}]
+
+    def fake_urlopen(request, timeout):
+        return _FakeHTTPResponse({
+            "message": {"content": json.dumps({"entities": entities, "claims": claims})},
+            "done_reason": "stop",
+        })
+
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "f", "extraction_status": "SUCCESS", "text": "some text"}
+    result = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m", api_style="chat_template")
+    assert len(result["entities"]) == 1 and result["entities"][0]["status"] == "SUPPORTED_BY_ARCHIVE"
+    assert len(result["claims"]) == 1 and result["claims"][0]["status"] == "SUPPORTED_BY_ARCHIVE"
+
+
 def test_adaptive_split_recursive_and_provenance(monkeypatch, tmp_path):
     original = evidence.ollama_extract
     def fake(record, **kwargs):
