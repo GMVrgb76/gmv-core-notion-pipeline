@@ -64,6 +64,7 @@ from gmv_crawler_contract_extractor import (  # noqa: E402 -- reused, not reimpl
 from gmv_crawler_document_classifier import classify_document  # noqa: E402 -- reused, not reimplemented
 from gmv_crawler_entity_resolver import EntityTypeProposal  # noqa: E402 -- reused, not reimplemented
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
+from gmv_evidence_pipeline import EvidenceError, OllamaResponseError  # noqa: E402 -- reused, not reimplemented
 from gmv_crawler_price_extractor import (  # noqa: E402 -- reused, not reimplemented
     CandidateArtworkPrice,
     extract_price_entries,
@@ -273,11 +274,28 @@ def process_document(
 
     contract_summary = None
     if document_type == "contract":
-        contract_summary = extract_contract_summary(
-            document.text, source_id=document.source_id, evidence_ids=evidence_ids,
-            endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout,
-            temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
-        )
+        # Best-effort: extract_contract_summary() is deliberately NOT
+        # chunked (see its own module docstring -- a contract's terms
+        # don't merge sensibly across independent halves), so a long real
+        # contract can overflow num_predict in one shot and raise
+        # OLLAMA_OUTPUT_TRUNCATED. Live, reproduced 2026-09-23 (nightly
+        # crawler run, real Garibaldi "accordo di rappresentanza"): that
+        # exact failure was propagating straight out of process_document()
+        # and discarding the atoms/entities extract_candidates() had ALREADY
+        # extracted successfully just above -- the one enrichment this
+        # function treats as optional (the docstring above already says
+        # contract_summary complements, not replaces, extract_candidates()'s
+        # own coverage of the same contract) was destroying the reliable
+        # result. A genuine LLM/network failure here now just leaves
+        # contract_summary=None instead of losing everything.
+        try:
+            contract_summary = extract_contract_summary(
+                document.text, source_id=document.source_id, evidence_ids=evidence_ids,
+                endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout,
+                temperature=temperature, seed=seed, num_predict=num_predict, num_ctx=num_ctx,
+            )
+        except (OllamaResponseError, EvidenceError):
+            contract_summary = None
 
     return ProcessDocumentResult(
         document_type=document_type,

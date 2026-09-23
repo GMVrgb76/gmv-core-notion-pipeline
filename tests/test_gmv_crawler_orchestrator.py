@@ -277,6 +277,39 @@ def test_contract_runs_both_entities_claims_and_contract_summary(monkeypatch: py
     assert len(result.atoms) == 1  # the entities/claims -> atoms path still ran
 
 
+def test_contract_summary_failure_keeps_the_already_extracted_atoms(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live, reproduced 2026-09-23 (nightly crawler run, real Garibaldi
+    "accordo di rappresentanza"): extract_contract_summary() is
+    deliberately NOT chunked (a contract's terms don't merge sensibly
+    across independent halves), so a long real contract can overflow
+    num_predict and raise OLLAMA_OUTPUT_TRUNCATED. That exception used to
+    propagate straight out of process_document(), discarding the atoms/
+    entities extract_candidates() had ALREADY extracted successfully just
+    above. Now a genuine failure here just leaves contract_summary=None
+    instead of losing everything."""
+    from gmv_evidence_pipeline import OllamaResponseError
+
+    monkeypatch.setattr(orchestrator, "classify_document", lambda *a, **k: {"document_type": "contract", "confidence": "high"})
+
+    entities = (make_entity("Federico Garibaldi"),)
+    propositions = (make_proposition("Federico Garibaldi", "edition_size", "5", ref="CLAIM-1"),)
+
+    def _fake_extract(*a, **k):
+        return entities, propositions, ()
+
+    def _fake_contract_summary_fails(*a, **k):
+        raise OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={}, raw_output="")
+
+    monkeypatch.setattr(orchestrator, "extract_candidates", _fake_extract)
+    monkeypatch.setattr(orchestrator, "extract_contract_summary", _fake_contract_summary_fails)
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.document_type == "contract"
+    assert result.contract_summary is None
+    assert result.all_entities == entities
+    assert len(result.atoms) == 1  # the entities/claims -> atoms path still ran
+
+
 def test_biography_never_calls_price_or_contract_extractors(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fail(*a, **k):
         raise AssertionError("must not be called for a biography document")
