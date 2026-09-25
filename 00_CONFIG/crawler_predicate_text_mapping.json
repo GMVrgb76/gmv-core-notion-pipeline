@@ -47,6 +47,16 @@
       "raw_predicate_text": "moved to",
       "predicate_id": "resided_in",
       "verified_against": "resided_in (newly registered CANDIDATE 2026-09-25) domain=[PERSON,ARTIST] range=[PLACE] -- checked against 3 distinct real cases from Ernesto Morales's English biography: 'Ernesto Morales' | 'moved to' | 'Italy'/'Rome'/'Turin', from 'In 2006 ... he moved to Italy, first to Rome and, in 2011, to Turin.'"
+    },
+    {
+      "raw_predicate_text": "testi critici di",
+      "predicate_id": "critical_text_by",
+      "verified_against": "Plural surface form of 'testo critico di', same predicate/shape already verified above -- checked against real case: 'Genova Buenos Aires / Le città dei ritorni' | 'testi critici di' | 'Massimo Sgroi e Luciano Caprie' (subject=exhibition title, object=critics' names)."
+    },
+    {
+      "raw_predicate_text": "lived",
+      "predicate_id": "resided_in",
+      "verified_against": "Same predicate/shape already verified for 'moved to' -- checked against real case: 'Ernesto Morales' | 'lived' | 'Buenos Aires' (subject=PERSON, object=PLACE)."
     }
   ]
 }

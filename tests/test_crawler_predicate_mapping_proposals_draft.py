@@ -163,14 +163,17 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
     CANDIDATE predicates (curated_by, critical_text_by, resided_in) after
     confirming no existing predicate fit 3 real, frequent, clean-shaped
     raw predicates ('a cura di', 'testo critico di', 'moved to') --
-    entries 7-9 map those. The real invariant this test protects is
+    entries 7-9 map those. Entries 10-11 reuse those same 2 new
+    predicates for their plural/synonym surface forms ('testi critici
+    di' -> critical_text_by, 'lived' -> resided_in), no further registry
+    change needed. The real invariant this test protects is
     unchanged: every raw_predicate_text here is one that was actually
     verified against real data (even if the first proposed predicate_id
     was itself wrong and had to be corrected), never silently multiplying
     beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 9, f"expected exactly the 9 known-verified entries, got {len(mappings)}"
+    assert len(mappings) == 11, f"expected exactly the 11 known-verified entries, got {len(mappings)}"
     by_text = {m["raw_predicate_text"]: m["predicate_id"] for m in mappings}
     assert by_text == {
         "was held at": "located_at",
@@ -182,4 +185,6 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
         "a cura di": "curated_by",
         "testo critico di": "critical_text_by",
         "moved to": "resided_in",
+        "testi critici di": "critical_text_by",
+        "lived": "resided_in",
     }
