@@ -32,6 +32,21 @@
       "raw_predicate_text": "presente in",
       "predicate_id": "located_at",
       "verified_against": "located_at domain=[EXHIBITION,EVENT,ORGANIZATION] range=[PLACE,INSTITUTION] -- checked against 20 distinct real cases (multiple artist biographies), all with the same shape (subject=exhibition/show/festival title, object=gallery/museum/cultural center): 'Dimora collettiva' | 'presente in' | 'Galleria Il Sole Arte Contemporanea'; 'Orizzonti e frontiere' | 'presente in' | 'Festival Internazionale di Cinema DERHUMALC'; 'Giuria del Premio di Pittura' | 'presente in' | 'Museo Quinquela Martín'. Same domain/range shape already verified for 'was held at'/'was presented at'/'was a solo exhibition at'."
+    },
+    {
+      "raw_predicate_text": "a cura di",
+      "predicate_id": "curated_by",
+      "verified_against": "curated_by (newly registered CANDIDATE 2026-09-25, see GMV_ONTOLOGY_REGISTRY_v0.1.json for full rationale) domain=[EXHIBITION,PROJECT] range=[PERSON] -- checked against 32 distinct real cases, all subject=exhibition/project title, object=curator's real name: '\"MONOCHROME\" -> Angela Madesani', '\"BIG CITY LIFE-Assolo\" -> Stefano Antonelli e Gianluca Marziani'. The inverse text surface 'curated' (subject=curator, object=exhibition) is deliberately NOT mapped here -- same documented limitation as 'acquired'/'realizzato': this mapping mechanism does not invert subject/object."
+    },
+    {
+      "raw_predicate_text": "testo critico di",
+      "predicate_id": "critical_text_by",
+      "verified_against": "critical_text_by (newly registered CANDIDATE 2026-09-25) domain=[EXHIBITION,WORK] range=[PERSON] -- checked against 16 distinct real cases, all subject=exhibition/work title, object=critic's real name: 'En el sueño de Polifilo -> Roberto Mastroianni', 'Viajes -> Luciano Caprile'."
+    },
+    {
+      "raw_predicate_text": "moved to",
+      "predicate_id": "resided_in",
+      "verified_against": "resided_in (newly registered CANDIDATE 2026-09-25) domain=[PERSON,ARTIST] range=[PLACE] -- checked against 3 distinct real cases from Ernesto Morales's English biography: 'Ernesto Morales' | 'moved to' | 'Italy'/'Rome'/'Turin', from 'In 2006 ... he moved to Italy, first to Rome and, in 2011, to Turin.'"
     }
   ]
 }

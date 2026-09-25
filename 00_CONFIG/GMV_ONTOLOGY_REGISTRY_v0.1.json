@@ -9,7 +9,14 @@
     "CANDIDATE": "Proposed, evidenced, but not yet governed. May be promoted to CORE/DOMAIN only by an explicit decision, never silently.",
     "DEPRECATED": "Superseded by one or more other entries; retained here only so historical references resolve and to prevent silent reintroduction."
   },
-  "predicate_classes": ["IDENTITY", "ATTRIBUTE", "RELATION", "EVENT", "MEASURE", "EPISTEMIC"],
+  "predicate_classes": [
+    "IDENTITY",
+    "ATTRIBUTE",
+    "RELATION",
+    "EVENT",
+    "MEASURE",
+    "EPISTEMIC"
+  ],
   "source": {
     "controlled_vocabulary_v0_1": "Notion page 3b95a429-a028-81ee-b138-f9891d5429fa — GMV Monad Research & Execution Protocol v1.0, §7 (Controlled vocabulary v0.1)",
     "entity_granularity_rule": "Notion page 3b95a429-a028-8116-a236-d8867862d077 — GMV_KNOWLEDGE_MONAD_SPEC_v1.0, §7 (Entity granularity: WORK != ARTWORK_INSTANCE) and §3 (Predicate classes, frozen)",
@@ -106,7 +113,10 @@
     {
       "class_id": "ARTWORK",
       "status": "DEPRECATED",
-      "superseded_by": ["WORK", "ARTWORK_INSTANCE"],
+      "superseded_by": [
+        "WORK",
+        "ARTWORK_INSTANCE"
+      ],
       "aliases": [],
       "definition": "Originally the flat entity class for any artwork in the controlled vocabulary v0.1. The real-corpus test (RCV_001 Gate 4) established that this granularity loses information the corpus actually supports (edition size vs. edition number are independently correctable facts). Kept here, deprecated, so any pre-existing reference resolves instead of failing silently -- new work must use WORK or ARTWORK_INSTANCE, never ARTWORK.",
       "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7 (original); GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7 (split, binding)"
@@ -131,8 +141,14 @@
       "predicate_id": "represented_by",
       "predicate_class": "RELATION",
       "status": "CORE",
-      "domain": ["ARTIST", "PERSON"],
-      "range": ["ORGANIZATION", "PERSON"],
+      "domain": [
+        "ARTIST",
+        "PERSON"
+      ],
+      "range": [
+        "ORGANIZATION",
+        "PERSON"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject is represented, in a gallery/agency sense, by object.",
@@ -142,8 +158,15 @@
       "predicate_id": "participated_in",
       "predicate_class": "RELATION",
       "status": "CORE",
-      "domain": ["PERSON", "ARTIST"],
-      "range": ["EVENT", "EXHIBITION", "PROJECT"],
+      "domain": [
+        "PERSON",
+        "ARTIST"
+      ],
+      "range": [
+        "EVENT",
+        "EXHIBITION",
+        "PROJECT"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject took part in the object event/exhibition/project.",
@@ -153,8 +176,12 @@
       "predicate_id": "related_to",
       "predicate_class": "RELATION",
       "status": "CORE",
-      "domain": ["ANY"],
-      "range": ["ANY"],
+      "domain": [
+        "ANY"
+      ],
+      "range": [
+        "ANY"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Generic, untyped relation. Deliberately weak: a CANDIDATE predicate proposal must be checked against this list before defaulting to related_to, per Epistemic Ingestion Rules EIC-07 (predicate reuse requires semantic equivalence, not proximity).",
@@ -165,8 +192,15 @@
       "predicate_id": "located_at",
       "predicate_class": "RELATION",
       "status": "CORE",
-      "domain": ["EXHIBITION", "EVENT", "ORGANIZATION"],
-      "range": ["PLACE", "INSTITUTION"],
+      "domain": [
+        "EXHIBITION",
+        "EVENT",
+        "ORGANIZATION"
+      ],
+      "range": [
+        "PLACE",
+        "INSTITUTION"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject is physically located at object.",
@@ -177,9 +211,15 @@
       "predicate_id": "source_for",
       "predicate_class": "RELATION",
       "status": "CORE",
-      "domain": ["DOCUMENT"],
-      "range": ["ANY"],
-      "aliases": ["evidences"],
+      "domain": [
+        "DOCUMENT"
+      ],
+      "range": [
+        "ANY"
+      ],
+      "aliases": [
+        "evidences"
+      ],
       "inverse": null,
       "definition": "Subject document is the evidentiary source for the object claim/entity/atom.",
       "source_reference": "GMV Monad Research & Execution Protocol v1.0 §7",
@@ -189,8 +229,12 @@
       "predicate_id": "supersedes",
       "predicate_class": "RELATION",
       "status": "CORE",
-      "domain": ["ANY"],
-      "range": ["ANY"],
+      "domain": [
+        "ANY"
+      ],
+      "range": [
+        "ANY"
+      ],
       "aliases": [],
       "inverse": "superseded_by",
       "definition": "Subject atom/claim/evidence is the direct successor of the object. Mirrors the frozen ATOM schema fields SUPERSEDES/SUPERSEDED_BY -- this predicate governs the relation, the ATOM fields govern the per-atom pointer.",
@@ -200,8 +244,13 @@
       "predicate_id": "created_by",
       "predicate_class": "RELATION",
       "status": "DOMAIN",
-      "domain": ["WORK", "ARTWORK_INSTANCE"],
-      "range": ["ARTIST"],
+      "domain": [
+        "WORK",
+        "ARTWORK_INSTANCE"
+      ],
+      "range": [
+        "ARTIST"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject work/instance was created by the object artist.",
@@ -211,8 +260,13 @@
       "predicate_id": "exhibited_at",
       "predicate_class": "RELATION",
       "status": "DOMAIN",
-      "domain": ["ARTWORK_INSTANCE"],
-      "range": ["EXHIBITION", "PLACE"],
+      "domain": [
+        "ARTWORK_INSTANCE"
+      ],
+      "range": [
+        "EXHIBITION",
+        "PLACE"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject was physically exhibited at the object. Domain is deliberately ARTWORK_INSTANCE only, not WORK: WORK is defined in this same registry as 'independent of any single physical exemplar', and exhibited_at is a physical-occurrence predicate (see notes) -- allowing WORK here would reintroduce, one level down, the granularity collapse that deprecating flat ARTWORK was meant to resolve.",
@@ -223,8 +277,15 @@
       "predicate_id": "organized_by",
       "predicate_class": "RELATION",
       "status": "DOMAIN",
-      "domain": ["EXHIBITION", "EVENT", "PROJECT"],
-      "range": ["ORGANIZATION", "PERSON"],
+      "domain": [
+        "EXHIBITION",
+        "EVENT",
+        "PROJECT"
+      ],
+      "range": [
+        "ORGANIZATION",
+        "PERSON"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject was organized by the object.",
@@ -234,8 +295,13 @@
       "predicate_id": "owned_by",
       "predicate_class": "RELATION",
       "status": "DOMAIN",
-      "domain": ["ARTWORK_INSTANCE"],
-      "range": ["PERSON", "ORGANIZATION"],
+      "domain": [
+        "ARTWORK_INSTANCE"
+      ],
+      "range": [
+        "PERSON",
+        "ORGANIZATION"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject instance is currently owned by the object.",
@@ -245,8 +311,12 @@
       "predicate_id": "edition_of",
       "predicate_class": "RELATION",
       "status": "DOMAIN",
-      "domain": ["ARTWORK_INSTANCE"],
-      "range": ["WORK"],
+      "domain": [
+        "ARTWORK_INSTANCE"
+      ],
+      "range": [
+        "WORK"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Subject instance belongs to the edition of the object work.",
@@ -256,8 +326,12 @@
       "predicate_id": "edition_size",
       "predicate_class": "ATTRIBUTE",
       "status": "DOMAIN",
-      "domain": ["WORK"],
-      "range": ["integer"],
+      "domain": [
+        "WORK"
+      ],
+      "range": [
+        "integer"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "Total number of instances in the edition. An edition-level fact, not an instance-level one.",
@@ -267,12 +341,64 @@
       "predicate_id": "edition_number",
       "predicate_class": "ATTRIBUTE",
       "status": "DOMAIN",
-      "domain": ["ARTWORK_INSTANCE"],
-      "range": ["integer"],
+      "domain": [
+        "ARTWORK_INSTANCE"
+      ],
+      "range": [
+        "integer"
+      ],
       "aliases": [],
       "inverse": null,
       "definition": "This instance's position within its edition. An instance-level fact, not an edition-level one -- must not be merged with edition_size into a single 'edition' literal (GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §8, atomicity).",
       "source_reference": "GMV_KNOWLEDGE_MONAD_SPEC_v1.0 §7, §8"
+    },
+    {
+      "predicate_id": "curated_by",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": [
+        "EXHIBITION",
+        "PROJECT"
+      ],
+      "range": [
+        "PERSON"
+      ],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject (an exhibition or project) was curated by the object (a person).",
+      "source_reference": "Registered as CANDIDATE 2026-09-25 per governance_rule (reuse-before-invention, evidence required before use) -- grounded in real crawler rejection-queue data, raw predicate 'a cura di', 32 distinct real cases across multiple artist biographies/catalogues (e.g. Danilo Bucchi's press materials, Ernesto Morales's catalogue), all with the same shape: subject=exhibition/project title, object=curator's real name (e.g. '\"MONOCHROME\" -> Angela Madesani'). No existing predicate fits: organized_by (domain includes EXHIBITION, range includes PERSON) is the closest by type signature but denotes a distinct professional role (logistics/organizing vs. curatorial selection) -- not reused per EIC-07 (do not reuse a semantically adjacent predicate that is not semantically equivalent)."
+    },
+    {
+      "predicate_id": "critical_text_by",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": [
+        "EXHIBITION",
+        "WORK"
+      ],
+      "range": [
+        "PERSON"
+      ],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject (an exhibition or work) has a critical/curatorial text authored by the object (a person).",
+      "source_reference": "Registered as CANDIDATE 2026-09-25 per governance_rule -- grounded in real crawler rejection-queue data, raw predicate 'testo critico di', 16 distinct real cases (e.g. Nicola Evangelisti's catalogue), all with the same shape: subject=exhibition/work title, object=critic/writer's real name (e.g. 'En el sueño de Polifilo -> Roberto Mastroianni'). No existing predicate covers written critical-text authorship; distinct from curated_by (curatorial selection of the show itself, not authorship of an accompanying text)."
+    },
+    {
+      "predicate_id": "resided_in",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": [
+        "PERSON",
+        "ARTIST"
+      ],
+      "range": [
+        "PLACE"
+      ],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject (a person) relocated to or resided in the object (a place).",
+      "source_reference": "Registered as CANDIDATE 2026-09-25 per governance_rule -- grounded in real crawler rejection-queue data, raw predicate 'moved to', 3 distinct real cases from Ernesto Morales's English biography ('In 2006 ... he moved to Italy, first to Rome and, in 2011, to Turin'). No existing predicate covers a person's residence/relocation: located_at's domain is [EXHIBITION,EVENT,ORGANIZATION], not PERSON."
     }
   ]
 }

@@ -158,14 +158,19 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
     entry ('presente in' -> located_at) was added, verified against 20
     distinct real cases across multiple artist biographies, all sharing
     the same exhibition/show-title -> gallery/museum shape already
-    verified for 'was held at'. The real invariant this test protects is
+    verified for 'was held at'. 2026-09-25 (same session): the registry
+    itself (GMV_ONTOLOGY_REGISTRY_v0.1.json) was widened with 3 new
+    CANDIDATE predicates (curated_by, critical_text_by, resided_in) after
+    confirming no existing predicate fit 3 real, frequent, clean-shaped
+    raw predicates ('a cura di', 'testo critico di', 'moved to') --
+    entries 7-9 map those. The real invariant this test protects is
     unchanged: every raw_predicate_text here is one that was actually
     verified against real data (even if the first proposed predicate_id
     was itself wrong and had to be corrected), never silently multiplying
     beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 6, f"expected exactly the 6 known-verified entries, got {len(mappings)}"
+    assert len(mappings) == 9, f"expected exactly the 9 known-verified entries, got {len(mappings)}"
     by_text = {m["raw_predicate_text"]: m["predicate_id"] for m in mappings}
     assert by_text == {
         "was held at": "located_at",
@@ -174,4 +179,7 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
         "ha esposto": "participated_in",
         "partecipa": "participated_in",
         "presente in": "located_at",
+        "a cura di": "curated_by",
+        "testo critico di": "critical_text_by",
+        "moved to": "resided_in",
     }
