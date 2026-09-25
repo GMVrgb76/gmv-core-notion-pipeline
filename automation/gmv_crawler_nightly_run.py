@@ -248,6 +248,26 @@ def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) ->
                 "event": "extraction_skipped", "locator": locator,
                 "status": document.status, "at": now,
             })
+            # UNSUPPORTED_FORMAT (.pages, stale Tesseract backups) is
+            # structurally permanent for THIS content_hash -- no code path
+            # here will ever read a .pages file, so retrying the same
+            # unchanged bytes every night can only ever produce the same
+            # skip again. Marking the hash processed here stops that
+            # pointless nightly noise while still retrying automatically if
+            # the file's content ever changes (a new hash is a new, unseen
+            # row). EXTRACTION_FAILED is deliberately NOT included, despite
+            # looking just as permanent in the log: live, reproduced
+            # 2026-09-25 -- one of the real .doc files logged as
+            # EXTRACTION_FAILED on two separate nights succeeded cleanly
+            # (status SUCCESS) when the exact same download+extract path was
+            # run again on demand, so the failure was transient (likely
+            # LibreOffice/soffice contention under load), not the file's
+            # content. Excluding it here would have permanently hidden
+            # real, recoverable data -- EXTRACTION_ABORTED_STALE_HASH is
+            # excluded from this set for the same reason (transient, must
+            # stay retryable).
+            if document.status == "UNSUPPORTED_FORMAT":
+                _save_processed_hash(content_hash, processed_hashes)
             continue
 
         try:
