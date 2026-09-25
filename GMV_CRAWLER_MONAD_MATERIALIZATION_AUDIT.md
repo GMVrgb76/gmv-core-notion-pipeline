@@ -93,3 +93,44 @@ sources: tuple[SourceManifestEntry, ...]
 | End-to-end orchestration (real loop) | Does not exist | 0% — new module |
 
 **Honest conclusion**: the piece named first when this work was proposed (`gmv_id`) is also the real bottleneck and the largest piece of work, not a wiring detail. `public_text` is almost free. `SourceManifestEntry` is medium, well-scoped work. Without entity resolution, "wiring `materialize_monad()` into the real pipeline" is not even well-defined conceptually, because there is not yet any way to know which atoms in `atoms_built.jsonl` belong to the same Monad.
+
+## 5. What existing GMV governance documents already answer
+
+Added after searching Dropbox and Notion directly (2026-09-25), after §1-4 above were already written. These are real, authoritative sources this audit's first pass did not have — they narrow several of §2's open questions, though none fully closes them.
+
+### The full `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` text (Notion, FORMAL FREEZE 11 Aug 2026)
+
+Now readable in full (previously only paraphrased in code docstrings). Confirms §1.2's finding almost exactly: §14's six PUBLIC exclusion rules match `gmv_crawler_public_projector.py`'s own summary. One addition the code docstring omits: rule 6, "historical states presented as current" — a THIRD unenforced exclusion, not just the two the module discloses. The spec leaves `gmv_id` as a bare format placeholder (`GMV-...`) in its worked example — confirms design question 1 is genuinely open even at the frozen-spec level, not an oversight of this audit.
+
+### "GMV Crawler — Specifica di Implementazione v0.2" (Notion)
+
+Directly narrows design questions 1-3 and §3's work sequence:
+
+- **§11-§12, Entity resolution e GMV ID**: confirms a registry shape — `ENTITY_REGISTRY` with `gmv_id, entity_type, canonical_name, aliases[], status, created_at` — and the rule "never fuzzy-match → automatic merge", consistent with migration 010's SQL comments. Note a real discrepancy: this spec keeps `aliases[]` inline on the entity row, while `010_entity_registry.sql` (the only artifact actually migrated toward, though never reached) splits it into a separate `entity_aliases` table — two documented shapes for the same registry, never reconciled. The exact matching **algorithm** is still not specified here either — design question 2 narrows (schema is settled) but is not closed.
+- **§33, canonical implementation order**: an authoritative 16-step sequence exists and should supersede this audit's invented 8-step sequence in §3, not sit beside it as an equally-weighted alternative. Relevant excerpt: `1. Constitution v0.1→v0.2 config → 2. Ontology Registry → 3. Registry SQLite schema → 4. Source/Evidence contract → 5. Projection Adapter contract (generic) → 6. Entity Registry → 7. Atom validator → 8. Monad materializer → 9. Dropbox connector → ... → 15. PUBLIC projector → 16. Generalize gmv_notion_multi_candidate.py behind ProjectionAdapter`. This confirms Entity Registry (6) before Atom validator (7) and Monad materializer (8), consistent with §3's dependency reasoning here, but places `reconcile()`-equivalent (12) AFTER materialization (8) — the opposite order §3 of this audit assumed. That ordering conflict is unresolved and should be a design question in its own right.
+- **§29, Human review**: real production code (`gmv_notion_multi_candidate.py`) never auto-promotes any entity, even high-confidence ones — always `REVIEW_REQUIRED`. Relevant precedent for design question 3 (who writes to `entities`/`entity_aliases`): likely human-gated by the same established convention, not automatic.
+- **Open attention point 5** (the spec's own words, not this audit's): "Governance delle promozioni nell'Ontology Registry... chi promuove un predicate da CANDIDATE a CORE" — an already-recorded open question, parallel to (but distinct from) this audit's design question 1.
+
+### "Epistemic Ingestion Constitution v0.1" (Notion, REQUIRED, ACTIVE)
+
+The 15 mandatory ingestion rules `project_public()`/the atom builder already partially encode. Rule 8 is directly relevant to §1.1: "Entity types must be evidence-supported. If the source establishes an entity but not its class, use a type-neutral identifier and record the typing issue" — a real, existing rule for exactly the gap `gmv_crawler_entity_resolver.py` already implements (`needs_verification=True`), confirming that module's design choice was constitutionally motivated, not an ad hoc shortcut.
+
+### "2026-08-13 GMV Core Ingestion Runtime Handoff" (Dropbox, found misfiled under `GARIBALDI_Federico/09_TEMP_IMPORT/` — a system-wide architecture document, not artist-specific content)
+
+The formal handoff that framed this whole problem, predating this audit by six weeks; no response/deliverable document was found alongside it in Dropbox. §5 independently arrives at the same 5-way problem split §1 of this audit uses (document classification / entity resolution / canonical placement / semantic promotion / physical mutation) and states explicitly: "Entity resolution... non è risolta dal solo tipo documentale e può richiedere confronto con più fonti" — independent confirmation this is a real, recognized gap, not one this audit invented. §6 Fase 3 proposes a concrete 5-step resolution algorithm never yet implemented: (1) deterministic rules/exact lookup, (2) match against existing canonical entities/paths, (3) match against Notion as a knowledge interface (never elevated above SUM), (4) local model if calibrated useful, (5) human review or cloud escalation for persistent ambiguity. This is a real, actionable answer to design question 2 — untested, unimplemented, but not invented here. §2's canonical authority hierarchy (SUM/Dropbox = canonical evidence > Monad.md > Notion = structured interface > derived indexes = rebuildable) is also the strongest documented answer yet to the earlier "Notion as a crawler source" question from this same session: Notion is explicitly ranked below the Monad, and a Notion/SUM conflict must be flagged, never auto-resolved in Notion's favor.
+
+## Sources
+
+- `10_API/gmv_monad_materializer.py`
+- `10_API/gmv_crawler_public_projector.py`
+- `10_API/gmv_crawler_atom_builder.py`
+- `10_API/gmv_crawler_entity_resolver.py`
+- `10_API/gmv_evidence_pipeline.py`
+- `gmv_core/migration_sql/010_entity_registry.sql`
+- `gmv_core/migrations.py`
+- `automation/gmv_crawler_nightly_run.py`
+- `GMV_CRAWLER_HANDOFF.md`
+- [GMV_KNOWLEDGE_MONAD_SPEC_v1.0](https://app.notion.com/p/3b95a429a0288116a236d8867862d077) (Notion, full text fetched 2026-09-25)
+- [GMV Crawler — Specifica di Implementazione v0.2](https://app.notion.com/p/3d95a429a0288111bb14e5811a4d3f9c) (Notion)
+- [Epistemic Ingestion Constitution v0.1](https://app.notion.com/p/3b95a429a02881458c06fcaf938c5eb3) (Notion)
+- [2026-08-13 GMV Core Ingestion Runtime Handoff](https://www.dropbox.com/scl/fi/eh5rc3crep9h34dw5tgsw) (Dropbox, found under `GARIBALDI_Federico/09_TEMP_IMPORT/`)
