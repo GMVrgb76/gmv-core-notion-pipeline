@@ -27,6 +27,11 @@
       "raw_predicate_text": "partecipa",
       "predicate_id": "participated_in",
       "verified_against": "participated_in domain=[PERSON,ARTIST] range=[EVENT,EXHIBITION,PROJECT] -- checked against two real Bucchi cases: 'Danilo Bucchi' (subject=ARTIST) | 'partecipa' | 'EMERGENZE FESTIVAL' (object=EVENT/PROJECT), from 'partecipando, per esempio, a progetti come EMERGENZE FESTIVAL'; and 'Danilo Bucchi' | 'partecipa' | 'XVI Biennale di Venezia di Architettura' (object=EXHIBITION), from 'Nel 2016 con il progetto BIG CITY LIFE l'artista partecipa alla XVI Biennale di Venezia di Architettura'. Same domain/range shape already verified for 'ha esposto' above."
+    },
+    {
+      "raw_predicate_text": "presente in",
+      "predicate_id": "located_at",
+      "verified_against": "located_at domain=[EXHIBITION,EVENT,ORGANIZATION] range=[PLACE,INSTITUTION] -- checked against 20 distinct real cases (multiple artist biographies), all with the same shape (subject=exhibition/show/festival title, object=gallery/museum/cultural center): 'Dimora collettiva' | 'presente in' | 'Galleria Il Sole Arte Contemporanea'; 'Orizzonti e frontiere' | 'presente in' | 'Festival Internazionale di Cinema DERHUMALC'; 'Giuria del Premio di Pittura' | 'presente in' | 'Museo Quinquela Martín'. Same domain/range shape already verified for 'was held at'/'was presented at'/'was a solo exhibition at'."
     }
   ]
 }
