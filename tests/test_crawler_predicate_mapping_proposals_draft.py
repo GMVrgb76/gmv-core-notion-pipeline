@@ -166,14 +166,16 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
     entries 7-9 map those. Entries 10-11 reuse those same 2 new
     predicates for their plural/synonym surface forms ('testi critici
     di' -> critical_text_by, 'lived' -> resided_in), no further registry
-    change needed. The real invariant this test protects is
-    unchanged: every raw_predicate_text here is one that was actually
-    verified against real data (even if the first proposed predicate_id
-    was itself wrong and had to be corrected), never silently multiplying
-    beyond what a human checked."""
+    change needed. Entry 12 ('lives and works in' -> resided_in) is a
+    third synonym surface form of the same real relation, verified
+    against two real cases (Emanueia Volpe, Davide Genna). The real
+    invariant this test protects is unchanged: every raw_predicate_text
+    here is one that was actually verified against real data (even if
+    the first proposed predicate_id was itself wrong and had to be
+    corrected), never silently multiplying beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 11, f"expected exactly the 11 known-verified entries, got {len(mappings)}"
+    assert len(mappings) == 12, f"expected exactly the 12 known-verified entries, got {len(mappings)}"
     by_text = {m["raw_predicate_text"]: m["predicate_id"] for m in mappings}
     assert by_text == {
         "was held at": "located_at",
@@ -187,4 +189,5 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
         "moved to": "resided_in",
         "testi critici di": "critical_text_by",
         "lived": "resided_in",
+        "lives and works in": "resided_in",
     }

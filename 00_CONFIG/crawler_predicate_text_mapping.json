@@ -57,6 +57,11 @@
       "raw_predicate_text": "lived",
       "predicate_id": "resided_in",
       "verified_against": "Same predicate/shape already verified for 'moved to' -- checked against real case: 'Ernesto Morales' | 'lived' | 'Buenos Aires' (subject=PERSON, object=PLACE)."
+    },
+    {
+      "raw_predicate_text": "lives and works in",
+      "predicate_id": "resided_in",
+      "verified_against": "Same predicate/shape already verified for 'moved to'/'lived' -- checked against two real cases: 'Emanueia Volpe' | 'lives and works in' | 'Milan', from 'She lives and works in Milan.'; 'Davide Genna' | 'lives and works in' | 'Milan', from 'Genna lives and works in Milan.'"
     }
   ]
 }
