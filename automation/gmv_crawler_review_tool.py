@@ -2,9 +2,14 @@
 title: GMV Crawler Review
 description: Legge e corregge le code di revisione del crawler GMV (predicati non riconosciuti, tipi di entita' da verificare).
 """
+import hashlib
 import json
 import os
 import subprocess
+import sys
+import tempfile
+from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(
@@ -31,6 +36,12 @@ RUN_NIGHTLY_SCRIPT = REPO_ROOT / "automation" / "run_nightly.sh"
 CHAT_STDOUT_LOG = RUNTIME_DIR / "chat_triggered_stdout.log"
 CHAT_STDERR_LOG = RUNTIME_DIR / "chat_triggered_stderr.log"
 RUN_PID_FILE = RUNTIME_DIR / "current_run.pid"
+# Same file gmv_crawler_nightly_run.py itself reads/writes -- a file
+# processed successfully here must be recognized as done by the 3am run
+# too, not reprocessed a second time for nothing.
+PROCESSED_HASHES_PATH = RUNTIME_DIR / "processed_content_hashes.json"
+DROPBOX_OAUTH_FILE = Path("/Users/giacomomarcovalerio/.gmv_dropbox_oauth.json")
+API_DIR = REPO_ROOT / "10_API"
 
 
 def _running_pid() -> int | None:
@@ -93,6 +104,118 @@ class Tools:
             "Scansione avviata in background sulle cartelle artista configurate. "
             "Richiedimi 'controlla l'ultima esecuzione' tra un paio di minuti per sapere l'esito."
         )
+
+    def run_crawler_on_files(self, locators: str) -> str:
+        """Rielabora SUBITO uno o piu' file specifici (percorso Dropbox
+        completo, uno per riga o separati da virgola -- lo stesso valore
+        mostrato come 'source_id'/'locator' nei log o nella coda di rifiuto),
+        invece di aspettare o rilanciare la scansione notturna completa.
+        USA questo strumento quando l'utente chiede di ritentare o
+        rielaborare uno o piu' file precisi (es. per verificare se un
+        fallimento precedente era transitorio), MAI per una scansione
+        generale -- per quella usa run_crawler_now().
+        Ogni file passa dallo stesso identico percorso della scansione
+        notturna (classificazione -> estrazione -> costruzione atomi/
+        listino/contratto), e un successo qui viene ricordato anche dalla
+        prossima scansione notturna (non verra' rielaborato due volte).
+        Puo' richiedere diversi minuti per file lunghi (contratti, bio
+        estese) -- avvisa l'utente di aspettare invece di ripetere la
+        richiesta."""
+        paths = [p.strip() for p in locators.replace(",", "\n").splitlines() if p.strip()]
+        if not paths:
+            return "Serve almeno un percorso file (source_id/locator completo)."
+        if _running_pid() is not None:
+            return (
+                "Una scansione notturna completa e' in corso -- aspetta che finisca "
+                "prima di rielaborare singoli file, per evitare scritture "
+                "concorrenti sugli stessi file di log."
+            )
+        if not DROPBOX_OAUTH_FILE.exists():
+            return f"ERRORE: credenziali Dropbox non trovate in {DROPBOX_OAUTH_FILE}."
+        creds = json.loads(DROPBOX_OAUTH_FILE.read_text(encoding="utf-8"))
+
+        if str(API_DIR) not in sys.path:
+            sys.path.insert(0, str(API_DIR))
+        from gmv_dropbox_connector import DropboxConnector, DropboxConnectorError  # noqa: E402
+        from gmv_crawler_extractor import extract_document  # noqa: E402
+        from gmv_crawler_orchestrator import process_document  # noqa: E402
+        from gmv_crawler_rejection_queue import append_rejected  # noqa: E402
+        from gmv_crawler_entity_proposal_queue import append_entity_proposals  # noqa: E402
+
+        try:
+            connector = DropboxConnector(
+                root_path="",
+                refresh_token=creds["refresh_token"],
+                app_key=creds["app_key"],
+                app_secret=creds["app_secret"],
+            )
+        except DropboxConnectorError as exc:
+            return f"ERRORE credenziali Dropbox: {exc}"
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        processed_hashes = set(
+            json.loads(PROCESSED_HASHES_PATH.read_text(encoding="utf-8"))
+            if PROCESSED_HASHES_PATH.exists() else []
+        )
+        lines = [f"Rielaborazione immediata di {len(paths)} file:"]
+
+        for locator in paths:
+            try:
+                raw_bytes = connector.download(locator)
+            except DropboxConnectorError as exc:
+                lines.append(f"- {locator}\n  ERRORE download: {exc}")
+                continue
+
+            content_hash = f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
+            suffix = Path(locator).suffix or ".bin"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(raw_bytes)
+                tmp_path = Path(tmp.name)
+            try:
+                document = extract_document(tmp_path, source_id=locator, source_hash=content_hash)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+            if document.status != "SUCCESS":
+                lines.append(f"- {locator}\n  estrazione testo fallita: {document.status}")
+                continue
+
+            try:
+                result = process_document(
+                    document, evidence_ids=(f"{locator}#{now}",), now=now,
+                    timeout=450, num_ctx=16384, num_predict=8192,
+                )
+            except Exception as exc:  # noqa: BLE001 -- report every real failure to the user, never swallow one silently
+                lines.append(f"- {locator}\n  ERRORE elaborazione: {type(exc).__name__}: {exc}")
+                continue
+
+            if result.atoms:
+                with ATOMS_LOG_PATH.open("a", encoding="utf-8") as handle:
+                    for atom in result.atoms:
+                        handle.write(json.dumps(asdict(atom), ensure_ascii=False) + "\n")
+            if result.price_entries:
+                with PRICE_LOG_PATH.open("a", encoding="utf-8") as handle:
+                    for entry in result.price_entries:
+                        handle.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+            if result.contract_summary is not None:
+                with CONTRACT_LOG_PATH.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(asdict(result.contract_summary), ensure_ascii=False) + "\n")
+            if result.rejected:
+                append_rejected(result.rejected, REJECTION_QUEUE_PATH, now=now)
+            append_entity_proposals(
+                result.entity_type_proposals_needing_verification, ENTITY_PROPOSAL_QUEUE_PATH, now=now,
+            )
+
+            processed_hashes.add(content_hash)
+            PROCESSED_HASHES_PATH.write_text(
+                json.dumps(sorted(processed_hashes), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            lines.append(
+                f"- {locator}\n  OK -- tipo={result.document_type}, "
+                f"atomi={len(result.atoms)}, rifiutati={len(result.rejected)}"
+            )
+
+        return "\n".join(lines)
 
     def check_last_run_status(self) -> str:
         """Dice se l'esecuzione notturna del crawler (le 3 di notte) ha
