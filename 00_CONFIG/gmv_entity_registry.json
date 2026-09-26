@@ -1,9 +1,9 @@
 {
-  "note": "Human-curated, verified registry mapping a canonical name to a stable gmv_id, for the crawler's entity resolution (10_API/gmv_crawler_entity_resolver.py). Deliberately minimal and hand-seeded for a single-entity proof of concept (see GMV_CRAWLER_MONAD_MATERIALIZATION_AUDIT.md) -- NOT a production entity registry, NOT auto-populated. A real production registry (schema, matching algorithm, gmv_id generation scheme) remains an open design decision, not something this file decides.",
-  "note_on_maintenance": "Created 2026-09-26 for one proof-of-concept entity. Do not add entries here without the same human-verification discipline already applied to area35_known_artists.json/area35_known_institutions.json.",
+  "note": "Human-curated, verified registry mapping a canonical name to a stable gmv_id, for the crawler's entity resolution (10_API/gmv_crawler_entity_resolver.py). Deliberately minimal and hand-seeded for a single-entity proof of concept (see GMV_CRAWLER_MONAD_MATERIALIZATION_AUDIT.md) -- NOT a production entity registry, NOT auto-populated. gmv_id is SEQUENTIAL (GMV-000001, GMV-000002, ...), decided 2026-09-26 in GMV_CRAWLER_MONAD_MATERIALIZATION_AUDIT.md section 2 Q1 and implemented by next_sequential_gmv_id() in that same module; the id is stable and independent of the current name, which a content-derived id would not be. No entry is ever written by an unattended pipeline run: a name that fails to resolve produces a queued PROPOSAL (10_API/gmv_crawler_entity_identity_proposal_queue.py) and only an explicit human action calls confirm_new_entity()/confirm_entity_alias() to write here. A real production registry (storage schema, matching algorithm beyond exact match, merge repair) remains an open design decision, not something this file decides.",
+  "note_on_maintenance": "Created 2026-09-26 for one proof-of-concept entity; gmv_id retrofitted from the rejected content-derived format to the sequential scheme on 2026-09-26. Do not add entries here without the same human-verification discipline already applied to area35_known_artists.json/area35_known_institutions.json.",
   "entities": [
     {
-      "gmv_id": "GMV-ARTIST-FEDERICO-GARIBALDI",
+      "gmv_id": "GMV-000001",
       "entity_type": "ARTIST",
       "canonical_name": "Federico Garibaldi",
       "aliases": ["Garibaldi"],
