@@ -62,6 +62,39 @@ same `"think"` handling, same `done_reason` truncation check, same
 `urllib.request` error mapping) -- reimplemented here rather than
 imported because the payload schema and record shape differ; the control
 flow is intentionally the same shape.
+
+## The second, adjacent half: IDENTITY, not TYPE
+
+`classify_entity_types()` above answers "what KIND of entity is this
+name?". `resolve_entity_gmv_id()` (added at the end of this file, 2026-09-26)
+answers the strictly narrower, strictly prior question: "does this name
+already HAVE a stable identity, and which one?". They do not overlap and
+neither subsumes the other -- a name can be typed without being resolved
+(that is every `MODEL_INFERENCE` proposal above), and a name can be
+resolved to an id without this module ever asserting a type -- and both
+are proposals for a consumer to act on, never decisions recorded
+anywhere. The two sit side by side in one module on purpose: this file is
+already the crawler's home for "what do we know about an entity name", and
+splitting identity into a second module for the sake of tidiness would
+give the two halves different, divergent conventions for the same
+job (both already share one convention: exact normalized comparison,
+`.strip().lower()`, and an ambiguous match resolves to "no answer", never
+to a silent pick -- see `resolve_entity_gmv_id()`'s own docstring and
+`gmv_crawler_relation_atom_builder._link_object_to_entity()`, the existing
+real precedent for exactly that rule in this subsystem).
+
+Everything out-of-scope above stays out-of-scope here too, with the
+`resolve_entity_gmv_id()` case stated explicitly since it is the more
+tempting one: this function READS a plain human-curated JSON file
+(`00_CONFIG/gmv_entity_registry.json`) and WRITES NOTHING -- not the
+`entities`/`entity_aliases` tables of migration 010, not the JSON file
+itself, not any sqlite connection of any kind. It does not generate,
+mint, or auto-register a `gmv_id` for a name it does not recognize:
+returning `None` is a legitimate, non-error outcome that the caller is
+required to treat as "stays unresolved / type-neutral", which is the
+Epistemic Ingestion Constitution v0.1 rule-8 shape (use a type-neutral
+identifier and record the typing issue) that `classify_entity_types()`'s
+`needs_verification=True` already implements for the type question.
 """
 
 from __future__ import annotations
@@ -336,3 +369,147 @@ def classify_entity_types(
         matched_names[entity.name] if entity.name in matched_names else classified[entity.name]
         for entity in entities
     )
+
+
+def resolve_entity_gmv_id(name: str, registry: dict) -> str | None:
+    """The `gmv_id` already registered for `name`, or `None`.
+
+    `registry` is the parsed `00_CONFIG/gmv_entity_registry.json` (the
+    `{"entities": [...]}` shape, human-curated and human-verified, never
+    auto-populated -- the same discipline as `area35_known_artists.json`).
+    A name matches an entry's `canonical_name` or any of its `aliases`.
+
+    Design decisions, each traceable to something real rather than
+    preferred on its own:
+
+    1. **Exact comparison after `.strip().lower()` on BOTH sides. No
+       fuzzy matching, no embedding similarity, no LLM call, no
+       `difflib`.** The rule this implements is already written into
+       `gmv_core/migration_sql/010_entity_registry.sql`'s own header
+       ("never fuzzy-match -> automatic merge") and into the crawler
+       spec v0.2 §11-§12 it was derived from. The mechanical reason it
+       is enforced HERE rather than left to review: the registry is a
+       hand-curated file, so a fuzzy match is unauditable against it --
+       there is no recorded reason attached to "87% similar", only to
+       "the strings are equal". The one real precedent for exact
+       normalized comparison in this subsystem is
+       `gmv_crawler_relation_atom_builder._link_object_to_entity()` /
+       `_load_predicate_mapping()` (`.strip().lower()`, equality, never
+       similarity), and the reason a model is excluded is not
+       performance: `classify_entity_types()`'s own docstring records two
+       reproduced probes where a self-confident model call produced the
+       wrong answer on real Garibaldi data, and there is no honest way to
+       audit a proposed identity whose only justification is a
+       temperature-0 generation that cannot be reproduced by a reviewer
+       reading two files. Prove the exact match is sufficient before
+       adding a model dependency to identity, not after.
+    2. **`.strip().lower()`, NOT `area35_validator._forma()`.** Real
+       tension, resolved deliberately: `_forma()` would usefully collapse
+       "Garibaldi, Federico" onto "Federico Garibaldi" for free, and it
+       is this subsystem's existing name normalizer
+       (`compute_atom_fingerprint()`, `derive_current_state()`'s slot
+       key, `r_duplicati`). It is not used here because `_forma()` sorts
+       ALL tokens, and its own docstring in `compute_atom_fingerprint()`
+       records the consequence with a real example: "Venice Biennale" and
+       "Biennale Venice" fingerprint IDENTICALLY under it. That is an
+       accepted trade-off for deduplication of PERSON/ARTIST names, where
+       token order genuinely carries no meaning, and an unacceptable one
+       for deciding that two strings are the same ENTITY -- a matcher
+       that can only be trusted for people, silently applied to every
+       name, is exactly the "fuzzy match -> automatic merge" the SQL
+       header forbids. Name variants are the human-curated registry's
+       job (`aliases` exists for that); a real "Garibaldi, Federico"
+       variant failing to match is reportable evidence for a human to
+       add the alias, not something the matcher should quietly decide.
+    3. **An ambiguous name -- one appearing on two different entities --
+       returns `None`, never the first match.** Same rule and the same
+       real precedent as point 2 of `_link_object_to_entity()`'s own
+       docstring ("an exact tie ... is a real ambiguity -> None (the
+       caller rejects it, never an arbitrary pick)"). This is the
+       migration-010 homonyms case, which its own comment on the absence
+       of a `(entity_type, canonical_name)` UNIQUE constraint says is a
+       real, expected situation to surface for human review rather than
+       to resolve by picking one. Three properties of the scan below are
+       deliberate, each one an attack this function has to survive:
+       - It covers the WHOLE registry before answering, so the result
+         cannot depend on the order a human happens to keep entries in.
+         A "return the first matching entry" loop would make an identity
+         function's answer change when the file is reformatted for
+         readability -- a latent wrong-entity merge, not a cosmetic bug.
+       - An entity listing its own `canonical_name` in its own `aliases`
+         is ONE entity, not two: otherwise a harmless redundancy in a
+         hand-curated file would silently un-resolve a real name.
+       - A third entry claiming an already-ambiguous name cannot
+         re-resolve it back to one of the first two.
+       Honest limitation, stated rather than hidden: the declared return
+       type carries one value, so "matched nothing" and "matched two
+       things" both arrive as `None` and this function cannot tell the
+       caller which happened. Both are the least-assertive outcome
+       available (Constitution v0.1 rule 12: "when two interpretations
+       are possible, choose the less assertive one"), but a future
+       caller that needs to route only the ambiguous cases to a
+       human-review queue will need a wider signature than this one -- a
+       design decision for whoever builds that queue, not something
+       this function guesses at by raising.
+    4. **An empty/whitespace-only `name` never matches, even a registry
+       entry whose own name is empty.** An entity with no name has not
+       been identified by anything, so matching it would hand back an id
+       for an unknown string. Symmetrically, an entry whose `gmv_id` is
+       empty is skipped rather than matched: an entry with no id
+       identifies nothing, and returning `""` would be worse than `None`
+       -- `""` is falsy but not `None`, so a caller checking `is None`
+       would let it through and materialize a Monad with an empty
+       `gmv_id`, which `gmv_monad_materializer.gmv_id_is_well_formed()`
+       would then reject as a BLOCKER far downstream, with the real
+       cause (a broken registry entry) nowhere near the error.
+    5. **A malformed entry is a caller bug and raises; it is never read
+       as "no match".** An entry that is not a dict, or has no
+       `canonical_name`, propagates a `KeyError`/`TypeError` out of here
+       -- the same treatment a malformed `registry` argument gets in
+       `validate_atom()`/`build_atoms()` elsewhere in this subsystem,
+       and the same reason `_load_known_artists()`'s `data["artists"]`
+       lets a `KeyError` propagate. Silently degrading a broken
+       hand-curated governance file to "this name happens to be
+       unknown" is how a real entity quietly stops resolving.
+    6. **No `gmv_id` is ever generated, minted, or auto-registered.** A
+       name with no registry entry returns `None` and stays that way.
+       The generation scheme is explicitly undecided in migration 010
+       ("NOT decided by this migration") and remains open in
+       `GMV_CRAWLER_MONAD_MATERIALIZATION_AUDIT.md` §2 Q1; auto-creating
+       an id here would silently make a real editorial decision (that
+       this string is a new, distinct entity) as a side effect of a
+       lookup. `None` is a first-class outcome, not an error: callers
+       must treat it as "unresolved / type-neutral" and carry on.
+    7. **Reads the registry, writes nothing, and caches nothing.** No
+       sqlite, no JSON write, no registry mutation -- the same
+       "proposals live in memory only" boundary
+       `classify_entity_types()`'s module section already declares for
+       the type question. The scan is also deliberately per-call rather
+       than memoized at module level: this file is hand-curated and
+       expected to be edited by a human between runs (that is its whole
+       maintenance model, see its own `note_on_maintenance`), and a
+       cached index would keep answering with the pre-edit contents for
+       the rest of the process -- staleness in an identity lookup means
+       confidently resolving to the wrong entity, which is materially
+       worse than re-reading a one-entry file. Cost is O(entries) per
+       name, negligible at this size and for the one-call pattern a
+       caller has today; a caller that ever needs to resolve a very
+       large name set should restructure for a batch, not have a stale
+       cache appear for it.
+    """
+    normalized = name.strip().lower()
+    if not normalized:
+        return None
+    resolved: str | None = None
+    for entry in registry["entities"]:
+        gmv_id = entry["gmv_id"]
+        if not gmv_id:
+            continue
+        for raw_name in (entry["canonical_name"], *entry.get("aliases", ())):
+            candidate = raw_name.strip().lower()
+            if not candidate or candidate != normalized:
+                continue
+            if resolved is not None and resolved != gmv_id:
+                return None
+            resolved = gmv_id
+    return resolved

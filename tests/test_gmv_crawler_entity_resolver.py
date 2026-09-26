@@ -32,6 +32,7 @@ from gmv_crawler_entity_resolver import (  # noqa: E402
     CLASSIFICATION_SCHEMA,
     EntityTypeProposal,
     classify_entity_types,
+    resolve_entity_gmv_id,
 )
 from gmv_evidence_pipeline import EvidenceError, OllamaResponseError  # noqa: E402
 
@@ -393,3 +394,187 @@ def test_empty_batch_returns_empty_tuple_without_network(
 ) -> None:
     monkeypatch.setattr(resolver, "_classify_via_ollama", fail_if_called)
     assert classify_entity_types(()) == ()
+
+# --- resolve_entity_gmv_id(): the identity half (added 2026-09-26) ---
+#
+# The guarantees this section tries to BREAK, deliberately, one test each:
+#   G1 "exact, case-insensitive, whitespace-normalized match"  -> test_gmv_id_resolves_canonical_name_case_and_whitespace_insensitively
+#   G2 "returns the matching entity's gmv_id, or None if no entry
+#       matches" (never an error, never an invented id)        -> test_gmv_id_unknown_and_blank_names_return_none
+#   G3 "never silently picks a winner" (ambiguity -> None)    -> test_gmv_id_ambiguous_name_across_two_entities_is_never_a_silent_pick
+#   G4 no gmv_id is ever generated                            -> test_gmv_id_never_creates_or_mutates_registry_state
+# G5 (extra, not in the docstring's list but implied by it): a
+#   registry entry with an empty gmv_id must not leak "" to a
+#   caller testing `is None`                               -> test_gmv_id_entry_with_empty_gmv_id_is_skipped_not_returned_as_empty_string
+# G6: no LLM/network is ever contacted, in any case           -> test_gmv_id_never_touches_network_even_for_unmatched_names
+
+REAL_REGISTRY_PATH = ROOT / "00_CONFIG" / "gmv_entity_registry.json"
+
+
+def _registry(*entities: dict) -> dict:
+    return {"note": "test fixture", "entities": list(entities)}
+
+
+GARIBALDI = {
+    "gmv_id": "GMV-ARTIST-FEDERICO-GARIBALDI",
+    "entity_type": "ARTIST",
+    "canonical_name": "Federico Garibaldi",
+    "aliases": ["Garibaldi"],
+    "status": "active",
+}
+
+
+def test_gmv_id_resolves_canonical_name_case_and_whitespace_insensitively() -> None:
+    registry = _registry(GARIBALDI)
+    for name in ("Federico Garibaldi", "federico garibaldi", "FEDERICO GARIBALDI",
+                 "  Federico Garibaldi  ", "\nFederico Garibaldi\t"):
+        assert resolve_entity_gmv_id(name, registry) == "GMV-ARTIST-FEDERICO-GARIBALDI"
+
+
+def test_gmv_id_does_not_normalize_whitespace_inside_the_name() -> None:
+    """Pinned limitation, not an oversight: the specified normalization is
+    exactly `.strip().lower()` on both sides, which strips only LEADING and
+    TRAILING whitespace. A name differing INSIDE itself -- a tab, a
+    newline, a double space, a non-breaking space (which LLM output does
+    produce) -- is a different string and does not match. Deliberately
+    left as-is rather than "fixed" with a broader normalization: any
+    internal-whitespace collapsing belongs to the human-curated `aliases`
+    list, and this test exists so a future edit that DOES broaden the
+    matching has to change this test deliberately rather than silently."""
+    registry = _registry(GARIBALDI)
+    for name in ("Federico  Garibaldi", "Federico\tGaribaldi", "Federico\xa0Garibaldi"):
+        assert resolve_entity_gmv_id(name, registry) is None, repr(name)
+
+
+def test_gmv_id_resolves_an_alias_exactly_but_never_fuzzily() -> None:
+    registry = _registry(GARIBALDI)
+    assert resolve_entity_gmv_id("Garibaldi", registry) == "GMV-ARTIST-FEDERICO-GARIBALDI"
+    assert resolve_entity_gmv_id(" garibaldi ", registry) == "GMV-ARTIST-FEDERICO-GARIBALDI"
+    # Every near-miss below is a DIFFERENT string: no fuzzy matching, no
+    # substring matching, no token-order normalization (no _forma()), and
+    # "Garibaldi, Federico" is deliberately NOT accepted -- an inverted
+    # name is an alias a human adds to the registry, not something the
+    # matcher decides (see the function's own docstring, point 2).
+    for name in ("Federico", "Garibaldi, Federico", "F. Garibaldi",
+                 "Federico Garibaldi Jr", "Garibaldi Federico", "Garibald"):
+        assert resolve_entity_gmv_id(name, registry) is None, name
+
+
+def test_gmv_id_unknown_and_blank_names_return_none_never_an_error() -> None:
+    registry = _registry(GARIBALDI)
+    for name in (UNKNOWN_NAME, "", "   ", "\t\n", "  Federico  "):
+        result = resolve_entity_gmv_id(name, registry)
+        assert result is None, name
+
+
+def test_gmv_id_ambiguous_name_across_two_entities_is_never_a_silent_pick() -> None:
+    """The exact attack on the guarantee, in all three forms it can take:
+    canonical-vs-canonical (as alias-vs-alias of the same two entities),
+    canonical-vs-alias, in BOTH entity orderings -- because a
+    "first match wins" implementation passes the name that only the first
+    entity carries, and the orderings are what expose it. The
+    non-ambiguous sibling name in the same registry must still resolve:
+    ambiguity is scoped to one name, it does not poison the file."""
+    homonym = {
+        "gmv_id": "GMV-PERSON-OTHER-GARIBALDI",
+        "entity_type": "PERSON",
+        "canonical_name": "Garibaldi",
+        "aliases": [],
+        "status": "active",
+    }
+    aliased = {
+        "gmv_id": "GMV-PERSON-X",
+        "entity_type": "PERSON",
+        "canonical_name": "Someone Else",
+        "aliases": ["Federico Garibaldi"],
+        "status": "active",
+    }
+    for first, second in ((GARIBALDI, homonym), (homonym, GARIBALDI)):
+        registry = _registry(first, second)
+        assert resolve_entity_gmv_id("Garibaldi", registry) is None
+        assert resolve_entity_gmv_id("Federico Garibaldi", registry) == (
+            "GMV-ARTIST-FEDERICO-GARIBALDI"
+        )
+    for first, second in ((GARIBALDI, aliased), (aliased, GARIBALDI)):
+        registry = _registry(first, second)
+        assert resolve_entity_gmv_id("Federico Garibaldi", registry) is None
+        assert resolve_entity_gmv_id("Garibaldi", registry) == (
+            "GMV-ARTIST-FEDERICO-GARIBALDI"
+        )
+    # A third entity claiming an already-ambiguous name must not
+    # re-resolve it back to one of the two.
+    three_way = _registry(GARIBALDI, homonym, aliased)
+    assert resolve_entity_gmv_id("Garibaldi", three_way) is None
+    assert resolve_entity_gmv_id("Federico Garibaldi", three_way) is None
+    # ...while an unrelated name in the same ambiguous registry still
+    # resolves.
+    assert resolve_entity_gmv_id("Someone Else", three_way) == "GMV-PERSON-X"
+
+
+def test_gmv_id_same_entity_repeating_its_own_name_is_not_ambiguity() -> None:
+    """An entity listing its own canonical_name as one of its own aliases
+    is one entity, not two -- otherwise a harmless redundancy in a
+    hand-curated file would silently un-resolve a real name."""
+    registry = _registry({**GARIBALDI, "aliases": ["Garibaldi", "Federico Garibaldi"]})
+    assert resolve_entity_gmv_id("Federico Garibaldi", registry) == (
+        "GMV-ARTIST-FEDERICO-GARIBALDI"
+    )
+
+
+def test_gmv_id_entry_with_empty_gmv_id_is_skipped_not_returned_as_empty_string() -> None:
+    registry = _registry(
+        {"gmv_id": "", "entity_type": "ARTIST", "canonical_name": "Federico Garibaldi",
+         "aliases": [], "status": "active"},
+        GARIBALDI,
+    )
+    resolved = resolve_entity_gmv_id("Federico Garibaldi", registry)
+    assert resolved == "GMV-ARTIST-FEDERICO-GARIBALDI"
+    # With no real id behind it at all, the result is None -- never "",
+    # which is falsy-but-not-None and would slip past a caller's
+    # `if gmv_id is None` check and only fail much later, in
+    # gmv_monad_materializer.gmv_id_is_well_formed().
+    assert resolve_entity_gmv_id("Federico Garibaldi", _registry(
+        {"gmv_id": "", "entity_type": "ARTIST", "canonical_name": "Federico Garibaldi",
+         "aliases": [], "status": "active"}
+    )) is None
+
+
+def test_gmv_id_never_touches_network_even_for_unmatched_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resolver, "_classify_via_ollama", fail_if_called)
+    monkeypatch.setattr(urllib.request, "urlopen", fail_if_called)
+    registry = _registry(GARIBALDI)
+    assert resolve_entity_gmv_id("Federico Garibaldi", registry) == (
+        "GMV-ARTIST-FEDERICO-GARIBALDI"
+    )
+    assert resolve_entity_gmv_id(UNKNOWN_NAME, registry) is None
+
+
+def test_gmv_id_never_creates_or_mutates_registry_state() -> None:
+    """An unmatched name must leave the registry exactly as it was, and
+    a matched one must not have been back-filled: a lookup that invents
+    an id is exactly the auto-registration this function must not do."""
+    registry = _registry(GARIBALDI)
+    before = json.dumps(registry, sort_keys=True)
+    assert resolve_entity_gmv_id(UNKNOWN_NAME, registry) is None
+    assert resolve_entity_gmv_id("Federico Garibaldi", registry) is not None
+    assert json.dumps(registry, sort_keys=True) == before
+
+
+def test_committed_entity_registry_file_resolves_its_own_entity() -> None:
+    """The real committed file, not a fixture: guards the proof-of-concept
+    registry against being renamed/reformatted into something this
+    function can no longer read (it is the only entity-registry file
+    that exists anywhere in the repository)."""
+    data = json.loads(REAL_REGISTRY_PATH.read_text(encoding="utf-8"))
+    assert data["entities"], "committed entity registry is empty"
+    for entity in data["entities"]:
+        gmv_id = resolve_entity_gmv_id(entity["canonical_name"], data)
+        assert gmv_id == entity["gmv_id"]
+        for alias in entity.get("aliases", []):
+            assert resolve_entity_gmv_id(alias, data) == entity["gmv_id"]
+        # The gmv_id must also satisfy the format migration 010's own
+        # CHECK enforces and gmv_monad_materializer re-expresses in
+        # Python (GLOB 'GMV-*' AND length > length('GMV-')).
+        assert gmv_id.startswith("GMV-") and len(gmv_id) > len("GMV-")

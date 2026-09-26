@@ -1,0 +1,13 @@
+{
+  "note": "Human-curated, verified registry mapping a canonical name to a stable gmv_id, for the crawler's entity resolution (10_API/gmv_crawler_entity_resolver.py). Deliberately minimal and hand-seeded for a single-entity proof of concept (see GMV_CRAWLER_MONAD_MATERIALIZATION_AUDIT.md) -- NOT a production entity registry, NOT auto-populated. A real production registry (schema, matching algorithm, gmv_id generation scheme) remains an open design decision, not something this file decides.",
+  "note_on_maintenance": "Created 2026-09-26 for one proof-of-concept entity. Do not add entries here without the same human-verification discipline already applied to area35_known_artists.json/area35_known_institutions.json.",
+  "entities": [
+    {
+      "gmv_id": "GMV-ARTIST-FEDERICO-GARIBALDI",
+      "entity_type": "ARTIST",
+      "canonical_name": "Federico Garibaldi",
+      "aliases": ["Garibaldi"],
+      "status": "ACTIVE"
+    }
+  ]
+}
