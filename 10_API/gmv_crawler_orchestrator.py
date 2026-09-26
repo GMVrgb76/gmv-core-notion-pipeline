@@ -33,6 +33,24 @@ decoupling principle every task brief in this project has kept); does
 not persist anything; does not loop over multiple documents (one
 `ExtractionDocument` per call, matching `extract_candidates()`'s own
 one-document shape); does not touch any existing module.
+
+The identity question joined the type question here on 2026-09-26, in
+the same shape and under the same rules: `ProcessDocumentResult` gained
+`entity_identity_proposals` (the IDENTITY counterpart of
+`entity_type_proposals_needing_verification`, built by
+`propose_entity_identity()` over a read-only load of the real
+00_CONFIG/gmv_entity_registry.json) and this module still writes to no
+queue and still touches no governance file. Two consequences of that
+naming worth stating rather than leaving to be discovered:
+`entity_identity_proposals` is NOT the type proposals' sibling in any
+functional sense -- it is produced from `all_entities`, before any atom
+builder runs, and it decides nothing about any atom; and nothing here
+ever calls `confirm_new_entity()`/`confirm_entity_alias()`, the only two
+functions in the repository that write the registry, because this module
+runs unattended. The one thing this addition did change in practice: a
+name a human confirms mid-run is visible to the NEXT document of the same
+run, because the registry is re-read per document rather than cached
+(`_load_entity_registry()`'s own docstring gives the reasoning).
 """
 
 from __future__ import annotations
@@ -62,7 +80,12 @@ from gmv_crawler_contract_extractor import (  # noqa: E402 -- reused, not reimpl
     extract_contract_summary,
 )
 from gmv_crawler_document_classifier import classify_document  # noqa: E402 -- reused, not reimplemented
-from gmv_crawler_entity_resolver import EntityTypeProposal  # noqa: E402 -- reused, not reimplemented
+from gmv_crawler_entity_resolver import (  # noqa: E402 -- reused, not reimplemented
+    EntityIdentityProposal,
+    EntityTypeProposal,
+    _load_entity_registry,
+    propose_entity_identity,
+)
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
 from gmv_evidence_pipeline import EvidenceError, OllamaResponseError  # noqa: E402 -- reused, not reimplemented
 from gmv_crawler_price_extractor import (  # noqa: E402 -- reused, not reimplemented
@@ -101,7 +124,23 @@ class ProcessDocumentResult:
     (reliably extracts commission_percentage/key_obligations as clean
     structured fields, verified live) because neither alone was as
     complete as both together; see `gmv_crawler_contract_extractor.py`'s
-    own module docstring for the live-reproduced finding this is based on."""
+    own module docstring for the live-reproduced finding this is based on.
+
+    `entity_identity_proposals` (added 2026-09-26) is the IDENTITY half of
+    what `entity_type_proposals_needing_verification` is for the type
+    question: one `EntityIdentityProposal` per extracted entity name that
+    `resolve_entity_gmv_id()` could NOT map to exactly one `gmv_id` in the
+    real 00_CONFIG/gmv_entity_registry.json -- the same
+    "a human decides, never the pipeline" contract, over a different file
+    and a different queue. It is `()` for `document_type == "price_list"`
+    (that branch returns before `extract_candidates()` ever runs, so there
+    is no entity to propose anything about), and it is orthogonal to
+    everything else here: building it changes no atom, rejects no
+    proposition and consumes no model call, and the registry is only ever
+    READ. `suggested_entity_type` is `""` on every proposal produced here
+    -- type classification stays `build_relation_atoms()`'s job, scoped to
+    relation objects; joining the two is a separate, deliberate decision
+    (see `process_document()`'s own docstring)."""
 
     document_type: str
     atoms: tuple[AtomCandidate, ...]
@@ -112,6 +151,7 @@ class ProcessDocumentResult:
     price_entries: tuple[CandidateArtworkPrice, ...] = ()
     price_rejected: tuple[str, ...] = ()
     contract_summary: CandidateContractSummary | None = None
+    entity_identity_proposals: tuple[EntityIdentityProposal, ...] = ()
 
 
 def process_document(
@@ -213,6 +253,56 @@ def process_document(
        shape than `RejectedCandidate` -- kept separate, never merged
        into `rejected`, since it describes a different stage's
        failures with a different contract).
+    5. `entity_identity_proposals` (2026-09-26) is computed straight
+       after step 1's `extract_candidates()` and BEFORE any atom
+       builder, from `all_entities` alone: every name the real
+       registry cannot resolve to exactly one `gmv_id` becomes one
+       `EntityIdentityProposal` carrying the `CandidateEntity`'s own
+       `name`/`source_id`/`evidence_excerpt` verbatim. It runs this
+       early and unconditionally for a reason worth stating: a name
+       that does not resolve is a fact about the DOCUMENT, not about
+       the predicates the builders happen to consume, so scoping it to
+       atoms would silently drop every entity no atom references --
+       which is most of them, since `build_atoms()`'s ATTRIBUTE slice
+       and `build_relation_atoms()`'s `located_at` mapping use a small
+       fraction of what the extractor returns.
+
+       Three deliberate non-behaviours, each a decision rather than an
+       omission:
+
+       - **The registry is re-read for every document, never cached**
+         and never written. It is a hand-curated file a human can
+         legitimately edit between two documents of one run (that is
+         its whole maintenance model), and a cached copy would keep
+         proposing a name a human just confirmed for the rest of the
+         process -- `resolve_entity_gmv_id()`'s own point 7 gives the
+         same reasoning for the same file. Stated as a real consequence
+         rather than left to be discovered: a MISSING or malformed
+         `gmv_entity_registry.json` now raises out of this function for
+         every document, exactly as `_load_known_artists()`'s missing
+         file already does for `classify_entity_types()`. Swallowing it
+         here was considered and rejected -- an unreadable governance
+         file that silently yields "no name resolves" would queue a
+         proposal for every entity in every document of a run, including
+         names a human had already confirmed, which is a far worse
+         failure than a loud one. In the real nightly script that
+         failure surfaces per file as a logged `processing_failed` and
+         the run continues with the next one.
+       - **No deduplication, no grouping, no "did you mean".** The
+         same raw name extracted twice in one document produces two
+         proposals, exactly as the identity queue's own module
+         docstring requires; whether those are one real entity is a
+         human judgement, and that queue exists so the human is the one
+         making it.
+       - **No `classify_entity_types()` call, so
+         `suggested_entity_type` is `""` on every proposal here.**
+         That costs no model call on an unattended path (the type
+         question already has its own two-source principle, where a
+         roster hit is a fact and a model inference is not), and it
+         keeps the two questions from acquiring two independent,
+         unreconcilable answers for one name. Typing the unresolved
+         names stays `build_relation_atoms()`'s scoped job; joining the
+         two is deliberately NOT done here.
     """
     classification = classify_document(document.text, endpoint=endpoint, model=model, timeout=timeout)
     document_type = classification["document_type"]
@@ -227,6 +317,7 @@ def process_document(
             document_type=document_type,
             atoms=(), rejected=(), entity_type_proposals_needing_verification=(),
             extraction_rejected=(), all_entities=(),
+            entity_identity_proposals=(),
             price_entries=price_entries, price_rejected=price_rejected,
         )
 
@@ -242,6 +333,18 @@ def process_document(
         num_predict=num_predict,
         num_ctx=num_ctx,
         api_style=api_style,
+    )
+
+    registry = _load_entity_registry()
+    identity_proposals = tuple(
+        proposal for proposal in (
+            propose_entity_identity(
+                entity.name, registry,
+                source_id=entity.source_id, evidence_excerpt=entity.evidence_excerpt,
+            )
+            for entity in entities
+        )
+        if proposal is not None
     )
 
     attr_atoms, attr_rejected = build_atoms(propositions, now=now)
@@ -305,4 +408,5 @@ def process_document(
         extraction_rejected=extraction_rejected,
         all_entities=entities,
         contract_summary=contract_summary,
+        entity_identity_proposals=identity_proposals,
     )

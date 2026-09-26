@@ -10,7 +10,10 @@ since the last run via content hash, never re-processes something
 unchanged), `extract_document()` (10_API/gmv_crawler_extractor.py, step
 10), `process_document()` (10_API/gmv_crawler_orchestrator.py, this
 session -- EXTRACT CANDIDATES -> BUILD ATOMS, both ATTRIBUTE and
-RELATION), and the two review queues (Task 7/9).
+RELATION), and the review queues (Task 7/9, plus the unresolved-identity
+queue added 2026-09-26 -- see ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH below
+for why it is deliberately NOT counted in the run's "da verificare"
+tally).
 
 Deliberately placed OUTSIDE 01_RUNTIME/, 10_API/, gmv_core/ (the three
 directories tests/test_sqlite_connection_boundary.py statically scans
@@ -51,6 +54,7 @@ from gmv_crawler_orchestrator import process_document  # noqa: E402
 from gmv_crawler_registry import register_scan  # noqa: E402
 from gmv_crawler_rejection_queue import append_rejected  # noqa: E402
 from gmv_crawler_entity_proposal_queue import append_entity_proposals  # noqa: E402
+from gmv_crawler_entity_identity_proposal_queue import append_entity_identity_proposals  # noqa: E402
 from gmv_dropbox_connector import DropboxConnector  # noqa: E402
 
 # One artist folder per entry, real Dropbox path, connector_id derived
@@ -123,6 +127,16 @@ RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
 REGISTRY_DB = RUNTIME_DIR / "registry.db"
 REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
 ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
+# The IDENTITY counterpart of the queue above: names this crawler found and
+# could not map to any known gmv_id. Same path literal
+# automation/gmv_crawler_review_tool.py::ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH
+# already uses for the same file (deliberately repeated rather than imported:
+# this script declares every other runtime path here too, and the review tool
+# is a chat entry point that cannot be imported from an unattended cron run).
+# Appending here decides nothing: only a human calling
+# gmv_crawler_entity_resolver.confirm_new_entity()/confirm_entity_alias()
+# writes the registry, and nothing in this script calls either.
+ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_identity_proposal_queue.jsonl"
 ATOMS_LOG_PATH = RUNTIME_DIR / "atoms_built.jsonl"
 # Added 2026-09-23: process_document() has computed result.price_entries/
 # result.contract_summary since the document-type routing work (2026-09-21),
@@ -307,6 +321,17 @@ def process_one_folder(connection: sqlite3.Connection, folder: str, now: str) ->
 
         needing_review += append_entity_proposals(
             result.entity_type_proposals_needing_verification, ENTITY_PROPOSAL_QUEUE_PATH, now=now,
+        )
+
+        # Not counted in `needing_review` on purpose: that number is what the
+        # completion notification and run_log.jsonl report as one figure, and
+        # it is compared against the TYPE queue only. Identity proposals are a
+        # different question (is this name a new entity or a variant of an
+        # existing one?) and they are reviewed in a different file by a
+        # different tool method (list_pending_entity_identities), so folding
+        # them into one number would make both less readable, not more.
+        append_entity_identity_proposals(
+            result.entity_identity_proposals, ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH, now=now,
         )
 
         # Marked successful (and saved to disk) only now, after every step

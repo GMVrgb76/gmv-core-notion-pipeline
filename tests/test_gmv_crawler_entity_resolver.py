@@ -413,6 +413,9 @@ def test_empty_batch_returns_empty_tuple_without_network(
 #   registry entry with an empty gmv_id must not leak "" to a
 #   caller testing `is None`                               -> test_gmv_id_entry_with_empty_gmv_id_is_skipped_not_returned_as_empty_string
 # G6: no LLM/network is ever contacted, in any case           -> test_gmv_id_never_touches_network_even_for_unmatched_names
+# G7: the loader reads the real file fresh on every call and normalizes
+#   nothing in it (unlike the two rosters above, which _forma() every
+#   name) -> test_load_entity_registry_reads_the_real_file_fresh_and_unnormalized
 
 REAL_REGISTRY_PATH = ROOT / "00_CONFIG" / "gmv_entity_registry.json"
 
@@ -428,6 +431,43 @@ GARIBALDI = {
     "aliases": ["Garibaldi"],
     "status": "active",
 }
+
+
+def test_load_entity_registry_reads_the_real_file_fresh_and_unnormalized() -> None:
+    """G7, same style as test_load_known_artists_is_forma_normalized_frozenset
+    above: assert the contract that matters for correctness, on the real
+    committed file, not on a fixture.
+
+    The loader's one job is to hand the parser what a human actually
+    wrote. Two things could silently break that and neither would show up
+    in any other test in this file: a module-level cache (the nightly
+    pipeline calls this once per document, and a cached copy would keep
+    proposing a name the human has just confirmed for the rest of the
+    process), and a normalization borrowed from the two roster loaders --
+    `_forma()` collapses token order, so a canonical_name like "Venice
+    Biennale" would be stored as "Biennale Venice" and become a
+    different string from the one the resolver is asked about.
+
+    Freshness is proved without writing anything: two calls returning two
+    distinct objects cannot have come from a cache of the parsed file. The
+    committed registry is never modified here, or anywhere in this file
+    outside tmp_path (that is guarantee A7's whole subject)."""
+    assert resolver.ENTITY_REGISTRY_PATH == REAL_REGISTRY_PATH
+    committed = json.loads(REAL_REGISTRY_PATH.read_text(encoding="utf-8"))
+    first = resolver._load_entity_registry()
+    second = resolver._load_entity_registry()
+    assert first is not second, "the registry must be re-read per call, never memoized"
+    assert first == second == committed
+    assert first["entities"], "committed entity registry is empty"
+    # Byte-for-byte, including the name: no _forma(), no lowercasing, no
+    # stripping -- resolve_entity_gmv_id() does its own comparison and the
+    # loader must not do it twice, differently.
+    assert first["entities"] == committed["entities"]
+    # ...and the loaded content still resolves through the real resolver,
+    # so a loader returning the right keys with the wrong content would
+    # not pass this either.
+    for entity in first["entities"]:
+        assert resolve_entity_gmv_id(entity["canonical_name"], first) == entity["gmv_id"]
 
 
 def test_gmv_id_resolves_canonical_name_case_and_whitespace_insensitively() -> None:

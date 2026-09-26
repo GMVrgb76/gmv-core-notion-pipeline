@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import sys
 from pathlib import Path
@@ -7,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "10_API"))
 
 from gmv_crawler_candidate_extractor import CandidateEntity, CandidateProposition  # noqa: E402
-from gmv_crawler_entity_resolver import EntityTypeProposal  # noqa: E402
+from gmv_crawler_entity_resolver import EntityIdentityProposal, EntityTypeProposal  # noqa: E402
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402
 from gmv_crawler_orchestrator import ProcessDocumentResult, process_document  # noqa: E402
 
@@ -34,10 +35,12 @@ def make_document(text: str = "some real-looking text") -> ExtractionDocument:
     )
 
 
-def make_entity(name: str) -> CandidateEntity:
+def make_entity(
+    name: str, *, source_id: str = "SRC-1", excerpt: str = "excerpt",
+) -> CandidateEntity:
     return CandidateEntity(
-        name=name, evidence_excerpt="excerpt", status="DOCUMENTATO",
-        source_id="SRC-1", evidence_id=("EV-1",),
+        name=name, evidence_excerpt=excerpt, status="DOCUMENTATO",
+        source_id=source_id, evidence_id=("EV-1",),
     )
 
 
@@ -227,8 +230,16 @@ def test_price_list_routes_to_price_extractor_not_entities_claims(monkeypatch: p
     def _fake_price_extract(*a, **k):
         return (price_entry,), ()
 
+    def _fail_registry(*a, **k):
+        raise AssertionError(
+            "_load_entity_registry() must not be called for a price_list document: the "
+            "branch returns before extract_candidates(), so no entity name ever exists "
+            "to propose an identity for"
+        )
+
     monkeypatch.setattr(orchestrator, "extract_candidates", _fail_extract)
     monkeypatch.setattr(orchestrator, "extract_price_entries", _fake_price_extract)
+    monkeypatch.setattr(orchestrator, "_load_entity_registry", _fail_registry)
 
     result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
     assert result.document_type == "price_list"
@@ -237,6 +248,10 @@ def test_price_list_routes_to_price_extractor_not_entities_claims(monkeypatch: p
     assert result.atoms == ()
     assert result.all_entities == ()
     assert result.contract_summary is None
+    # Identity proposals are declared in that construction explicitly, not left
+    # to a dataclass default that would silently keep covering this branch if a
+    # future edit moved the load above the early return.
+    assert result.entity_identity_proposals == ()
 
 
 def test_contract_runs_both_entities_claims_and_contract_summary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -329,3 +344,165 @@ def test_document_type_always_populated(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), (), ()))
     result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
     assert result.document_type == "press_release"
+
+
+# --- unresolved-identity proposals (2026-09-26) ---
+#
+# The guarantees this section tries to BREAK, deliberately:
+#   I1 "a name the registry resolves produces no proposal; an unresolved
+#       one produces exactly one, carrying the CandidateEntity's own
+#       name/source_id/evidence_excerpt verbatim"
+#       -> test_identity_proposal_only_for_names_the_registry_cannot_resolve
+#   I2 "price_list is unaffected" (the field is (), and the registry is
+#       never even read on that path)
+#       -> test_price_list_routes_to_price_extractor_not_entities_claims
+#   I3 "no deduplication, no grouping, no did-you-mean" -- the same raw
+#       name twice in one document is TWO proposals
+#       -> test_identity_proposals_are_not_deduplicated_within_a_document
+#   I4 "the registry is read fresh per document, never cached across a
+#       run" -- a human confirming an entity between two documents of one
+#       run must be visible to the second
+#       -> test_identity_proposals_see_a_registry_edit_made_between_documents
+#
+# Every test here patches `_load_entity_registry` rather than relying on
+# 00_CONFIG/gmv_entity_registry.json's current contents, for the reason
+# tests/test_gmv_crawler_entity_resolver.py's institution-list test states
+# about area35_known_institutions.json: that file grows through human
+# confirmation, and a test that depends on what it happens to contain
+# starts failing the next time someone uses the product. The registry
+# file's own contents are pinned where they belong -- by
+# test_committed_entity_registry_file_resolves_its_own_entity.
+#
+# NOT re-tested here, on purpose, because an existing test already pins it
+# in the module that owns the guarantee:
+# test_no_production_module_calls_a_registry_write_function (Task 13, A7)
+# statically scans 10_API/ and automation/ and fails if this module ever
+# calls confirm_new_entity()/confirm_entity_alias() -- i.e. the
+# human-gate boundary this section most needs protecting is already
+# enforced by a test that would break loudly if a future edit crossed it.
+
+_KNOWN_ENTITY = {
+    "gmv_id": "GMV-000001",
+    "entity_type": "ARTIST",
+    "canonical_name": "Federico Garibaldi",
+    "aliases": ["Garibaldi"],
+    "status": "ACTIVE",
+}
+
+
+def test_identity_proposal_only_for_names_the_registry_cannot_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I1, both halves in one document: the known name yields nothing, the
+    unknown one yields exactly one proposal, and the proposal carries the
+    CandidateEntity's own provenance fields byte-for-byte (a locator
+    trimmed to look tidier would point at a file that does not exist)."""
+    resolvable = make_entity("Federico Garibaldi", source_id="SRC-DOC-A")
+    unresolved = make_entity(
+        "Danilo Bucchi", source_id="/real/dropbox/locator.md",
+        excerpt="testo citato:  e' stato esposto da Danilo Bucchi",
+    )
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": [dict(_KNOWN_ENTITY)]},
+    )
+    monkeypatch.setattr(
+        orchestrator, "extract_candidates", lambda *a, **k: ((resolvable, unresolved), (), ()),
+    )
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.entity_identity_proposals == (
+        EntityIdentityProposal(
+            raw_name="Danilo Bucchi",
+            # Never computed here: classify_entity_types() stays
+            # build_relation_atoms()'s scoped job, so an unattended run
+            # never spends a model call on a path whose whole contract is
+            # "cheap, mechanical, no network".
+            suggested_entity_type="",
+            source_id="/real/dropbox/locator.md",
+            evidence_excerpt="testo citato:  e' stato esposto da Danilo Bucchi",
+        ),
+    )
+    # Orthogonal to atom-building: the alias "Garibaldi" in the test
+    # registry must suppress the proposal too, without changing what the
+    # document produced above.
+    monkeypatch.setattr(
+        orchestrator, "extract_candidates", lambda *a, **k: ((make_entity("Garibaldi"),), (), ()),
+    )
+    from_alias = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert from_alias.entity_identity_proposals == ()
+    # Nothing about the atom side of the result moved: no propositions
+    # above means no atoms either way, and the entities themselves are
+    # still returned verbatim for whatever the caller does with them.
+    assert result.atoms == ()
+    assert result.all_entities == (resolvable, unresolved)
+
+
+def test_identity_proposals_are_not_deduplicated_within_a_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I3, the direct attack. Two CandidateEntity rows carrying the SAME
+    unresolved name -- which is what a real extraction produces when a
+    document mentions someone twice -- must produce TWO proposals, not
+    one. A "helpfully" deduplicating pipeline would be making the call
+    that these are one entity, which is precisely the judgement
+    gmv_crawler_entity_identity_proposal_queue.py's own module docstring
+    assigns to a human reading the queue."""
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": [dict(_KNOWN_ENTITY)]},
+    )
+    first = make_entity("Danilo Bucchi", source_id="SRC-DOC-A", excerpt="first mention")
+    second = make_entity("Danilo Bucchi", source_id="SRC-DOC-B", excerpt="second mention")
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((first, second), (), ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert len(result.entity_identity_proposals) == 2
+    assert [p.raw_name for p in result.entity_identity_proposals] == ["Danilo Bucchi"] * 2
+    # Not collapsed even down to the provenance: the two rows point at two
+    # different places in the document, and a human reviewing the queue
+    # needs to see both, not one arbitrarily-chosen citation.
+    assert [p.source_id for p in result.entity_identity_proposals] == ["SRC-DOC-A", "SRC-DOC-B"]
+    assert [p.evidence_excerpt for p in result.entity_identity_proposals] == [
+        "first mention", "second mention",
+    ]
+
+
+def test_identity_proposals_see_a_registry_edit_made_between_documents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I4, in the shape that actually breaks. The same unknown name is
+    processed twice in one process, with a human confirming it in
+    between (the registry's own documented maintenance model: a person
+    edits the file). The second document must produce NO proposal. A
+    module-level cache, an lru_cache, or a registry loaded once per run
+    would keep proposing a name the human has already answered, and the
+    queue would stop being a truthful list of what is actually unknown.
+
+    The fake loader hands back a FRESH deep copy on every call, not the
+    live dict, so a cache of the first return value really does go stale
+    and this test really does fail on one."""
+    registry = {"note": "test fixture", "entities": [dict(_KNOWN_ENTITY)]}
+    reads: list[int] = []
+
+    def _fake_load() -> dict:
+        reads.append(1)
+        return copy.deepcopy(registry)
+
+    monkeypatch.setattr(orchestrator, "_load_entity_registry", _fake_load)
+    entity = make_entity("Danilo Bucchi", source_id="SRC-DOC-A", excerpt="cited")
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((entity,), (), ()))
+
+    first = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert [p.raw_name for p in first.entity_identity_proposals] == ["Danilo Bucchi"]
+
+    # The human confirms it, mid-run, through the real write path's shape.
+    registry["entities"].append({
+        "gmv_id": "GMV-000002", "entity_type": "ARTIST",
+        "canonical_name": "Danilo Bucchi", "aliases": [], "status": "ACTIVE",
+    })
+
+    second = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert second.entity_identity_proposals == ()
+    # One load per document, not one per run and not one per entity.
+    assert len(reads) == 2, reads

@@ -164,6 +164,17 @@ from gmv_evidence_pipeline import EvidenceError, OllamaResponseError  # noqa: E4
 
 KNOWN_ARTISTS_PATH = REPO_ROOT / "00_CONFIG" / "area35_known_artists.json"
 KNOWN_INSTITUTIONS_PATH = REPO_ROOT / "00_CONFIG" / "area35_known_institutions.json"
+#: The human-curated identity registry itself. Declared here, alongside the
+#: two rosters above, only so a READ-only caller has the same shape of path
+#: constant to use as `_load_known_artists()`/`_load_known_institutions()`
+#: give their callers -- `automation/gmv_crawler_review_tool.py` already
+#: declared its own identical `ENTITY_REGISTRY_PATH` for the same file, and
+#: two different literals for one governance file is the "second source of
+#: truth" problem this project keeps avoiding. The WRITE half of this module
+#: (`confirm_new_entity()`/`confirm_entity_alias()`) deliberately still takes
+#: a caller-supplied path instead of defaulting to this constant, for the
+#: reason its own docstring gives.
+ENTITY_REGISTRY_PATH = REPO_ROOT / "00_CONFIG" / "gmv_entity_registry.json"
 
 #: The 12 valid entity_type values, verbatim from the `entity_type IN (...)` CHECK
 #: in gmv_core/migration_sql/010_entity_registry.sql (cross-checked by a test in
@@ -252,6 +263,35 @@ def _load_known_institutions() -> frozenset[str]:
     principle as the artist roster."""
     data = json.loads(KNOWN_INSTITUTIONS_PATH.read_text(encoding="utf-8"))
     return frozenset(_forma(name) for name in data["institutions"])
+
+
+def _load_entity_registry() -> dict:
+    """The real 00_CONFIG/gmv_entity_registry.json, read fresh every call --
+    same no-memoization reasoning as resolve_entity_gmv_id()'s own point 7:
+    a human may confirm a new entity between two documents in the same run.
+
+    The third member of the family the two loaders above established
+    (hardcoded path constant, no parameter, read on every call, nothing
+    cached), and the READ counterpart of what
+    `automation/gmv_crawler_review_tool.py` already does by hand to feed
+    its human-gated `confirm_new_entity()`/`confirm_entity_alias()`: that
+    tool has to open the file itself to show the human what is already
+    registered, and this function exists so a pipeline stage does not have
+    to re-implement the same three lines.
+
+    Read-only, like every function in the module's read half: no sqlite, no
+    write to this file or any other, and no `gmv_id` minted from what is
+    read -- `resolve_entity_gmv_id()` below still answers `None` for an
+    unknown name and `propose_entity_identity()` still only builds an
+    in-memory proposal. The `KeyError`/`JSONDecodeError` a missing or
+    malformed file raises is deliberately NOT swallowed, for the same
+    reason `_load_known_artists()`'s `data["artists"]` is not: a broken
+    hand-curated governance file must surface, never degrade silently into
+    "every name is unknown" -- which would queue a proposal for every entity
+    in every document of a run, including names a human had already
+    confirmed.
+    """
+    return json.loads(ENTITY_REGISTRY_PATH.read_text(encoding="utf-8"))
 
 
 def _classify_via_ollama(
