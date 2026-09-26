@@ -21,6 +21,12 @@ ONTOLOGY_REGISTRY_PATH = REPO_ROOT / "00_CONFIG" / "GMV_ONTOLOGY_REGISTRY_v0.1.j
 RUNTIME_DIR = REPO_ROOT / "01_RUNTIME" / "gmv_crawler"
 REJECTION_QUEUE_PATH = RUNTIME_DIR / "rejection_queue.jsonl"
 ENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_proposal_queue.jsonl"
+# Human-curated identity registry (gmv_id -> canonical name/aliases), written
+# ONLY through the two confirm_* methods below, which delegate to
+# 10_API/gmv_crawler_entity_resolver.py -- the only code in the repo allowed to
+# write it. Not a queue: the queue next to it is what the crawler appends to.
+ENTITY_REGISTRY_PATH = REPO_ROOT / "00_CONFIG" / "gmv_entity_registry.json"
+ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH = RUNTIME_DIR / "entity_identity_proposal_queue.jsonl"
 RUN_LOG_PATH = RUNTIME_DIR / "run_log.jsonl"
 ATOMS_LOG_PATH = RUNTIME_DIR / "atoms_built.jsonl"
 PRICE_LOG_PATH = RUNTIME_DIR / "price_log.jsonl"
@@ -291,6 +297,34 @@ class Tools:
             lines.append(f'- "{name}" -> proposto come {entity_type} (x{count})')
         return "\n".join(lines)
 
+    def list_pending_entity_identities(self) -> str:
+        """Elenca i nomi che il crawler ha incontrato ma non e' riuscito a
+        collegare a nessuna entita' gia' conosciuta -- ognuno aspetta una
+        decisione umana: e' una persona nuova, o e' un altro modo di scrivere
+        il nome di qualcuno gia' registrato? USA SEMPRE questa funzione prima
+        di confirm_new_entity/confirm_entity_alias, per mostrare all'utente il
+        contesto reale (dove e' stato trovato il nome, con quale frase) prima
+        di decidere -- mai confermare alla cieca.
+        Nota: le voci sono elencate una per una, anche quando lo stesso nome
+        compare piu' volte da documenti diversi: accorparle o segnalare un
+        'forse lo stesso' sarebbe una decisione automatica, e questa coda esiste
+        perche' la decisione la prenda una persona."""
+        if not ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH.exists():
+            return "Nessuna proposta di identita' in sospeso."
+        rows = [
+            json.loads(line)
+            for line in ENTITY_IDENTITY_PROPOSAL_QUEUE_PATH.read_text(encoding="utf-8").splitlines()
+        ]
+        if not rows:
+            return "Nessuna proposta di identita' in sospeso."
+        lines = [f"Nomi non risolti in attesa di una decisione umana ({len(rows)}):"]
+        for row in rows:
+            entity_type = row["suggested_entity_type"] or "(nessun tipo suggerito)"
+            lines.append(f'- "{row["raw_name"]}" -- tipo proposto: {entity_type}')
+            lines.append(f'  citazione originale: "{row["evidence_excerpt"]}"')
+            lines.append(f'  fonte: {row["source_id"]} (accodata il {row["queued_at"]})')
+        return "\n".join(lines)
+
     def list_known_institutions(self) -> str:
         """Elenca le istituzioni gia' confermate e salvate come reali
         (musei, gallerie, fondazioni, enti culturali)."""
@@ -299,6 +333,30 @@ class Tools:
         if not names:
             return "Nessuna istituzione confermata finora."
         return "Istituzioni confermate:\n" + "\n".join(f"- {n}" for n in names)
+
+    def list_known_entities(self) -> str:
+        """Elenca le entita' gia' registrate con un gmv_id stabile, con i loro
+        alias, cosi' l'utente possa vedere se un nome non risolto e' in realta'
+        un altro modo di scrivere qualcuno che esiste gia'. USA questa funzione
+        prima di confermare un nuovo nome: registrare come entita' nuova qualcosa
+        che e' gia' qui (magari sotto un alias) divide una persona sola in due
+        record. Ricorda che il confronto del resolver e' esatto a parte
+        spazi/maiuscole: se un nome qui sotto ti sembra lo stesso ma non
+        coincide maiuscole/minuscole, e' un alias che va aggiunto a mano con
+        confirm_entity_alias, non un nome da registrare come nuovo."""
+        if not ENTITY_REGISTRY_PATH.exists():
+            return f"Nessun registro entita' trovato in {ENTITY_REGISTRY_PATH}."
+        entities = json.loads(ENTITY_REGISTRY_PATH.read_text(encoding="utf-8")).get("entities", [])
+        if not entities:
+            return "Nessuna entita' confermata finora."
+        lines = [f"Entita' registrate ({len(entities)}):"]
+        for entry in entities:
+            aliases = ", ".join(entry.get("aliases") or []) or "(nessun alias)"
+            lines.append(
+                f'- {entry["gmv_id"]}: "{entry["canonical_name"]}" '
+                f'[{entry["entity_type"]}, stato {entry.get("status", "?")}] alias: {aliases}'
+            )
+        return "\n".join(lines)
 
     def confirm_institution(self, name: str) -> str:
         """Conferma che 'name' e' una vera istituzione (museo, galleria,
@@ -320,6 +378,56 @@ class Tools:
             f"Confermato: '{name}' aggiunta alle istituzioni note. "
             "La prossima volta la pipeline la riconoscera' senza doverla indovinare."
         )
+
+    def list_known_governed_entity_types(self) -> str:
+        """Elenca i tipi di entita' governati ammessi dal registro (gli stessi
+        12 valori che lo schema SQL impone), cosi' l'utente (e tu) sceglieste un
+        tipo che esiste davvero invece di indovinarne uno nuovo. USA questa
+        funzione prima di confermare una nuova entita'; un tipo non elencato
+        qui viene rifiutato e nulla viene scritto."""
+        if str(API_DIR) not in sys.path:
+            sys.path.insert(0, str(API_DIR))
+        from gmv_crawler_entity_resolver import VALID_ENTITY_TYPES  # noqa: E402
+
+        return "Tipi di entita' governati:\n" + "\n".join(f"- {t}" for t in sorted(VALID_ENTITY_TYPES))
+
+    def confirm_new_entity(self, canonical_name: str, entity_type: str) -> str:
+        """Conferma che 'canonical_name' e' una persona/entita' NUOVA, mai
+        registrata prima, e le assegna un gmv_id stabile. 'entity_type' deve
+        essere uno dei valori governati (usa list_known_governed_entity_types
+        se non sei sicuro). Usa questa funzione SOLO quando l'utente ha
+        confermato esplicitamente, in questa conversazione, che si tratta
+        davvero di un'entita' nuova -- non decidere da solo, non dedurlo dal
+        contesto (stesso principio gia' applicato a confirm_institution).
+        Se il nome esiste gia' o e' ambiguo tra piu' entita', questa funzione
+        rifiuta con un errore chiaro invece di scrivere qualcosa di sbagliato
+        -- riporta quell'errore all'utente cosi' com'e', non nasconderlo."""
+        if str(API_DIR) not in sys.path:
+            sys.path.insert(0, str(API_DIR))
+        from gmv_crawler_entity_resolver import confirm_new_entity as _confirm_new_entity  # noqa: E402
+
+        try:
+            gmv_id = _confirm_new_entity(canonical_name, entity_type, ENTITY_REGISTRY_PATH)
+        except ValueError as exc:
+            return f"ERRORE: {exc}"
+        return f"Confermato: '{canonical_name}' registrata come nuova entita' con id {gmv_id}."
+
+    def confirm_entity_alias(self, gmv_id: str, new_alias: str) -> str:
+        """Conferma che 'new_alias' e' un altro modo di scrivere il nome
+        dell'entita' che ha gia' l'id 'gmv_id' (usa list_known_entities per
+        trovare l'id giusto). Usa questa funzione SOLO dopo conferma esplicita
+        dell'utente che sono davvero la stessa entita' -- mai una tua
+        deduzione. Se il gmv_id non esiste, questa funzione rifiuta con un
+        errore chiaro elencando gli id realmente presenti -- riportalo
+        all'utente, non inventare un id."""
+        if str(API_DIR) not in sys.path:
+            sys.path.insert(0, str(API_DIR))
+        from gmv_crawler_entity_resolver import confirm_entity_alias as _confirm_entity_alias  # noqa: E402
+
+        try:
+            return _confirm_entity_alias(gmv_id, new_alias, ENTITY_REGISTRY_PATH)
+        except ValueError as exc:
+            return f"ERRORE: {exc}"
 
     def show_artist_data(self, artist_name: str) -> str:
         """Mostra cosa la pipeline sa DAVVERO su un nome (artista, persona,

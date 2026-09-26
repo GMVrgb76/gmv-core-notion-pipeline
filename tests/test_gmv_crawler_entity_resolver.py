@@ -1245,24 +1245,49 @@ def test_no_new_function_ever_writes_the_committed_registry_file(tmp_path: Path)
     assert REAL_REGISTRY_PATH.read_bytes() == before
 
 
+_HUMAN_GATED_CALLER = "automation/gmv_crawler_review_tool.py"
+
+
 @pytest.mark.parametrize("callee", ["confirm_new_entity", "confirm_entity_alias"])
 def test_no_production_module_calls_a_registry_write_function(callee: str) -> None:
-    """A7, the other half: no unattended write is even POSSIBLE today,
-    because nothing in production calls these two functions. The human
-    entry point (the OpenWebUI review chat, where `confirm_institution()`
-    is triggered from) is a separate, later step.
+    """A7, the other half, UPDATED 2026-09-26: the invariant this test
+    protects was never "zero callers ever" -- it is "no UNATTENDED write is
+    possible". Until the Open WebUI wiring existed, those were the same
+    thing, so the original assertion (`callers == []`) was correct for the
+    right reason by coincidence. Now that
+    `automation/gmv_crawler_review_tool.py::confirm_new_entity`/
+    `confirm_entity_alias` exist as the human-gated entry point (the same
+    role `confirm_institution()` already plays for institutions), a real
+    caller exists on purpose, and the test must tell that ONE allowed
+    caller apart from a real regression (the crawler pipeline itself --
+    orchestrator, nightly_run, an atom builder -- calling a write function
+    directly, bypassing the human gate), not just count callers.
 
-    Checked with `ast`, not a substring search: the two docstrings in
-    gmv_crawler_entity_resolver.py, in the new identity queue module and
-    in the registry's own `note` all NAME these functions on purpose, and
-    a naive `in source` scan would flag that documentation as a caller.
-    Only a real `ast.Call` counts."""
+    Resolves `from gmv_crawler_entity_resolver import X [as Y]` aliases via
+    `ast.ImportFrom` in each module BEFORE matching calls, rather than
+    guessing a naming convention (e.g. a leading underscore) for the local
+    name -- the tool file happens to alias these as `_confirm_new_entity`/
+    `_confirm_entity_alias` today (avoiding a same-name shadow with its own
+    method of the same name), but a convention-based string match would
+    silently stop working the moment that alias spelling changed, which is
+    exactly the kind of blind spot this test exists to not have. Checked
+    with `ast`, not a substring search, for the original module docstring's
+    own reason: the two docstrings in `gmv_crawler_entity_resolver.py`, in
+    the identity queue module, and in the registry's own `note` all NAME
+    these functions on purpose, and a naive `in source` scan would flag
+    that documentation as a caller."""
     callers: list[str] = []
     for relative in ("01_RUNTIME", "10_API", "automation", "gmv_core"):
         for module in sorted((ROOT / relative).rglob("*.py")):
             if module.name == "gmv_crawler_entity_resolver.py":
                 continue  # the definitions themselves
             tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+            local_names = {callee}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module == "gmv_crawler_entity_resolver":
+                    for alias in node.names:
+                        if alias.name == callee:
+                            local_names.add(alias.asname or alias.name)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -1272,6 +1297,15 @@ def test_no_production_module_calls_a_registry_write_function(callee: str) -> No
                     else func.attr if isinstance(func, ast.Attribute)
                     else None
                 )
-                if name == callee:
+                if name in local_names:
                     callers.append(f"{module.relative_to(ROOT)}:{node.lineno}")
-    assert callers == [], f"{callee} is called from production code: {callers}"
+    unattended = [c for c in callers if not c.startswith(_HUMAN_GATED_CALLER)]
+    assert unattended == [], (
+        f"{callee} is called from unattended production code (never the human-gated "
+        f"tool): {unattended}"
+    )
+    assert callers, (
+        f"{callee} is called from nowhere in production, not even the human-gated tool -- "
+        "if automation/gmv_crawler_review_tool.py's wiring was removed, that is a real "
+        "regression this test should catch, not silently pass on zero callers."
+    )
