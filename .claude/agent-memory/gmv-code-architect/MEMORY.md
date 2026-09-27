@@ -162,3 +162,92 @@ Letto `10_API/gmv_artist_web_retrieve.py` (`build_retrieval_requests`/`ingest_we
   Qualunque nuovo piccolo server locale va quindi proposto come processo
   avviato manualmente in foreground, mai come LaunchAgent/servizio
   schedulato, a meno di una decisione di governance separata ed esplicita.
+
+## Real Estate ("immobili") domain already exists in GMV — verified 2026-09-27, consultation on Laya/MLX property-status integration
+
+Before this consultation, no evidence had been checked for a "property/immobile"
+domain. It exists, but almost entirely outside Core, and touches three
+governance items that must be checked on any real-estate-adjacent proposal:
+
+- **`00_CONFIG/REALESTATE_LEGACY_FREEZE.md`**: freezes only the
+  Director/orchestration layer (`realestate_runner.py`,
+  `real_estate_director.py`, `real_estate_recursion_check.py` —
+  `99_SYSTEM/03_DIRECTORS/` in Dropbox). Reason: Dropbox-resident runtime
+  writing operational state (`~/.gmv_runtime/realestate_state.json`), no
+  Service OID, unregistered, dormant. Reactivation requires Project Owner
+  approval + Core relocation + Service registration + test coverage. A new
+  real-estate feature does not reactivate this by existing, but must not
+  repeat the same violation pattern (Dropbox-resident executable code,
+  unregistered, writing state outside Core) — any new script must live in
+  Core (`10_API/`) from day one, not be authored/run from Dropbox.
+- **Market Engine `SRV-000004`** (`01_RUNTIME/legacy/market_engine_v2.py`,
+  `00_CONFIG/SERVICE_SPECIFICATION.md` §13) is registered, active,
+  compatibility-mode, hash-pinned. It reads Dropbox
+  `02_IMMOBILI/00_MARKET`/`02_COMPARABLES` markdown and does **purely
+  regex/keyword extraction** (prezzo, €/mq, yield, rendimento, comparabile
+  headings/numbers) — no LLM at all. Confirms "immobili" here means literal
+  real estate (villas/apartments), not art. Good precedent for
+  deterministic-first, but it's a pinned legacy compatibility artifact, not
+  something to extend directly for new semantic work.
+- **Dropbox `property_engine.py`** (found at
+  `90_HISTORY/10_GMV_OS/99_SYSTEM/02_SERVICES/RealEstate/property_engine.py`)
+  is a still-**UNCLASSIFIED** legacy item, open since REBASE 001 Task 3,
+  explicitly listed `POST-STABILIZATION`/unscheduled in
+  `PROJECT_STATUS.md` §3 and `SYSTEM_MAP.md` §4. It parses
+  `01_PROPERTIES/PROPERTY_INDEX.md` (`### name` / `Stato:` / `Tipo:` /
+  `Cartella attuale:` / `Scheda:` fields) and produces `PROPERTY_REPORT.md`
+  / `PROPERTY_STATUS.md` by **counting files per property folder**
+  (total/temp/priority) — a documentation-completeness check, not content
+  semantics. It does not read document text or extract deadlines/risk.
+  Because it is unclassified and its output filename is literally
+  `PROPERTY_STATUS.md`, **do not name a new module/output
+  `gmv_property_status.py`/`PROPERTY_STATUS.md`** — real collision risk
+  with an item whose disposition is still open.
+- **The real per-property document tree already exists and matches the
+  user's stated inputs almost exactly**: Dropbox
+  `02_IMMOBILI/01_PORTFOLIO/<PROPERTY>/` (seen: GERMIGNAGA, COURMA, MILANO,
+  WITT12, VIG35, C2, VM8) each has `02_CONTRATTI`, `04_MANUTENZIONE`,
+  `06_TECH`, `07_INQUILINO`, `03_FISCALE`, `08_ARCHIVIO STORICO`,
+  `00_KNOWLEDGE`, `01_DOCS`, `00_REVIEW_PRIORITY`, `TASKS.md`,
+  `PROPERTY_HISTORY.md`, `OBJECT.yaml`. This is the real evidence source
+  for "email/verbali/contratti/segnalazioni manutenzione" — a new document
+  ingestion feature should point at this tree via the same content-addressed
+  scan mechanism as evidence pipeline, not invent a new document root.
+- **`OBJECT.yaml` per property carries `schema: GMV_OBJECT_V1`,
+  `gmv_id: GMV-REA-000001`** — a pre-Core, Dropbox-native ID convention.
+  `REA` is **not** one of the six closed OID prefixes in
+  `ADR_DB008_OID_PREFIX_TYPE_CONSISTENCY.md` (`COR/PER/PLG/RES/SRV/SYS`).
+  Treating a "property" as a first-class typed Core Object is therefore not
+  a trivial mapping — it needs its own explicit ADR-level decision (new
+  prefix or reuse of an existing one) before any Core Objects-table
+  integration is attempted. Until then, property-derived structured output
+  should stay file-based/Runtime-output-classed, same posture as the
+  evidence pipeline (`ADR_CORE_PERSISTENCE_BOUNDARY`: not yet Core SQLite).
+- **`COURMA/TASKS.md` literally says "Aggiornare Morning Brief con eventuali
+  scadenze"** (a human-authored instruction, found live in the data, not a
+  proposal) — the intended consumer of property deadlines, by the data's
+  own convention, is **Morning Brief** (`SRV-000002`, registered, active,
+  compatibility-mode, entrypoint `~/.gmv_scripts/genera_morning_brief.sh`).
+  A new deadline-extraction feature should treat Morning Brief as the
+  eventual downstream reader, but must not write logic *into* the
+  hash-pinned compatibility script itself — it should produce a structured
+  file artifact Morning Brief (or a future native successor) can read,
+  mirroring how Market Engine only ever *writes* `MARKET_REPORT.md`/
+  `MARKET_STATUS.md` and never calls anything downstream itself.
+- **`GMV_ENGINE_DECISION_AUTOMATION_FREEZE.md`** froze exactly the pattern
+  of "compute an advisory score/flag and write it somewhere with no
+  confirmed consumer, no gate, no binding effect" when done as *unregistered
+  automation* — its freeze reasoning explicitly cites "no component may
+  bypass Reasoning/Decision/autonomous-workflow gates" (also stated
+  verbatim in `GMV_ARCHITECTURE.md` line 72). This directly reinforces
+  (not just by analogy) that a model-derived `rischio_alto` flag must
+  surface as consultative human-review input only, never as a trigger for
+  any autonomous action (notification, escalation, status change) — that
+  would need the same Reasoning/Decision gates this repo has not yet built.
+- Net: the correct integration shape is a **new stage bolted onto the
+  existing evidence-pipeline primitives** (`gmv_evidence_index.py` scan +
+  `gmv_content_extract.py` extract, both already generic/format-addressed,
+  not artist-specific), **not** a new service, not a revival of the frozen
+  Real Estate Director, not a rename/overwrite of the unclassified
+  `property_engine.py` output files, and not a write path into Morning
+  Brief's compatibility script.
