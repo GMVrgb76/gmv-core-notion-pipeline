@@ -1484,3 +1484,72 @@ section is the one place it writes.
   subject_raw/object_raw) — il ragionamento domain/range regge comunque
   indipendentemente da questo, ma la fedeltà letterale delle frasi
   d'esempio al documento reale resta non verificata da questa sessione.
+
+- **2026-09-27 — Task 17 done: rescue delle caption "medium, dimensions" + proposte
+  identità WORK (brief `opencode_task_17.md`).** Read before writing, tutto verificato
+  sul codice/reale reale: `gmv_crawler_atom_builder.py` per intero (`RejectedCandidate`
+  con i suoi 8 campi, `build_atom()` e il suo ramo `UNKNOWN_PREDICATE` post-Task-16),
+  `gmv_crawler_candidate_extractor.py` per intero (`CandidateProposition`,
+  `__post_init__`, `_validate_evidence_id`), `gmv_crawler_orchestrator.py` per intero
+  (catena `attr_atoms`/`attr_rejected`/`rejected_refs`/`leftover_propositions`/
+  `rel_built`/`rel_rejected` + blocco `identity_proposals` di Task 15),
+  `gmv_crawler_relation_atom_builder.py` (passata 1, `PREDICATE_TEXT_NOT_MAPPED`),
+  `gmv_atom_validator.py::_known_predicates()`, `propose_entity_identity()`/
+  `EntityIdentityProposal`, il TUTTO registro `00_CONFIG/GMV_ONTOLOGY_REGISTRY_v0.1.json`
+  (confermato: `domain == ["WORK"]` esatto = esattamente `edition_size`, `dimensions`,
+  `medium`, `creation_year`; `edition_number` è `["ARTWORK_INSTANCE"]`, `created_by`/
+  `critical_text_by` hanno domain multi-elemento, quindi esclusi per uguaglianza esatta
+  senza liste di esclusione da mantenere). I 5 casi reali li ho riletti dalla
+  `01_RUNTIME/gmv_crawler/rejection_queue.jsonl` reale (sola lettura): 5/5 combaciano
+  con i valori del brief, e ho verificato esistenti anche i 4 casi di esclusione
+  (`'45 x 55, 45 x 60 cm'`, `'150 x 100, 166 x 112 cm'`, `"dimensioni ambientali"`,
+  `'2014 enamel on paper 150x100 cm'`). What I changed: nuovo modulo
+  `10_API/gmv_crawler_caption_predicate_splitter.py`
+  (`split_medium_dimensions_captions()` pura, nessuna I/O, nessun accesso al registro,
+  nessuna risoluzione entità), il cablaggio in `gmv_crawler_orchestrator.py` (Part B:
+  secondo `build_atoms()` sulle proposte sintetiche + esclusione dei ref soccorsi da
+  `leftover_propositions`; Part C: proposte identità dai soggetti con dominio WORK,
+  fuse nella STESSA tupla `entity_identity_proposals`), e 2 file di test
+  (`tests/test_gmv_crawler_caption_predicate_splitter.py`, 22 test; 7 nuovi in
+  `tests/test_gmv_crawler_orchestrator.py`). **DEVIAZIONE DISCLOSATA (il punto che il
+  brief stesso segnalava come aperto):** il brief specificava
+  `split_medium_dimensions_captions(rejected)` e `RejectedCandidate` NON porta
+  `evidence_id`/`status`/`truncated_source`; ho verificato sul codice reale che
+  `_validate_evidence_id()` rifiuta la tupla vuota (§10), quindi `evidence_id=()` non è
+  costruibile — confermato. Ma il valore REALE esiste: si è perso solo perché
+  `RejectedCandidate` è un record volutamente stretto, e il caller ha ancora la
+  `CandidateProposition` da cui è stato costruito. Quindi la funzione prende anche
+  `propositions` e copia i tre campi VERBATIM, cercando per `extraction_claim_ref` (la
+  stessa chiave che 3 righe sotto, in `rejected_refs`/`leftover_propositions`, è già
+  usata). Zero valori inventati invece di tre (un `evidence_id` sentinella, uno `status`
+  libero, un `truncated_source` ipotizzato). Un ref non trovato NON viene soccorso (niente
+  eccezione, niente sostituzione): la sua contabilità di rifiuto resta intatta e passa
+  dal percorso `build_relation_atoms()` di sempre. Decisione connessa (il brief me
+  l'aveva lasciata): `caption_rejected` NON viene piegato dentro `rejected`, perché
+  romperebbe il contratto documentato "rejected is ONLY build_relation_atoms()'s final
+  rejections"; invece un ref viene escluso da `leftover_propositions` SOLO se TUTTE le
+  proposte sintetiche che ne derivano hanno costruito un atomo — così un eventuale
+  rifiuto sintetico non viene né ignorato né nascosto: il claim padre torna invariato nel
+  percorso di relazione e resta loggato come `PREDICATE_TEXT_NOT_MAPPED`, dove un umano
+  lo vede. Conseguenza dichiarata: un claim splittato solo a metà tiene il suo atomo
+  `medium` (o `dimensions`) E compare una volta in `rejected` — raggiungibile solo se il
+  registro e le assunzioni di questo modulo divergono, che è il segnale da
+  investigare. **FATTO REALE SCOPERTO COL LIVE PROOF (leggere prima di toccare i
+  reason_code):** la coda reale registra SOLO il codice finale
+  `PREDICATE_TEXT_NOT_MAPPED` (di `build_relation_atoms()`), mentre lo splitter chiave
+  sul codice di PRIMO stadio `UNKNOWN_PREDICATE` (di `build_atoms()`). Sono lo stesso
+  claim, la coda non ha mai registrato il codice precedente: passare le righe grezze
+  della coda allo splitter produce 0 proposizioni (mi è successo al primo tentativo, poi
+  l'ho corretto ricostruendo il rifiuto di primo stadio col `build_atoms()` REALE). Ora
+  è pinato da `test_real_queue_rows_are_rescued_after_the_real_first_stage_rejection`,
+  che asserisce entrambi i codici. Correzione documentale adiacente fatta nella stessa
+  patch: la docstring di `process_document()` affermava che `object_type` di un atomo
+  ATTRIBUTE "is always the literal `"integer"`" — falso dal Task 16, e ormai anche
+  fuorviante accanto ai nuovi atomi `string`. Full suite 1271 passed, 1 failed (solo il
+  preesistente `test_current_tracked_tree_passes_policy`: le sue 4 finding sono in
+  `automation/gmv_crawler_review_tool.py` e `automation/run_nightly.sh`, file che non
+  ho toccato; ho comunque passato i miei 4 file a `POLICY.audit_tracked_files` per
+  esplicito: 0 finding), `ruff check .` pulito. Quello che NON ho potuto verificare:
+  nessuna run reale notturna (nessuna rete, nessun Ollama in questa sessione); gli atomi
+  sintetici sono provati solo su test + live proof, non ancora materializzati in un
+  Monad; e `creation_year` resta senza fonte pulita (fuori scope, dichiarato).

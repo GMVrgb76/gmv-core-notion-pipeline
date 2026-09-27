@@ -43,14 +43,36 @@ the same shape and under the same rules: `ProcessDocumentResult` gained
 queue and still touches no governance file. Two consequences of that
 naming worth stating rather than leaving to be discovered:
 `entity_identity_proposals` is NOT the type proposals' sibling in any
-functional sense -- it is produced from `all_entities`, before any atom
-builder runs, and it decides nothing about any atom; and nothing here
-ever calls `confirm_new_entity()`/`confirm_entity_alias()`, the only two
+functional sense -- it is produced from `all_entities` plus the subjects
+of WORK-domain propositions, and it decides nothing about any atom; and
+nothing here ever calls `confirm_new_entity()`/`confirm_entity_alias()`,
+the only two
 functions in the repository that write the registry, because this module
 runs unattended. The one thing this addition did change in practice: a
 name a human confirms mid-run is visible to the NEXT document of the same
 run, because the registry is re-read per document rather than cached
 (`_load_entity_registry()`'s own docstring gives the reasoning).
+
+Two later additions, both 2026-09-27 and both strictly additive to the
+same result object -- never a second field, never a second queue, never a
+new dataclass:
+
+- **The "technique, WxH cm" caption rescue** (Parts A/B of the task brief
+  `opencode_task_17.md`), via
+  `gmv_crawler_caption_predicate_splitter.split_medium_dimensions_captions()`:
+  the five real claims in the live rejection queue whose `object_raw` is
+  a pure dimension expression become two governed ATTRIBUTE propositions
+  each (`medium` = the raw predicate text verbatim, `dimensions` = the
+  dimension text verbatim) and are built through the UNMODIFIED
+  `build_atoms()`. A rescued claim is then withheld from
+  `build_relation_atoms()` so it is not logged a second time as
+  `PREDICATE_TEXT_NOT_MAPPED` -- a reason that no longer describes it.
+- **WORK-subject identity proposals** (Part C of the same brief): the
+  subject of every proposition whose predicate resolves, through the real
+  ontology registry, to a `domain == ["WORK"]` predicate becomes an
+  `EntityIdentityProposal` carrying `suggested_entity_type="WORK"`. That
+  field existed precisely to carry a non-empty type and was dead until
+  this: every proposal produced before it was `""`.
 """
 
 from __future__ import annotations
@@ -63,10 +85,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from gmv_atom_validator import AtomCandidate  # noqa: E402 -- reused, not reimplemented
+from gmv_atom_validator import (  # noqa: E402 -- reused, not reimplemented
+    AtomCandidate,
+    _known_predicates,
+    _load_ontology_registry,
+)
 from gmv_crawler_atom_builder import (  # noqa: E402 -- reused, not reimplemented
     RejectedCandidate,
     build_atoms,
+)
+from gmv_crawler_caption_predicate_splitter import (  # noqa: E402 -- reused, not reimplemented
+    _base_claim_ref,
+    split_medium_dimensions_captions,
 )
 from gmv_crawler_candidate_extractor import (  # noqa: E402 -- reused, not reimplemented
     DEFAULT_API_STYLE,
@@ -137,10 +167,16 @@ class ProcessDocumentResult:
     is no entity to propose anything about), and it is orthogonal to
     everything else here: building it changes no atom, rejects no
     proposition and consumes no model call, and the registry is only ever
-    READ. `suggested_entity_type` is `""` on every proposal produced here
-    -- type classification stays `build_relation_atoms()`'s job, scoped to
-    relation objects; joining the two is a separate, deliberate decision
-    (see `process_document()`'s own docstring)."""
+    READ. `suggested_entity_type` is `""` on a proposal produced from a
+    `CandidateEntity` -- type classification stays `build_relation_atoms()`'s
+    job, scoped to relation objects, and joining that classification in
+    here stays a separate, deliberate decision (see
+    `process_document()`'s own docstring) -- and `"WORK"` on one produced
+    from a WORK-domain proposition's subject (2026-09-27, `opencode_task_17.md`
+    Part C), which is a fact read from the ontology registry's declared
+    `domain`, not a model inference. Two sources, one tuple, one queue, one
+    human gate: `gmv_crawler_entity_identity_proposal_queue.py` never has to
+    know which produced a given row."""
 
     document_type: str
     atoms: tuple[AtomCandidate, ...]
@@ -232,6 +268,20 @@ def process_document(
        envelope/error behavior unchanged (a network/LLM failure
        propagates here exactly as it always has, never swallowed).
     2. `build_atoms(propositions, now=now)` -- Task 6, ATTRIBUTE-only.
+    2-bis. The "technique, WxH cm" caption rescue (2026-09-27,
+       `opencode_task_17.md`): every `build_atoms()` rejection whose
+       `reason_code` is `UNKNOWN_PREDICATE` and whose `object_raw` is a
+       pure dimension expression is turned, by
+       `split_medium_dimensions_captions()`, into two more
+       `CandidateProposition`s that go through the UNMODIFIED
+       `build_atoms()` again. A claim rescued this way is then EXCLUDED
+       from step 3's input, so it is no longer re-reported as
+       `PREDICATE_TEXT_NOT_MAPPED` by `build_relation_atoms()` -- a
+       reason that no longer describes it. Every claim NOT rescued keeps
+       step 3's path byte-for-byte, which is what keeps step 4's
+       "`rejected` is ONLY `build_relation_atoms()`'s final rejections"
+       contract true for all of them; verified by a real test, not by
+       inspection.
     3. Every proposition `build_atoms()` rejected (matched by
        `extraction_claim_ref`, the one field `RejectedCandidate`
        reliably carries back to its source proposition) is retried
@@ -242,20 +292,26 @@ def process_document(
        `rejected` = ONLY `build_relation_atoms()`'s final rejections
        (a proposition `build_atoms()` accepted never reaches step 3, so
        it can never appear here; one that `build_relation_atoms()`
-       also rejects appears exactly once, not twice).
+       also rejects appears exactly once, not twice; one rescued by
+       step 2-bis never reaches step 3 at all). The parenthetical
+       "`object_type` is always the literal `"integer"`" above is
+       PRE-2026-09-27 wording and is now narrower than the truth: since
+       Task 6 was widened, an ATTRIBUTE atom's `object_type` is whatever
+       the registry's declared `range` says for that predicate
+       (`"integer"` or `"string"`), and it is still always a literal, so
+       nothing to verify, so still no entity type proposal from it.
        `entity_type_proposals_needing_verification` = the
        `object_type_proposal` of every `BuiltRelationAtom` where
-       `needs_verification` is True (ATTRIBUTE atoms carry no entity
-       type proposal at all -- `object_type` is always the literal
-       `"integer"`, nothing to verify).
+       `needs_verification` is True.
        `extraction_rejected` = `extract_candidates()`'s own third
        return value verbatim (malformed-candidate strings, a different
        shape than `RejectedCandidate` -- kept separate, never merged
        into `rejected`, since it describes a different stage's
        failures with a different contract).
-    5. `entity_identity_proposals` (2026-09-26) is computed straight
-       after step 1's `extract_candidates()` and BEFORE any atom
-       builder, from `all_entities` alone: every name the real
+    5. `entity_identity_proposals` has TWO sources, merged into the one
+       tuple. (a) 2026-09-26, computed straight after step 1's
+       `extract_candidates()` and BEFORE any atom builder, from
+       `all_entities` alone: every name the real
        registry cannot resolve to exactly one `gmv_id` becomes one
        `EntityIdentityProposal` carrying the `CandidateEntity`'s own
        `name`/`source_id`/`evidence_excerpt` verbatim. It runs this
@@ -265,7 +321,11 @@ def process_document(
        atoms would silently drop every entity no atom references --
        which is most of them, since `build_atoms()`'s ATTRIBUTE slice
        and `build_relation_atoms()`'s `located_at` mapping use a small
-       fraction of what the extractor returns.
+       fraction of what the extractor returns. (b) 2026-09-27, computed
+       after step 2-bis because it needs the propositions that step
+       produced: the subject of every proposition whose predicate
+       resolves through the real ontology registry to a `domain ==
+       ["WORK"]` predicate, with `suggested_entity_type="WORK"`.
 
        Three deliberate non-behaviours, each a decision rather than an
        omission:
@@ -294,15 +354,29 @@ def process_document(
          docstring requires; whether those are one real entity is a
          human judgement, and that queue exists so the human is the one
          making it.
-       - **No `classify_entity_types()` call, so
-         `suggested_entity_type` is `""` on every proposal here.**
-         That costs no model call on an unattended path (the type
-         question already has its own two-source principle, where a
-         roster hit is a fact and a model inference is not), and it
-         keeps the two questions from acquiring two independent,
-         unreconcilable answers for one name. Typing the unresolved
-         names stays `build_relation_atoms()`'s scoped job; joining the
-         two is deliberately NOT done here.
+        - **No `classify_entity_types()` call, so a MODEL-INFERRED
+          `suggested_entity_type` never appears here.** That costs no
+          model call on an unattended path (the type question already has
+          its own two-source principle, where a roster hit is a fact and a
+          model inference is not), and it keeps the two questions from
+          acquiring two independent, unreconcilable answers for one
+          name. Typing the unresolved names stays
+          `build_relation_atoms()`'s scoped job; joining the two is
+          deliberately NOT done here. What a WORK-domain proposition's
+          subject DOES carry is the literal `"WORK"`, which is a
+          different kind of claim: the ontology registry declares that
+          predicate's domain IS `["WORK"]`, and reading a declared domain
+          is not a classification. It is still not a decision -- nothing
+          here confirms anything, and the queue's human gate is
+          unchanged.
+        - **This only catches a WORK subject whose predicate already
+          resolves to a canonical WORK-domain id.** That is, in practice,
+          rare naturally-clean LLM output plus whatever the caption
+          rescue above produces. It is NOT a "recognize any work title in
+          the text" mechanism, and no such mechanism exists in this
+          repository; proposing an identity for every unresolvable noun
+          phrase would flood the queue with fragments. Stated plainly
+          here so the feature is not read as broader than it is.
     """
     classification = classify_document(document.text, endpoint=endpoint, model=model, timeout=timeout)
     document_type = classification["document_type"]
@@ -349,7 +423,95 @@ def process_document(
 
     attr_atoms, attr_rejected = build_atoms(propositions, now=now)
 
-    rejected_refs = {rejected.extraction_claim_ref for rejected in attr_rejected}
+    # The "technique, WxH cm" caption rescue (2026-09-27, opencode task
+    # brief opencode_task_17.md). Five real cases in the live
+    # rejection_queue.jsonl, all the same shape, all described in
+    # gmv_crawler_caption_predicate_splitter.py's own module docstring
+    # with the real values. It is a rescue, never a rewrite: the
+    # RejectedCandidate rows it consumes stay in `attr_rejected`
+    # untouched, and a claim it does not rescue keeps the exact
+    # `build_relation_atoms()` path below it already had.
+    #
+    # The caller filters by reason_code here AND the function re-checks
+    # it, so the function's own contract does not depend on every caller
+    # remembering (the real UNKNOWN_PREDICATE detail is in the splitter).
+    caption_synthetic = split_medium_dimensions_captions(
+        tuple(rejected for rejected in attr_rejected if rejected.reason_code == "UNKNOWN_PREDICATE"),
+        propositions,
+    )
+    # Same empty-batch-skip style as build_relation_atoms() below: nothing
+    # recognized means no second build_atoms() call at all.
+    caption_atoms: tuple[AtomCandidate, ...] = ()
+    caption_rejected: tuple[RejectedCandidate, ...] = ()
+    if caption_synthetic:
+        caption_atoms, caption_rejected = build_atoms(caption_synthetic, now=now)
+        attr_atoms = attr_atoms + caption_atoms
+    # A rescued claim is dropped from the RELATION builder's input ONLY
+    # when every proposition split out of it actually built --
+    # `caption_rejected` is expected to be `()` (the synthesized
+    # propositions name governed canonical ids and carry real, already
+    # validated text), and if it is ever not, the parent claim simply
+    # keeps its original unchanged path and is still logged as
+    # `PREDICATE_TEXT_NOT_MAPPED` by build_relation_atoms(), which is
+    # where a human sees it. Nothing is swallowed and no new
+    # ProcessDocumentResult field is invented to carry it. The disclosed
+    # consequence of that choice: a claim whose pair split only
+    # partially keeps its `medium` (or `dimensions`) atom AND still
+    # appears once in `rejected` -- a state reachable only if the
+    # registry and this module's own assumptions disagree, which is the
+    # signal to investigate, not to paper over.
+    rescued_claim_refs = (
+        {_base_claim_ref(p.extraction_claim_ref) for p in caption_synthetic}
+        - {_base_claim_ref(r.extraction_claim_ref) for r in caption_rejected}
+    )
+
+    # WORK-domain subjects, second independent source into the SAME
+    # `entity_identity_proposals` tuple (2026-09-27). The predicate is
+    # resolved through the real ontology registry's alias/canonical map
+    # and its own declared `domain` is read there, never a hardcoded id
+    # list: today `edition_size`, `dimensions`, `medium` and
+    # `creation_year` declare `domain == ["WORK"]` exactly, while
+    # `edition_number` declares `["ARTWORK_INSTANCE"]` and the two
+    # RELATION predicates that also accept a WORK subject (`created_by`,
+    # `critical_text_by`) declare a MULTI-element domain -- so exact list
+    # equality is what keeps all three out, deliberately, with no
+    # exclusion list to keep in sync.
+    #
+    # NOTE the two different registries in this function, easy to confuse:
+    # `registry` is the ENTITY registry (gmv_entity_registry.json, what
+    # propose_entity_identity() resolves names against), the local
+    # `ontology_known` below is the ONTOLOGY registry
+    # (GMV_ONTOLOGY_REGISTRY_v0.1.json, what decides a predicate's
+    # domain). The first is re-read per document by design (a human
+    # edits it mid-run); the second is a governance file this function
+    # only ever reads.
+    ontology_known = _known_predicates(_load_ontology_registry())
+    work_subject_propositions = tuple(
+        proposition for proposition in propositions + caption_synthetic
+        if (entry := ontology_known.get(proposition.predicate)) is not None
+        and entry["domain"] == ["WORK"]
+    )
+    # No deduplication, exactly like the CandidateEntity loop above: two
+    # WORK-domain propositions about the same work (a `dimensions` and a
+    # `medium`, which is what the caption rescue produces) yield TWO
+    # proposals, and the human reading the identity queue sees "this name
+    # appeared N times" by querying on raw_name. Collapsing them here
+    # would be this function deciding they are one entity.
+    work_identity_proposals = tuple(
+        proposal for proposal in (
+            propose_entity_identity(
+                proposition.subject_raw, registry,
+                source_id=proposition.source_id,
+                evidence_excerpt=proposition.evidence_excerpt,
+                suggested_entity_type="WORK",
+            )
+            for proposition in work_subject_propositions
+        )
+        if proposal is not None
+    )
+    identity_proposals = identity_proposals + work_identity_proposals
+
+    rejected_refs = {rejected.extraction_claim_ref for rejected in attr_rejected} - rescued_claim_refs
     leftover_propositions = tuple(
         proposition for proposition in propositions
         if proposition.extraction_claim_ref in rejected_refs

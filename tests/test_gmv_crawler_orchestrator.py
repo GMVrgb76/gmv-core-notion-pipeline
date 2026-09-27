@@ -506,3 +506,281 @@ def test_identity_proposals_see_a_registry_edit_made_between_documents(
     assert second.entity_identity_proposals == ()
     # One load per document, not one per run and not one per entity.
     assert len(reads) == 2, reads
+
+
+# --- "technique, WxH cm" caption rescue + WORK identity proposals ---
+#
+# 2026-09-27, opencode task brief opencode_task_17.md. The guarantees this
+# section tries to BREAK, deliberately:
+#   W1 "a real caption-shaped claim becomes exactly two atoms
+#       (medium + dimensions), verbatim, is not also reported as a
+#       rejection, and yields WORK identity proposals for the work's title"
+#       -> test_caption_claim_builds_two_atoms_and_work_identity_proposals
+#   W2 "a rescued claim never reaches build_relation_atoms(), so it is not
+#       logged a second time as PREDICATE_TEXT_NOT_MAPPED"
+#       -> test_rescued_caption_claim_never_reaches_the_relation_builder
+#   W3 "ProcessDocumentResult.rejected is STILL ONLY
+#       build_relation_atoms()'s final rejections, for every proposition
+#       the rescue did not touch" (task constraint 4)
+#       -> test_rejected_is_still_only_relation_rejections_alongside_a_rescue
+#       -> test_non_caption_dimension_shaped_claim_is_still_rejected_once
+#   W4 "no deduplication: two WORK-domain propositions about one subject
+#       are two proposals"
+#       -> test_two_work_propositions_on_one_subject_are_not_deduplicated
+#   W5 "the WORK set comes from the real registry's declared `domain`,
+#       not a hardcoded id list"
+#       -> test_work_domain_set_matches_the_real_registry_entry_by_entry
+#   W6 "a subject the entity registry already resolves produces no
+#       proposal at all"
+#       -> test_a_resolvable_work_subject_produces_no_identity_proposal
+#
+# As with the section above, every test patches `_load_entity_registry`
+# rather than relying on the real registry file's current contents.
+
+
+# One of the 5 real caption rows in the live rejection queue, verbatim
+# (source_id/claim-ref shape included, the claim index really is "0:1").
+REAL_CAPTION_SOURCE = (
+    "/gmv_master_system/01_area35_master/01_artists/genna_davide/10_md_processed_files/"
+    "07_career__05_monographs__cataloghi__2025_03_21_davide genna_portfolio lavori al 2025.pdf.md"
+)
+REAL_CAPTION_CLAIM = (
+    "Il bacio",
+    "smalto, unghie, alluminio e carta su tavola",
+    "90 x 60 x 5 cm",
+    "***Il bacio*** – 2020 smalto, unghie, alluminio e carta su tavola 90 x 60 x 5 cm",
+)
+
+
+@pytest.fixture
+def _empty_entity_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registry holding only one known ARTIST, so "Il bacio" and every
+    other test subject below is genuinely unresolved and produces a
+    proposal."""
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": [dict(_KNOWN_ENTITY)]},
+    )
+
+
+def test_caption_claim_builds_two_atoms_and_work_identity_proposals(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """W1, the whole rescue end to end through the real orchestrator. The
+    real claim shape is reproduced verbatim (including its long real
+    locator, which is what the atom_id is derived from)."""
+    subject, predicate, obj, excerpt = REAL_CAPTION_CLAIM
+    claim_ref = f"{REAL_CAPTION_SOURCE}#0:1"
+    proposition = CandidateProposition(
+        subject_raw=subject, predicate=predicate, object_raw=obj,
+        evidence_excerpt=excerpt, status="DOCUMENTATO", source_id=REAL_CAPTION_SOURCE,
+        evidence_id=("EV-1",), truncated_source=False, extraction_claim_ref=claim_ref,
+    )
+    monkeypatch.setattr(
+        orchestrator, "extract_candidates", lambda *a, **k: ((), (proposition,), ()),
+    )
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+
+    # Two atoms, one per governed predicate, both carrying the real work's
+    # title as subject and the real text verbatim as object.
+    assert [(a.predicate, a.subject, a.object, a.object_type) for a in result.atoms] == [
+        ("medium", "Il bacio", "smalto, unghie, alluminio e carta su tavola", "string"),
+        ("dimensions", "Il bacio", "90 x 60 x 5 cm", "string"),
+    ]
+    # The ids come from the SYNTHETIC refs, one per fact, so the two atoms
+    # of one caption can never collide on a single atom_id.
+    assert [a.atom_id for a in result.atoms] == [
+        "ATOM-" + hashlib.sha256(f"{REAL_CAPTION_SOURCE}|{claim_ref}#medium".encode()).hexdigest()[:16],
+        "ATOM-" + hashlib.sha256(f"{REAL_CAPTION_SOURCE}|{claim_ref}#dimensions".encode()).hexdigest()[:16],
+    ]
+    # Rescued: the claim produced atoms, so it is NOT also reported as a
+    # rejection (a second PREDICATE_TEXT_NOT_MAPPED would misdescribe it).
+    assert result.rejected == ()
+    # And the work's TITLE gets WORK identity proposals carrying the
+    # proposition's own real provenance -- TWO of them, not one: the
+    # rescue produces a `medium` and a `dimensions` proposition about that
+    # one subject, and identity proposals are deliberately never
+    # deduplicated (see W4's own test for the reasoning).
+    assert result.entity_identity_proposals == (
+        EntityIdentityProposal(
+            raw_name="Il bacio", suggested_entity_type="WORK",
+            source_id=REAL_CAPTION_SOURCE, evidence_excerpt=excerpt,
+        ),
+        EntityIdentityProposal(
+            raw_name="Il bacio", suggested_entity_type="WORK",
+            source_id=REAL_CAPTION_SOURCE, evidence_excerpt=excerpt,
+        ),
+    )
+
+
+def test_rescued_caption_claim_never_reaches_the_relation_builder(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """W2 in the shape that actually breaks it: if the rescued claim were
+    still handed to build_relation_atoms(), that call would (a) need a
+    classify_entity_types() model call for nothing and (b) emit a stale
+    duplicate rejection. Failing the call outright is stronger than
+    asserting on its arguments."""
+    subject, predicate, obj, excerpt = REAL_CAPTION_CLAIM
+    proposition = CandidateProposition(
+        subject_raw=subject, predicate=predicate, object_raw=obj,
+        evidence_excerpt=excerpt, status="DOCUMENTATO", source_id=REAL_CAPTION_SOURCE,
+        evidence_id=("EV-1",), truncated_source=False,
+        extraction_claim_ref=f"{REAL_CAPTION_SOURCE}#0:1",
+    )
+
+    def _fail_relation(*a, **k):
+        raise AssertionError(
+            "build_relation_atoms() must not see a claim the caption rescue already built"
+        )
+
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), (proposition,), ()))
+    monkeypatch.setattr(orchestrator, "build_relation_atoms", _fail_relation)
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert [a.predicate for a in result.atoms] == ["medium", "dimensions"]
+
+
+def test_rejected_is_still_only_relation_rejections_alongside_a_rescue(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """W3, the task's constraint 4, verified with a real run rather than by
+    inspection: one document carrying BOTH a rescued caption claim and a
+    genuinely unmapped, non-caption-shaped claim. The second must still
+    come out of build_relation_atoms() as PREDICATE_TEXT_NOT_MAPPED, once,
+    and the rescued one must not appear in `rejected` at all."""
+    subject, predicate, obj, excerpt = REAL_CAPTION_CLAIM
+    propositions = (
+        CandidateProposition(
+            subject_raw=subject, predicate=predicate, object_raw=obj,
+            evidence_excerpt=excerpt, status="DOCUMENTATO", source_id=REAL_CAPTION_SOURCE,
+            evidence_id=("EV-1",), truncated_source=False,
+            extraction_claim_ref=f"{REAL_CAPTION_SOURCE}#0:1",
+        ),
+        make_proposition("Federico Garibaldi", "was born in", "Chiavari, Italy", ref="CLAIM-9"),
+    )
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), propositions, ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+
+    assert [a.predicate for a in result.atoms] == ["medium", "dimensions"]
+    assert [r.extraction_claim_ref for r in result.rejected] == ["CLAIM-9"]
+    assert [r.reason_code for r in result.rejected] == ["PREDICATE_TEXT_NOT_MAPPED"]
+    # "was born in" resolves to no predicate at all, so it contributes no
+    # WORK identity proposal either; only the rescued work's title does --
+    # twice, one per synthetic proposition, for the no-dedup reason above.
+    assert [p.raw_name for p in result.entity_identity_proposals] == ["Il bacio", "Il bacio"]
+
+
+def test_non_caption_dimension_shaped_claim_is_still_rejected_once(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """W3's other half, and the guard against over-rescuing: the real
+    multi-panel row ("45 x 55, 45 x 60 cm" -- "cm" on the last part only)
+    must produce NO atoms and the usual single PREDICATE_TEXT_NOT_MAPPED
+    rejection, exactly as before this feature existed. A loosened pattern
+    that started accepting it would fail here."""
+    proposition = make_proposition(
+        "Vocazione sognante", "tessuti e carta su tavola", "45 x 55, 45 x 60 cm", ref="CLAIM-10",
+    )
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), (proposition,), ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.atoms == ()
+    assert [r.reason_code for r in result.rejected] == ["PREDICATE_TEXT_NOT_MAPPED"]
+    assert [r.extraction_claim_ref for r in result.rejected] == ["CLAIM-10"]
+    assert result.entity_identity_proposals == ()
+
+
+def test_two_work_propositions_on_one_subject_are_not_deduplicated(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """W4, the direct attack, and the exact real shape the caption rescue
+    produces: ONE work with BOTH a `dimensions` and a `medium` fact about
+    it. Two proposals, not one -- collapsing them would be this function
+    deciding the two facts are about one entity, which is the human's call
+    at the identity queue's gate."""
+    propositions = (
+        make_proposition("Il bacio", "dimensions", "90 x 60 x 5 cm", ref="CLAIM-11"),
+        make_proposition("Il bacio", "medium", "smalto e acrilico su tavola", ref="CLAIM-12"),
+    )
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), propositions, ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert [p.raw_name for p in result.entity_identity_proposals] == ["Il bacio", "Il bacio"]
+    assert {p.suggested_entity_type for p in result.entity_identity_proposals} == {"WORK"}
+    assert [p.source_id for p in result.entity_identity_proposals] == ["SRC-1", "SRC-1"]
+
+
+def test_work_domain_set_matches_the_real_registry_entry_by_entry(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """W5, cross-checked against the real registry file rather than a second
+    hardcoded list (this repo's recurring review finding: a duplicated
+    literal list passes its own tautological test and drifts silently).
+
+    For EVERY predicate the real registry declares with `domain ==
+    ["WORK"]`, a proposition using it must produce a WORK identity
+    proposal; for every other predicate -- including `edition_number`,
+    whose domain is `["ARTWORK_INSTANCE"]`, and the two RELATION
+    predicates that also accept a WORK subject but declare a
+    MULTI-element domain -- it must not. Both directions are driven from
+    the file, so adding a WORK-domain predicate to the registry makes this
+    test demand the new behaviour rather than let the orchestrator quietly
+    stop covering it."""
+    from gmv_atom_validator import _load_ontology_registry
+
+    registry = _load_ontology_registry()
+    work_ids = {e["predicate_id"] for e in registry["predicates"] if e.get("domain") == ["WORK"]}
+    # Sanity: the real set today, so a registry edit that empties or
+    # explodes this cannot make the assertions below vacuous.
+    assert work_ids == {"edition_size", "dimensions", "medium", "creation_year"}
+    other_ids = [e["predicate_id"] for e in registry["predicates"] if e["predicate_id"] not in work_ids]
+
+    for predicate_id in sorted(work_ids):
+        propositions = (make_proposition("Il bacio", predicate_id, "90 x 60 x 5 cm", ref="C-W"),)
+        monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, _p=propositions, **k: ((), _p, ()))
+        result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+        assert [(p.raw_name, p.suggested_entity_type) for p in result.entity_identity_proposals] == [
+            ("Il bacio", "WORK"),
+        ], predicate_id
+
+    for predicate_id in other_ids:
+        propositions = (make_proposition("Il bacio", predicate_id, "a value", ref="C-X"),)
+        monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, _p=propositions, **k: ((), _p, ()))
+        result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+        assert result.entity_identity_proposals == (), predicate_id
+
+    # And a raw, unmapped predicate TEXT never proposes anything, even
+    # though the ontology registry has no entry for it at all: resolution
+    # goes through the registry's own map, never through a string prefix
+    # or a heuristic. The object here is deliberately NOT a dimension
+    # expression, so the caption rescue does not convert this claim into
+    # two governed WORK propositions first -- otherwise this would be
+    # testing the rescue twice, not the resolution.
+    propositions = (make_proposition("Il bacio", "smalto, unghie, alluminio e carta su tavola", "tessuto", ref="C-R"),)
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), propositions, ()))
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.entity_identity_proposals == ()
+
+
+def test_a_resolvable_work_subject_produces_no_identity_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W6. A `dimensions` fact about a work the entity registry already
+    knows resolves to exactly one gmv_id: no proposal, and nothing else
+    about the document changes. The `None` return is filtered, not
+    converted into a proposal for a name that needs no decision."""
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": [dict(_KNOWN_ENTITY)]},
+    )
+    propositions = (
+        make_proposition("Federico Garibaldi", "dimensions", "90 x 60 x 5 cm", ref="CLAIM-13"),
+    )
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), propositions, ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.entity_identity_proposals == ()
+    assert [a.predicate for a in result.atoms] == ["dimensions"]
