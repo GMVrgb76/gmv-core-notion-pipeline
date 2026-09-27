@@ -21,6 +21,28 @@ VALID_ENTITY_STATUSES = {"CORE", "DOMAIN", "CANDIDATE", "DEPRECATED"}
 VALID_PREDICATE_STATUSES = {"CORE", "DOMAIN", "CANDIDATE", "DEPRECATED"}
 VALID_PREDICATE_CLASSES = {"IDENTITY", "ATTRIBUTE", "RELATION", "EVENT", "MEASURE", "EPISTEMIC"}
 
+#: The literal (non-entity) types a predicate's `domain`/`range` may name,
+#: besides an entity class or "ANY". Declared here, alongside the other
+#: vocabularies this file pins, because GMV_ONTOLOGY_REGISTRY_v0.1.json does
+#: NOT declare a literal-type list anywhere in its own top level (verified by
+#: reading its keys: version/authority/scope/governance_rule/status_values/
+#: predicate_classes/source/two notes/entity_classes/predicates -- so there is
+#: nothing to read it from, and inferring it from "whatever the file currently
+#: uses" would be circular).
+#:
+#: It is a CLOSED set on purpose, so a typo'd class id (`"strng"`, `"str"`)
+#: can never be silently absorbed as a new literal type: registering one is a
+#: deliberate edit here, in one place, in the same spirit as
+#: VALID_PREDICATE_CLASSES above.
+#:
+#: "integer" was the only member until 2026-09-27, when the CANDIDATE
+#: ATTRIBUTE predicates `dimensions` and `medium` registered `range: ["string"]`
+#: and this list had to grow to match (opencode_task_16.md). That growth was
+#: not visible in the test run at the time, because
+#: gmv_crawler_atom_builder's import-time guard raised first and interrupted
+#: collection of the whole suite -- see that task's report.
+VALID_LITERAL_TYPES = {"integer", "string"}
+
 
 def _load() -> dict:
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -77,17 +99,42 @@ def test_deprecated_entity_classes_have_resolvable_superseded_by() -> None:
 
 
 def test_predicate_domain_and_range_reference_known_entity_classes_or_any() -> None:
+    """A predicate's domain/range may name a registered entity class, "ANY",
+    or one of VALID_LITERAL_TYPES (an ATTRIBUTE predicate may range over a
+    literal type rather than an entity -- that is what makes this module's
+    no-entity-resolution slice buildable at all)."""
     config = _load()
     known_ids = {entry["class_id"] for entry in config["entity_classes"]}
     known_ids.add("ANY")
     for entry in config["predicates"]:
         for role in ("domain", "range"):
             for class_id in entry[role]:
-                if class_id == "integer":
+                if class_id in VALID_LITERAL_TYPES:
                     continue  # ATTRIBUTE predicates may range over a literal type
                 assert class_id in known_ids, (
                     f"{entry['predicate_id']}.{role} references unknown class {class_id}"
                 )
+
+
+def test_every_literal_type_the_registry_uses_is_declared_in_the_test_vocabulary() -> None:
+    """The other direction of the same contract, so VALID_LITERAL_TYPES
+    cannot rot: any value a predicate names that is neither an entity class
+    nor "ANY" must be a declared literal type. A new literal reaching the
+    registry without a deliberate edit here fails this test instead of
+    failing (or, worse, passing) the one above."""
+    config = _load()
+    known_ids = {entry["class_id"] for entry in config["entity_classes"]} | {"ANY"}
+    used_literals = {
+        class_id
+        for entry in config["predicates"]
+        for role in ("domain", "range")
+        for class_id in entry[role]
+        if class_id not in known_ids
+    }
+    assert used_literals, "no literal-typed predicate at all -- the slice this covers would be empty"
+    assert used_literals <= VALID_LITERAL_TYPES, (
+        f"undeclared literal type(s) in the registry: {sorted(used_literals - VALID_LITERAL_TYPES)}"
+    )
 
 
 def test_predicate_inverse_references_resolve_when_present() -> None:

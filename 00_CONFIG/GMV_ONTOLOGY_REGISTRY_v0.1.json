@@ -399,6 +399,51 @@
       "inverse": null,
       "definition": "Subject (a person) relocated to or resided in the object (a place).",
       "source_reference": "Registered as CANDIDATE 2026-09-25 per governance_rule -- grounded in real crawler rejection-queue data, raw predicate 'moved to', 3 distinct real cases from Ernesto Morales's English biography ('In 2006 ... he moved to Italy, first to Rome and, in 2011, to Turin'). No existing predicate covers a person's residence/relocation: located_at's domain is [EXHIBITION,EVENT,ORGANIZATION], not PERSON."
+    },
+    {
+      "predicate_id": "dimensions",
+      "predicate_class": "ATTRIBUTE",
+      "status": "CANDIDATE",
+      "domain": [
+        "WORK"
+      ],
+      "range": [
+        "string"
+      ],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The physical size of the work, in the free-text form it was recorded in (e.g. '150 x 100 cm', 'Diametro 40 cm', a multi-panel description). Deliberately a string, not a structured width/height/depth/unit shape: real corpus data mixes single WxH, WxHxD, diameter, and multi-panel/'dimensioni complessive' phrasings that this registration does not attempt to normalize (EIC-12, less-assertive interpretation) -- a future structured MEASURE predicate is a separate decision, not made here.",
+      "source_reference": "Registered as CANDIDATE 2026-09-27, driven by the need to reconstruct a complete per-work record (title/year/dimensions/materials) queryable via a shared WORK subject -- grounded in real crawler rejection-queue data, dozens of distinct real cases across multiple artist catalogues, e.g. 'olio su tela, 175 x 200 cm', 'cm 90x90', 'Diametro 40 cm', 'Trittico; tre pannelli di 90 x 80 cm ciascuno; dimensioni complessive 90 x 240 cm'. No existing predicate covers a work's physical size."
+    },
+    {
+      "predicate_id": "medium",
+      "predicate_class": "ATTRIBUTE",
+      "status": "CANDIDATE",
+      "domain": [
+        "WORK"
+      ],
+      "range": [
+        "string"
+      ],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The material/technique the work is made of, in the free-text form it was recorded in (e.g. 'olio su tela', 'mix media on canvas'). A string, not a controlled vocabulary of materials: real corpus phrasing varies too much (single technique, technique+support, multi-material lists) to force a closed enum without losing information (EIC-12).",
+      "source_reference": "Registered as CANDIDATE 2026-09-27, same driver as dimensions above -- grounded in real crawler rejection-queue data: 'olio su tela' (39 distinct real cases), 'mix media on canvas'/'Mixed Media On Canvas' (30 combined), 'tecnica mista su tela', 'olio su carta', 'Tempera su carta', 'pastello a cera su carta', across multiple artist catalogues. No existing predicate covers a work's material/technique."
+    },
+    {
+      "predicate_id": "creation_year",
+      "predicate_class": "ATTRIBUTE",
+      "status": "CANDIDATE",
+      "domain": [
+        "WORK"
+      ],
+      "range": [
+        "integer"
+      ],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The year the work was created. An edition-level fact about the work itself, not about any single exhibiting occurrence (contrast exhibited_at, whose domain is ARTWORK_INSTANCE).",
+      "source_reference": "Registered as CANDIDATE 2026-09-27, same driver as dimensions/medium above. Evidence here is weaker than for those two and disclosed as such, not overstated: the rejection queue has no clean isolated 'work created in <year>' raw predicate (unlike the clean 'olio su tela'/'175 x 200 cm' cases) -- the closest real cases are a date range ('realizzate tra il 2012 e il 2018') and a year attached to an exhibition context, not unambiguously the work's own creation year ('inserito nel contesto della Biennale di Tirana del 2003'). Registered now on the frozen spec's declared need for a per-work creation-date fact, not on strong isolated corpus evidence; the raw-text mapping into this predicate (00_CONFIG/crawler_predicate_text_mapping.json) is deliberately deferred until a real, unambiguous single-year-per-work case is found and checked, per the same governance_rule this file states for CANDIDATE predicates generally."
     }
   ]
 }
