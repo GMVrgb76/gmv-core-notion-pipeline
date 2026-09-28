@@ -251,3 +251,63 @@ governance items that must be checked on any real-estate-adjacent proposal:
   Real Estate Director, not a rename/overwrite of the unclassified
   `property_engine.py` output files, and not a write path into Morning
   Brief's compatibility script.
+
+## Ontology/predicate governance system: real, mature, but NOT on main — verified 2026-09-27/28
+
+`00_CONFIG/GMV_ONTOLOGY_REGISTRY_v0.1.json` + `10_API/gmv_atom_validator.py` +
+`00_CONFIG/EPISTEMIC_INGESTION_RULES_v0.2.json` + a frozen 18-field ATOM
+schema (`GMV_KNOWLEDGE_MONAD_SPEC_v1.0`) exist only on branch/worktree
+`worktree-bridge-cse_01EFSz2nNresRvPh9GbfwwzK` (`origin/worktree-bridge-cse_01EFSz2nNresRvPh9GbfwwzK`).
+Confirmed via `git merge-base --is-ancestor <ontology-commit> origin/main` →
+NOT an ancestor. That branch is 106 commits ahead of its merge-base with
+main (`92dad42c`, itself 4 commits behind current main tip `b480b04f`) and 0
+commits behind — a clean-ish but large, unfinished, active line of work
+("rescue medium/dimensions captions into atoms" was the tip when checked),
+built specifically for the Area35 **art** domain (WORK/ARTWORK_INSTANCE/
+EXHIBITION/curated_by/edition_of etc.), real-corpus-validated on artist
+biographies, not real estate. Do not treat it as mergeable-on-a-whim: 106
+commits of unreviewed-here work is a Project Owner-level decision, not
+something to pull in for an unrelated feature.
+
+**Meta-governance gap, worth repeating as a lesson**: even on its OWN
+branch, `GMV_GOVERNANCE_INDEX.md` does not reference
+`GMV_ONTOLOGY_REGISTRY_v0.1.json`, `GMV_KNOWLEDGE_MONAD_SPEC_v1.0`, or
+`EPISTEMIC_INGESTION_RULES_v0.2.json` at all (grep empty on both). A real,
+rigorously-built governance artifact was never itself indexed. Any new
+ontology/predicate registry (any domain) must be added to
+`GMV_GOVERNANCE_INDEX.md` in the same change that introduces it — don't
+repeat this gap.
+
+**Bigger structural finding: main already has an unconstrained
+subject/predicate/object claim shape, with NO ontology governance wired in,
+for ANY domain (art included)** — this predates and is independent of the
+unmerged atom system. `10_API/gmv_evidence_pipeline.py`: the LLM extraction
+JSON schema (~line 59) requires claims as `{subject_raw, predicate:
+<free string, no enum>, object_raw, evidence_excerpt}`; `resolve_claims`
+(~577) resolves subject/object against `notion_rows` into
+`resolved_subject_id`/`resolved_object_id`; `consolidate_claims` (~618)
+groups by `(resolved_subject_id, norm(predicate), resolved_object_id,
+qualifiers)`, enforces `CLAIM_WITHOUT_EVIDENCE` if `source_file_ids` is
+empty. `predicate` is never checked against any registry anywhere on main.
+**Implication for any "governed predicates" request (real estate or
+otherwise): the claim/resolution/consolidation machinery to build on
+already exists and is merged/tested — what's missing on main, for every
+domain, is only the registry file + a validation step comparing `predicate`
+(and object type) against it**, mirroring what `gmv_atom_validator.py` does
+on the unmerged branch (`predicate_is_governed`,
+`object_type_matches_predicate_range`) but pluggable onto the
+already-merged claim shape instead of the unmerged 18-field ATOM schema —
+much less new surface than it first appears, and does not require adopting
+the unmerged system's ATOM/EIC machinery at all.
+
+Registry file shape worth imitating structurally regardless of dependency:
+top-level `governance_rule` ("reuse-before-invention"), `status_values`
+(CORE/DOMAIN/CANDIDATE/DEPRECATED), `predicate_classes` (IDENTITY/
+ATTRIBUTE/RELATION/EVENT/MEASURE/EPISTEMIC), `entity_classes[]`
+(`class_id`, `status`, `aliases`, `definition`, `source_reference`),
+`predicates[]` (`predicate_id`, `predicate_class`, `status`, `domain[]`,
+`range[]`, `aliases`, `inverse`, `definition`, `source_reference`). Every
+CANDIDATE entry there cites concrete real-corpus case counts as
+`source_reference`, never invented — same discipline should apply to any
+new registry (cite the real validation evidence already in hand, e.g. an
+existing N-case validation summary file, not invented examples).

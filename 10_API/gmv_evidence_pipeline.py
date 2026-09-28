@@ -27,6 +27,36 @@ from typing import Any
 SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".doc", ".html", ".csv", ".json"}
 TERMINAL_EXTRACTION = {"SUCCESS", "OCR_REQUIRED", "UNSUPPORTED_FORMAT", "FILE_TOO_LARGE", "EXTRACTION_ABORTED_STALE_HASH", "EXTRACTION_FAILED"}
 
+# Cheap heuristic flag for grid-form/CAD-drawing PDF extraction garbling (e.g. a
+# pre-printed F24 tax slip's tiny boxed fields, or a cadastral map's spatially
+# scattered labels, interleaved out of reading order by pypdf's text extraction).
+# Calibrated 2026-09-28 against 9 real GMV property documents (see project memory
+# "GMV real estate pipeline"), not guessed: clean prose/label-value documents
+# scored 0.0-0.17 numeric-line-fraction and 0.04-0.25 short-line-fraction across
+# the sample; documents with a real dense grid/CAD layout scored 0.54-0.80 and
+# 0.51-0.96 respectively -- a real, if imperfect, separation. This does not
+# detect every garbled document (a short garbled attachment diluted inside a
+# much longer clean document can still fall under the threshold) and does not
+# fix the extraction -- it only flags text whose numbers deserve a human check
+# before being trusted verbatim, e.g. by an LLM extraction step downstream.
+_NUMERIC_LINE_RE = re.compile(r"^[\d\s.,/\-+€%]+$")
+GARBLED_NUMERIC_LINE_FRACTION_THRESHOLD = 0.25
+GARBLED_SHORT_LINE_FRACTION_THRESHOLD = 0.35
+GARBLED_SHORT_LINE_MAX_CHARS = 5
+
+
+def text_quality_flags(text: str) -> dict:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return {"possibly_garbled": False, "numeric_line_fraction": 0.0, "short_line_fraction": 0.0}
+    numeric_fraction = sum(1 for line in lines if _NUMERIC_LINE_RE.match(line)) / len(lines)
+    short_fraction = sum(1 for line in lines if len(line) <= GARBLED_SHORT_LINE_MAX_CHARS) / len(lines)
+    possibly_garbled = (numeric_fraction > GARBLED_NUMERIC_LINE_FRACTION_THRESHOLD
+                        or short_fraction > GARBLED_SHORT_LINE_FRACTION_THRESHOLD)
+    return {"possibly_garbled": possibly_garbled,
+            "numeric_line_fraction": round(numeric_fraction, 3),
+            "short_line_fraction": round(short_fraction, 3)}
+
 # PaddleOCR runs in an isolated venv (paddlepaddle/paddleocr are incompatible with
 # this repo's python3.14 .venv) invoked as a subprocess, same shape as the .doc ->
 # LibreOffice branch below. Setup: 10_API/GMV_OCR_PADDLEOCR.md.
@@ -60,6 +90,16 @@ SEMANTIC_OUTPUT_SCHEMA = {
             "properties": {"subject_raw": {"type": "string"}, "predicate": {"type": "string"}, "object_raw": {"type": "string"},
                           "evidence_excerpt": {"type": "string"}, "status": {"type": "string"}}}}
     }
+}
+
+# NuExtract3's "template" role is its own type-hint DSL, not a JSON-Schema document --
+# values are type hints ("verbatim-string"), not JSON-Schema property definitions. This
+# mirrors SEMANTIC_OUTPUT_SCHEMA's entities/claims shape so ollama_extract(api_style=
+# "chat_template") returns the identical dict shape as the default "generate" style.
+NUEXTRACT_TEMPLATE = {
+    "entities": [{"name": "verbatim-string", "evidence_excerpt": "verbatim-string", "status": "verbatim-string"}],
+    "claims": [{"subject_raw": "verbatim-string", "predicate": "verbatim-string", "object_raw": "verbatim-string",
+               "evidence_excerpt": "verbatim-string", "status": "verbatim-string"}],
 }
 
 
@@ -295,7 +335,7 @@ def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50
                     text, extractor = _extract(path)
                 record = {"file_id": fid, "extraction_status": "SUCCESS", "extractor": extractor,
                           "extractor_version": extractor_version, "text_hash": hashlib.sha256(text.encode()).hexdigest(),
-                          "text": text, "metadata": {}}
+                          "text": text, "metadata": {}, "text_quality": text_quality_flags(text)}
             except EvidenceError as exc:
                 record = {"file_id": fid, "extraction_status": str(exc)}
                 if exc.detail: record["error_detail"] = exc.detail
@@ -307,20 +347,41 @@ def extract(evidence_root: Path, dropbox_root: Path, *, max_file_bytes: int = 50
 
 def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars: int = 24000,
                    timeout: int = 60, num_ctx: int = 8192, num_predict: int = 2048,
-                   think: bool = False) -> dict:
+                   think: bool = False, api_style: str = "generate") -> dict:
+    """api_style="generate" (default, unchanged) uses /api/generate with a flat prompt --
+    the original Area35 call shape, verified in production, untouched by the addition below.
+
+    api_style="chat_template" uses /api/chat with NuExtract3's own message-role convention
+    (role "template" carries a type-hint schema, not a JSON-Schema document -- verified
+    against the model's real Ollama page/Python example on 2026-09-28, not guessed from
+    `ollama show --modelfile` alone, per the project's own documented lesson about NuExtract
+    calling conventions). Returns the identical {"file_id", "entities", "claims", "_runtime"}
+    shape either way, so callers (resolve_claims/consolidate_claims) need no changes."""
     if record.get("extraction_status") != "SUCCESS": raise EvidenceError("Extraction is not successful")
+    if api_style not in ("generate", "chat_template"): raise ValueError(f"unknown api_style: {api_style!r}")
     text = record["text"]; truncated = len(text) > max_prompt_chars
     if truncated: text = text[:max_prompt_chars // 2] + "\n[...TRUNCATED...]\n" + text[-max_prompt_chars // 2:]
-    prompt = ("Extract entities and factual claims from this archive text. Return ONLY JSON with entities and claims. "
-              "entities MUST be an array; every entity must contain name,evidence_excerpt,status. "
-              "Every claim must contain subject_raw,predicate,object_raw,evidence_excerpt,status. Do not infer.\nTEXT:\n" + text)
-    payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
-                          "think": think, "options": {"num_ctx": num_ctx, "num_predict": num_predict}}).encode()
-    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate", data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
+    if api_style == "generate":
+        prompt = ("Extract entities and factual claims from this archive text. Return ONLY JSON with entities and claims. "
+                  "entities MUST be an array; every entity must contain name,evidence_excerpt,status. "
+                  "Every claim must contain subject_raw,predicate,object_raw,evidence_excerpt,status. Do not infer.\nTEXT:\n" + text)
+        payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "format": SEMANTIC_OUTPUT_SCHEMA,
+                              "think": think, "options": {"num_ctx": num_ctx, "num_predict": num_predict}}).encode()
+        url = endpoint.rstrip("/") + "/api/generate"
+    else:
+        messages = [
+            {"role": "template", "content": json.dumps(NUEXTRACT_TEMPLATE)},
+            {"role": "instructions", "content": "Extract entities and factual claims from this archive text. Do not infer beyond what the text states."},
+            {"role": "user", "content": text},
+        ]
+        payload = json.dumps({"model": model, "messages": messages, "stream": False, "think": think,
+                              "options": {"num_ctx": num_ctx, "num_predict": num_predict, "temperature": 0}}).encode()
+        url = endpoint.rstrip("/") + "/api/chat"
+    request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
             envelope = json.load(response)
-            raw_output = envelope.get("response", "")
+            raw_output = envelope.get("message", {}).get("content", "") if api_style == "chat_template" else envelope.get("response", "")
             runtime = {k: envelope.get(k) for k in ("done_reason", "eval_count", "prompt_eval_count", "prompt_eval_duration", "eval_duration")}
             if envelope.get("done_reason") in {"length", "max_tokens"}:
                 raise OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime=runtime, raw_output=raw_output)
@@ -341,24 +402,31 @@ def ollama_extract(record: dict, *, endpoint: str, model: str, max_prompt_chars:
     for entity in entities:
         if not entity.get("name") or not entity.get("evidence_excerpt"):
             raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
-        entity.update({"file_id": record["file_id"], "status": str(entity.get("status", "SUPPORTED_BY_ARCHIVE")).upper()})
+        # .get(key, default) only substitutes the default when the key is ABSENT --
+        # a model that emits "status": null explicitly (real, live-observed with
+        # nuextract3's chat_template output) would otherwise produce the literal
+        # string "NONE" instead of the intended default.
+        entity.update({"file_id": record["file_id"], "status": str(entity.get("status") or "SUPPORTED_BY_ARCHIVE").upper()})
     for i, claim in enumerate(claims):
         if not all(claim.get(k) for k in ("subject_raw", "predicate", "object_raw", "evidence_excerpt")):
             raise OllamaResponseError("OLLAMA_SCHEMA_INVALID", runtime=runtime, raw_output=raw_output)
-        claim.update({"file_id": record["file_id"], "extraction_claim_ref": f"{record['file_id']}#{i}", "truncated_source": truncated, "status": str(claim.get("status", "SUPPORTED_BY_ARCHIVE")).upper()})
+        claim.update({"file_id": record["file_id"], "extraction_claim_ref": f"{record['file_id']}#{i}", "truncated_source": truncated, "status": str(claim.get("status") or "SUPPORTED_BY_ARCHIVE").upper()})
     return {"file_id": record["file_id"], "entities": entities, "claims": claims,
             "_runtime": {k: envelope.get(k) for k in ("eval_count", "prompt_eval_count",
                          "prompt_eval_duration", "eval_duration")}}
 
 
 def cached_ollama_extract(record: dict, evidence_root: Path, *, endpoint: str, model: str,
-                          max_prompt_chars: int = 24000, timeout: int = 60, prompt_version: str = "0.1") -> dict:
-    """Global semantic cache keyed by content identity, prompt version and model."""
+                          max_prompt_chars: int = 24000, timeout: int = 60, prompt_version: str = "0.1",
+                          api_style: str = "generate") -> dict:
+    """Global semantic cache keyed by content identity, prompt version, model and api_style --
+    api_style is part of the identity so switching styles on the same model name (unlikely,
+    but not impossible) can never silently reuse the other style's cached result."""
     _, cache = paths(evidence_root)
-    identity = hashlib.sha256(f"{record['file_id']}|{prompt_version}|{model}".encode()).hexdigest()
+    identity = hashlib.sha256(f"{record['file_id']}|{prompt_version}|{model}|{api_style}".encode()).hexdigest()
     cache_path = cache / "semantic" / f"{identity}.json"
     if cache_path.exists(): return read_json(cache_path, {})
-    result = ollama_extract(record, endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout)
+    result = ollama_extract(record, endpoint=endpoint, model=model, max_prompt_chars=max_prompt_chars, timeout=timeout, api_style=api_style)
     result["semantic_prompt_version"] = prompt_version
     result["model"] = model
     write_json(cache_path, result)

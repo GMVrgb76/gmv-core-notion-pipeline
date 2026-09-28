@@ -1,0 +1,218 @@
+{
+  "version": "0.1",
+  "authority": "REQUIRED",
+  "scope": "Predicate/entity governance for the real-estate vertical only (property status/deadline signals, 10_API/gmv_property_signals.py + gmv_property_claims.py). A separate, domain-neutral + Area35-art ontology registry (GMV_ONTOLOGY_REGISTRY_v0.1.json, same top-level shape: entity_classes[]/predicates[] with status CORE/DOMAIN/CANDIDATE/DEPRECATED and domain[]/range[] typing) exists but only on the unmerged branch worktree-bridge-cse_01EFSz2nNresRvPh9GbfwwzK, 106 commits ahead of its merge-base with main as of 2026-09-28 -- not depended on here deliberately, to avoid pulling in unrelated, unfinished, art-domain-specific work for one real-estate predicate. If that branch is ever merged, CORE-tier entries here (DOCUMENT) should be reconciled against its CORE tier, not treated as permanently separate; entries sharing a class_id/predicate_id with that file (DOCUMENT, CONTRACT) are independent entries with their own real evidence, not assumed identical -- see each entry's own source_reference.",
+  "governance_rule": "reuse-before-invention, same discipline as the domain-neutral registry this file deliberately does not depend on: a new entity class or predicate must be registered here as CANDIDATE, with real evidence and rationale, before use. It cannot silently enter canonical (CORE/DOMAIN) vocabulary.",
+  "status_values": {
+    "CORE": "Domain-neutral, expected to apply across any GMV vertical.",
+    "DOMAIN": "Specific to the real-estate vertical. Not expected to generalize without review.",
+    "CANDIDATE": "Proposed, evidenced, but not yet governed. May be promoted only by an explicit decision, never silently.",
+    "DEPRECATED": "Superseded; retained only so historical references resolve."
+  },
+  "predicate_classes": [
+    "IDENTITY",
+    "ATTRIBUTE",
+    "RELATION",
+    "EVENT",
+    "MEASURE",
+    "EPISTEMIC"
+  ],
+  "note_on_scope_v1": "Deliberately minimal, per explicit user decision 2026-09-28: only the deadline signal (validated 14/14 in ~/GMV/models/laya/results/real_estate_validation_summary.md) is registered as a predicate in this version. The risk signal (rischio_alto, validated recall only 2/4) is NOT registered here yet -- it stays a consultative field inside gmv_property_signals.py's own output, not a governed claim, until a reliability-qualifier design is agreed. No BUILDING_ELEMENT/component entity class either -- component context (e.g. 'ascensore', 'crepe strutturali'), where present, stays inline in the claim's evidence_excerpt, not a separate typed entity, per the same explicit decision.",
+  "note_on_scope_v2": "2026-09-28, later the same day: user proposed a rich ~110-predicate real-estate vocabulary (documento_*/immobile_*/contratto_*/obbligo_*/rata_*/tributo_*/movimento_*/condominio_*/utenza_*/polizza_*/pratica_*/certificazione_*/valutazione_*/asserzione_*). Not registered wholesale -- Laya cannot populate it (it only answers fixed typed questions, no free-value extraction), and an unvalidated 110-predicate registration would repeat the exact reuse-before-invention violation this file's own governance_rule exists to prevent. Instead: (1) confirmed the real local-extraction mechanism already exists and works for this -- gmv_evidence_pipeline.ollama_extract()/semantic_extract_batch(), already in production for Area35, unmodified, pointed at real-estate documents; (2) a genuinely authoritative reference now exists to validate against: the 'GMV Real Estate Knowledge Pipeline' Notion workspace (built separately, by ChatGPT, cloud-based, expensive -- not part of this repo), with real per-property registers (Immobili/Obblighi e scadenze/Movimenti e allocazioni/Eventi contratti e pratiche/Agenda scadenze) already populated with verified data for GERMIGNAGA/COURMA/VIG35/C2/VM8/WITT12; (3) the entity/predicate entries below were registered only after being evidenced by one real ollama_extract() run against GERMIGNAGA's real 2026 TARI notice, cross-checked against that Notion page's already-verified figures (total EUR 222.00, two EUR 111.00 rate on 15/09/2026 and 15/12/2026) -- not copied from the user's wishlist unvalidated. TRIBUTO and OBBLIGO are modeled as the same synthetic subject entity for a tax notice specifically (a tax IS its own payment obligation) -- a contract-derived obligation (e.g. rent) would need a real separate OBBLIGO linked to its CONTRACT via obbligo_deriva_da_documento, not tested here. Amount/date ranges are still 'string' (not typed number/date), consistent with mentions_deadline's own choice -- typed MEASURE/EVENT ranges are a future refinement, not made here to keep this addition proportionate to the one real case behind it.",
+  "entity_classes": [
+    {
+      "class_id": "DOCUMENT",
+      "status": "CORE",
+      "aliases": [],
+      "definition": "A source artifact (contract, verbale, email, report) anchoring provenance. Same concept as gmv_evidence_pipeline.py's file_id (sha256:<hex>) -- this entry names the concept for the registry, it does not introduce a second identity mechanism.",
+      "source_reference": "10_API/gmv_evidence_pipeline.py (scan()/extract(), file_id convention)"
+    },
+    {
+      "class_id": "PROPERTY",
+      "status": "CANDIDATE",
+      "aliases": ["immobile", "stabile"],
+      "definition": "A real-estate property (a building or unit) as a graph-vocabulary subject for claims. NOT a Core OID type -- ADR_DB008_OID_PREFIX_TYPE_CONSISTENCY.md's OID contract is a closed six-prefix map (COR/PER/PLG/RES/SRV/SYS) and this registration does not extend it or claim to. Identity source is Dropbox 02_IMMOBILI/01_PORTFOLIO/<PROPERTY>/OBJECT.yaml (gmv_id, name, aliases). As of 2026-09-28 (realigned same day to match the authoritative 'Codice immobile' convention already used by the GMV Real Estate Knowledge Pipeline Notion workspace, e.g. gmv_id='GERMIGNAGA' not an invented numbering): 3 of 6 real portfolio properties have this file (GERMIGNAGA, COURMA, VIG35); C2/VM8/WITT12 still fall back to their folder name (which already matches the real Codice immobile convention for at least WITT12, confirmed against Notion).",
+      "source_reference": "~/Library/CloudStorage/Dropbox/GMV_MASTER_SYSTEM/02_IMMOBILI/01_PORTFOLIO/ (6 real property folders, checked 2026-09-28); Notion 'Immobili' data sources under each property's Pilota/Scheda page (Codice immobile field, queried live 2026-09-28)"
+    },
+    {
+      "class_id": "CONTRACT",
+      "status": "CANDIDATE",
+      "aliases": [],
+      "definition": "A real-estate legal/commercial agreement document (lease, renewal, insurance policy, sale preliminary). Independent entry from any CONTRACT entity that may exist in the unmerged art-domain registry (there: unvalidated wishlist item, zero real evidence) -- this entry has real evidence, see source_reference, and the two should be reconciled on their own merits if that branch is ever merged, not assumed equivalent now.",
+      "source_reference": "~/GMV/models/laya/tests/real_estate_validation_cases.json cases RE01 (lease renewal), RE04 (insurance renewal), RE07 (preliminary sale contract), RE11 (fire safety certificate) -- all real, hand-written but grounded in real GMV property document types"
+    },
+    {
+      "class_id": "TRIBUTO",
+      "status": "CANDIDATE",
+      "aliases": ["tributo"],
+      "definition": "A specific real-estate tax assessment/notice for one property and one year (e.g. TARI 2026, IMU 2022). Distinct from OBBLIGO in the user's full proposed vocabulary, but modeled here as the same synthetic subject entity for a tax notice specifically -- see note_on_scope_v2.",
+      "source_reference": "Real ollama_extract() run, 2026-09-28, on GERMIGNAGA's 2026-09-04 TARI notice (file_id sha256:be7e201f4cc73dc353e38ff5133a1e8edfe7a4d6506795b344e7a0ec0f655954), cross-checked against the real value (EUR 222.00) already verified in the GERMIGNAGA Notion 'Pilota immobiliare' page"
+    },
+    {
+      "class_id": "OBBLIGO",
+      "status": "CANDIDATE",
+      "aliases": ["obbligo"],
+      "definition": "A payment obligation deriving from a document (tax notice, contract, invoice). For a TRIBUTO specifically, modeled as the same subject entity as the tax itself (see note_on_scope_v2) -- a contract-derived obligation would be a separate, not-yet-tested case.",
+      "source_reference": "Same real TARI notice as TRIBUTO above"
+    },
+    {
+      "class_id": "RATA",
+      "status": "CANDIDATE",
+      "aliases": ["rata", "installment"],
+      "definition": "One installment of an OBBLIGO, with its own amount and due date. Real evidence: the TARI notice's 'IL PAGAMENTO POTRA' ESSERE EFFETTUATO IN DUE RATE: 1^ RATA - 15.09.2026, 2^ RATA - 15.12.2026', EUR 111.00 each (half of the EUR 222.00 total), both already verified in the GERMIGNAGA Notion page.",
+      "source_reference": "Same real TARI notice as TRIBUTO above"
+    },
+    {
+      "class_id": "SOGGETTO",
+      "status": "CANDIDATE",
+      "aliases": ["soggetto", "subject_party"],
+      "definition": "A person or institution acting as debtor, creditor, or other party to an OBBLIGO/TRIBUTO/CONTRACT. Deliberately not split into PERSON vs ORGANIZATION (unlike the unmerged art-domain registry's finer entity granularity) -- not evidenced as a real distinction needed yet on real-estate documents; kept as a single class until a real case demonstrates the split matters.",
+      "source_reference": "Same real TARI notice as TRIBUTO above -- debtor 'VALERIO GIACOMO MARCO' (a person), creditor 'Comune di Germignaga' (an institution), both real"
+    }
+  ],
+  "predicates": [
+    {
+      "predicate_id": "mentions_deadline",
+      "predicate_class": "ATTRIBUTE",
+      "status": "CANDIDATE",
+      "domain": ["PROPERTY", "CONTRACT"],
+      "range": ["string"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject document/property text contains an explicit operative deadline (absolute or relative). object_raw is deliberately a STRING (the evidence excerpt itself, e.g. 'entro la fine del mese'), NOT a parsed date -- gmv_property_laya_worker.py's scadenza_presente signal only detects presence, it does not extract or normalize a date value. A future 'expires_on'-style predicate with a real date range is a separate, unvalidated next step, not implied by this one. Range is 'string' rather than a closed vocabulary because the evidence text varies freely (real corpus: 'entro il 20 novembre', 'entro 15 giorni', 'entro la fine del mese').",
+      "source_reference": "~/GMV/models/laya/results/real_estate_validation_summary.md §2 (scadenza_presente combined rule, 14/14 on the real-estate suite, including a negative-evidence past-date case and a genuinely ambiguous case both correctly False)"
+    },
+    {
+      "predicate_id": "tributo_riguarda_immobile",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["TRIBUTO"],
+      "range": ["PROPERTY"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject tax notice concerns the object property.",
+      "source_reference": "Real TARI notice: taxpayer address matches GERMIGNAGA property folder (contextual, not stated verbatim in the document text itself -- the property link comes from which folder the document was scanned from, same convention gmv_property_signals.py already relies on)"
+    },
+    {
+      "predicate_id": "tributo_ha_tipo",
+      "predicate_class": "ATTRIBUTE",
+      "status": "CANDIDATE",
+      "domain": ["TRIBUTO"],
+      "range": ["string"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The kind of tax (e.g. 'TARI', 'IMU').",
+      "source_reference": "Real TARI notice: 'AVVISO DI PAGAMENTO TARI - ANNO 2026'"
+    },
+    {
+      "predicate_id": "tributo_riferito_ad_anno",
+      "predicate_class": "ATTRIBUTE",
+      "status": "CANDIDATE",
+      "domain": ["TRIBUTO"],
+      "range": ["string"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The tax year this assessment covers.",
+      "source_reference": "Real TARI notice: 'ANNO 2026'"
+    },
+    {
+      "predicate_id": "tributo_richiesto_da",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["TRIBUTO"],
+      "range": ["SOGGETTO"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The institution requesting the tax.",
+      "source_reference": "Real TARI notice: 'Comune di Germignaga ... Area Finanziaria - Servizio Tributi'"
+    },
+    {
+      "predicate_id": "obbligo_riguarda_immobile",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["OBBLIGO"],
+      "range": ["PROPERTY"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Subject obligation concerns the object property.",
+      "source_reference": "Same real TARI notice"
+    },
+    {
+      "predicate_id": "obbligo_ha_debitore",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["OBBLIGO"],
+      "range": ["SOGGETTO"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The party who owes the obligation.",
+      "source_reference": "Real TARI notice: 'Intestatario: VALERIO GIACOMO MARCO C.F./P.IVA: VLRGMM76T03F205C'"
+    },
+    {
+      "predicate_id": "obbligo_ha_creditore",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["OBBLIGO"],
+      "range": ["SOGGETTO"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The party owed by the obligation.",
+      "source_reference": "Real TARI notice: 'Comune di Germignaga'"
+    },
+    {
+      "predicate_id": "obbligo_ha_importo",
+      "predicate_class": "MEASURE",
+      "status": "CANDIDATE",
+      "domain": ["OBBLIGO"],
+      "range": ["string"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The total amount owed, as a descriptive string (e.g. '222.00 EUR') -- not yet a typed number+currency pair; see note_on_scope_v2.",
+      "source_reference": "Real TARI notice: 'Totale da pagare 222,00€'"
+    },
+    {
+      "predicate_id": "obbligo_articolato_in_rata",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["OBBLIGO"],
+      "range": ["RATA"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "Links an obligation to one of its installments.",
+      "source_reference": "Real TARI notice: 'IL PAGAMENTO POTRA' ESSERE EFFETTUATO IN DUE RATE'"
+    },
+    {
+      "predicate_id": "obbligo_deriva_da_documento",
+      "predicate_class": "RELATION",
+      "status": "CANDIDATE",
+      "domain": ["OBBLIGO"],
+      "range": ["DOCUMENT"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The source document the obligation was extracted from, linked by the same file_id convention gmv_evidence_pipeline.py already uses.",
+      "source_reference": "Real TARI notice, file_id sha256:be7e201f4cc73dc353e38ff5133a1e8edfe7a4d6506795b344e7a0ec0f655954"
+    },
+    {
+      "predicate_id": "rata_ha_importo",
+      "predicate_class": "MEASURE",
+      "status": "CANDIDATE",
+      "domain": ["RATA"],
+      "range": ["string"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The amount of one installment, as a descriptive string. Same range-typing caveat as obbligo_ha_importo.",
+      "source_reference": "Real TARI notice: EUR 222.00 total / 2 rate = EUR 111.00 each, both rate confirmed equal amounts in the source text structure"
+    },
+    {
+      "predicate_id": "rata_scade_il",
+      "predicate_class": "EVENT",
+      "status": "CANDIDATE",
+      "domain": ["RATA"],
+      "range": ["string"],
+      "aliases": [],
+      "inverse": null,
+      "definition": "The due date of one installment, as a descriptive string (not yet a typed date). Same range-typing caveat as mentions_deadline.",
+      "source_reference": "Real TARI notice: '1^ RATA - 15.09.2026', '2^ RATA - 15.12.2026'"
+    }
+  ]
+}
