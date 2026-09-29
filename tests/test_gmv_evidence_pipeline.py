@@ -352,6 +352,57 @@ def test_cached_ollama_extract_api_style_is_part_of_cache_identity(monkeypatch, 
     evidence.cached_ollama_extract(record, tmp_path, endpoint="x", model="m", api_style="chat_template")
     assert calls == ["generate", "chat_template"]  # both actually called, not served from the other's cache entry
 
+def test_nuextract_extract_default_repeat_penalty_is_1_1(monkeypatch):
+    """Regression guard for a real bug found live 2026-09-28: at repeat_penalty=1.0
+    (Ollama's no-penalty value) and temperature=0, nuextract3 fell into an exact-fact
+    repetition loop and never terminated, exhausting num_predict. 1.1 was the first
+    value that both terminated cleanly and preserved real extracted content -- must
+    not silently regress back to 1.0."""
+    captured = {}
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data)
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": json.dumps({"fatti": []})}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    template = {"fatti": [{"soggetto": "verbatim-string"}]}
+    out = evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="numind/nuextract3:q4_k_m", template=template)
+    assert captured["url"].endswith("/api/chat")
+    payload = captured["payload"]
+    assert payload["options"]["repeat_penalty"] == 1.1
+    assert payload["options"]["repeat_last_n"] == 256
+    assert payload["options"]["temperature"] == 0
+    roles = [m["role"] for m in payload["messages"]]
+    assert roles == ["template", "user"]
+    assert json.loads(payload["messages"][0]["content"]) == template
+    assert out["extracted"] == {"fatti": []}
+    assert out["file_id"] == "sha256:f"
+
+def test_nuextract_extract_repeat_penalty_is_overridable(monkeypatch):
+    captured = {}
+    def fake_urlopen(request, timeout=None):
+        captured["payload"] = json.loads(request.data)
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": json.dumps({"fatti": []})}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="m", template={}, repeat_penalty=1.3, repeat_last_n=128)
+    assert captured["payload"]["options"]["repeat_penalty"] == 1.3
+    assert captured["payload"]["options"]["repeat_last_n"] == 128
+
+def test_nuextract_extract_truncation_detected(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": "{incomplete"}, "done_reason": "length"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    with pytest.raises(evidence.OllamaResponseError) as exc_info:
+        evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="m", template={})
+    assert exc_info.value.code == "OLLAMA_OUTPUT_TRUNCATED"
+
+def test_nuextract_extract_rejects_non_success_record():
+    record = {"file_id": "sha256:f", "extraction_status": "EXTRACTION_ABORTED_STALE_HASH"}
+    with pytest.raises(evidence.EvidenceError):
+        evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="m", template={})
+
 SOFFICE_MISSING = not (shutil.which("soffice") or shutil.which("libreoffice"))
 
 @pytest.mark.skipif(SOFFICE_MISSING, reason="soffice not installed")

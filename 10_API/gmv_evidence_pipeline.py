@@ -433,6 +433,59 @@ def cached_ollama_extract(record: dict, evidence_root: Path, *, endpoint: str, m
     return result
 
 
+def nuextract_extract(record: dict, *, endpoint: str, model: str, template: dict, max_prompt_chars: int = 24000,
+                      timeout: int = 60, num_ctx: int = 8192, num_predict: int = 2048, think: bool = False,
+                      repeat_penalty: float = 1.1, repeat_last_n: int = 256) -> dict:
+    """Generic NuExtract-style structured extraction via /api/chat with a CALLER-SUPPLIED
+    template (the type-hint DSL verified against NuExtract3's real Ollama page/Python
+    example on 2026-09-28 -- see ollama_extract()'s own chat_template docstring). Unlike
+    ollama_extract(), the returned shape is whatever the template defines under "extracted"
+    -- there is no fixed entities/claims contract to validate against, so this function does
+    NOT check required fields the way ollama_extract() does. Domain-specific templates (the
+    real-estate SOGGETTO/PREDICATO/OGGETTO fact template, etc.) live in their own modules,
+    e.g. 10_API/gmv_property_extract_templates.py -- this function stays domain-neutral,
+    reusable for any future NuExtract-based extraction task, not just real estate.
+
+    repeat_penalty defaults to 1.1 (Ollama's own typical default, not this project's
+    invention), NOT 1.0 (no penalty) -- live-reproduced 2026-09-28 on a real document with
+    a verbose multi-field template: at repeat_penalty=1.0/temperature=0, this checkpoint
+    fell into an exact-fact repetition loop (the same {"soggetto":...,"predicato":...}
+    object repeated dozens of times) and never terminated on its own, exhausting the whole
+    num_predict budget -- a known small-model failure mode the NuExtract3 model card itself
+    warns about ("many models ended up falling in repetition loops"). Raising num_predict
+    alone does NOT fix this (confirmed live, it only lets the same loop run longer).
+    repeat_penalty=1.3 was tried and found too aggressive -- it suppressed real content
+    down to 1-2 near-empty facts. 1.1 was the first value that both terminated cleanly
+    (done_reason="stop") and preserved real extracted facts with real evidence quotes."""
+    if record.get("extraction_status") != "SUCCESS": raise EvidenceError("Extraction is not successful")
+    text = record["text"]; truncated = len(text) > max_prompt_chars
+    if truncated: text = text[:max_prompt_chars // 2] + "\n[...TRUNCATED...]\n" + text[-max_prompt_chars // 2:]
+    messages = [
+        {"role": "template", "content": json.dumps(template)},
+        {"role": "user", "content": text},
+    ]
+    payload = json.dumps({"model": model, "messages": messages, "stream": False, "think": think,
+                          "options": {"num_ctx": num_ctx, "num_predict": num_predict, "temperature": 0,
+                                     "repeat_penalty": repeat_penalty, "repeat_last_n": repeat_last_n}}).encode()
+    request = urllib.request.Request(endpoint.rstrip("/") + "/api/chat", data=payload, headers={"Content-Type": "application/json"})  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - same fixed local Ollama endpoint
+            envelope = json.load(response)
+            raw_output = envelope.get("message", {}).get("content", "")
+            runtime = {k: envelope.get(k) for k in ("done_reason", "eval_count", "prompt_eval_count", "prompt_eval_duration", "eval_duration")}
+            if envelope.get("done_reason") in {"length", "max_tokens"}:
+                raise OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime=runtime, raw_output=raw_output)
+            try:
+                parsed = json.loads(raw_output)
+            except json.JSONDecodeError as exc:
+                raise OllamaResponseError("OLLAMA_INVALID_JSON", runtime=runtime, raw_output=raw_output) from exc
+    except urllib.error.URLError as exc: raise EvidenceError("OLLAMA_UNAVAILABLE") from exc
+    except TimeoutError as exc: raise EvidenceError("TIMEOUT") from exc
+    except KeyError as exc: raise OllamaResponseError("OLLAMA_INVALID_JSON") from exc
+    return {"file_id": record["file_id"], "extracted": parsed, "truncated_source": truncated,
+            "_runtime": {k: envelope.get(k) for k in ("eval_count", "prompt_eval_count", "prompt_eval_duration", "eval_duration")}}
+
+
 def ollama_health(endpoint: str, timeout: int = 5) -> bool:
     try:
         request = urllib.request.Request(endpoint.rstrip("/") + "/api/tags")  # noqa: S310 - endpoint is the caller-supplied local Ollama config, never user/remote input
