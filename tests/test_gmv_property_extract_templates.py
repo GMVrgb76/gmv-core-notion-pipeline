@@ -149,3 +149,108 @@ def test_facts_to_raw_claims_drops_none_results():
     claims = extract_templates.facts_to_raw_claims(facts, "sha256:f")
     assert len(claims) == 1
     assert claims[0]["subject_raw"] == "A"
+
+
+# --- property_facts_batch() -- mirrors gmv_evidence_pipeline's own
+# semantic_extract_batch() test suite (test_adaptive_split_recursive_and_provenance,
+# test_adaptive_minimum_exhausted, test_analyze_writes_semantic_output_and_marks_valid,
+# test_analyze_resume_skips_valid_files_without_ollama, test_analyze_retry_limit_then_failed)
+# field-for-field, since the function itself is a deliberate structural mirror.
+
+def _fake_extract_facts_fixed(record, registry, **kwargs):
+    return {"file_id": record["file_id"], "facts": [{"soggetto": "A", "predicato": "p", "oggetto": "o", "testo_evidenza": "e"}],
+            "rejected_facts": [], "truncated_source": False, "_runtime": {"done_reason": "stop"}}
+
+
+def test_property_facts_batch_writes_output_and_marks_valid(monkeypatch, tmp_path, registry):
+    monkeypatch.setattr(extract_templates, "extract_facts", _fake_extract_facts_fixed)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="GERMIGNAGA", endpoint="x", model="m")
+    out_path = tmp_path / "property_facts" / "abc123-0.1.json"
+    assert out_path.exists()
+    data = evidence.read_json(out_path, None)
+    assert data["facts"] == out["facts"]
+    assert data["facts"][0]["soggetto"] == "A"
+    manifest = extract_templates.load_property_facts_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"
+    assert manifest["sha256:abc123"]["property_id"] == "GERMIGNAGA"
+    run_manifest = evidence.read_json(tmp_path / "property_facts" / "run_manifest.json", {})
+    assert run_manifest["status"] == "SUCCESS"
+
+
+def test_property_facts_batch_resume_skips_valid_files(monkeypatch, tmp_path, registry):
+    def _raise_if_called(record, registry, **kwargs):
+        raise AssertionError("extract_facts must not be called on resumed file")
+    extract_templates.mark_property_facts_analyzed(tmp_path, "sha256:abc123", "valid", property_id="GERMIGNAGA", model="m", timeout=60)
+    out_path = tmp_path / "property_facts" / "abc123-0.1.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sentinel = {"facts": [{"soggetto": "SENTINEL"}], "rejected_facts": []}
+    out_path.write_text(evidence.canonical(sentinel) + "\n", encoding="utf-8")
+    monkeypatch.setattr(extract_templates, "extract_facts", _raise_if_called)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="GERMIGNAGA", endpoint="x", model="m", resume=True)
+    assert out_path.read_text(encoding="utf-8").strip() == evidence.canonical(sentinel).strip()
+    manifest = extract_templates.load_property_facts_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"
+    assert out == {"facts": [], "rejected_facts": []}
+
+
+def test_property_facts_batch_retry_limit_then_failed(monkeypatch, tmp_path, registry):
+    calls = []
+    def _flaky(record, registry, **kwargs):
+        calls.append(record)
+        if len(calls) < 3:
+            raise evidence.EvidenceError("TIMEOUT")
+        return {"file_id": record["file_id"], "facts": [], "rejected_facts": [], "truncated_source": False, "_runtime": {"done_reason": "stop"}}
+    monkeypatch.setattr(extract_templates, "extract_facts", _flaky)
+    record = {"file_id": "sha256:abc123", "extraction_status": "SUCCESS", "text": "some text"}
+    extract_templates.property_facts_batch([record], registry, tmp_path, property_id="GERMIGNAGA", endpoint="x", model="m", retry_limit=3)
+    assert len(calls) == 3
+    manifest = extract_templates.load_property_facts_manifest(tmp_path)
+    assert manifest["sha256:abc123"]["status"] == "valid"
+
+    calls2 = []
+    def _always_timeout(record, registry, **kwargs):
+        calls2.append(record)
+        raise evidence.EvidenceError("TIMEOUT")
+    monkeypatch.setattr(extract_templates, "extract_facts", _always_timeout)
+    record2 = {"file_id": "sha256:def456", "extraction_status": "SUCCESS", "text": "some text"}
+    with pytest.raises(evidence.EvidenceError) as exc_info:
+        extract_templates.property_facts_batch([record2], registry, tmp_path, property_id="GERMIGNAGA", endpoint="x", model="m", retry_limit=2)
+    assert str(exc_info.value) == "TIMEOUT"
+    assert len(calls2) == 2
+    manifest2 = extract_templates.load_property_facts_manifest(tmp_path)
+    assert manifest2["sha256:def456"]["status"] == "failed"
+
+
+def test_property_facts_batch_adaptive_split_on_truncation(monkeypatch, tmp_path, registry):
+    def fake(record, registry, **kwargs):
+        if len(record["text"]) > 3000:
+            raise evidence.OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={"done_reason": "length", "eval_count": 2048}, raw_output="x")
+        return {"file_id": record["file_id"], "facts": [{"soggetto": "A", "predicato": "p", "oggetto": "o", "testo_evidenza": "e"}],
+                "rejected_facts": [], "truncated_source": False, "_runtime": {"done_reason": "stop", "eval_count": 2}}
+    monkeypatch.setattr(extract_templates, "extract_facts", fake)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "A. " * 2500}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="P", endpoint="x", model="m",
+                                                   max_chunk_chars=8000, min_adaptive_chunk_chars=2000, max_adaptive_depth=4)
+    manifest = evidence.read_json(tmp_path / "property_facts" / "run_manifest.json", {})
+    leaves = [n for n in manifest["nodes"] if n["outcome"] == "SUCCESS"]
+    assert len(leaves) > 2 and all(n["input_chars"] <= 8000 for n in leaves)
+    assert len(out["facts"]) == len(leaves)
+
+
+def test_property_facts_batch_adaptive_minimum_exhausted(monkeypatch, tmp_path, registry):
+    def truncated(record, registry, **kwargs):
+        raise evidence.OllamaResponseError("OLLAMA_OUTPUT_TRUNCATED", runtime={"done_reason": "length", "eval_count": 2048}, raw_output="x")
+    monkeypatch.setattr(extract_templates, "extract_facts", truncated)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "x" * 600}
+    with pytest.raises(evidence.EvidenceError) as exc_info:
+        extract_templates.property_facts_batch([record], registry, tmp_path, property_id="P", endpoint="x", model="m",
+                                                 max_chunk_chars=8000, min_adaptive_chunk_chars=500)
+    assert str(exc_info.value) == "ADAPTIVE_CHUNK_MINIMUM_EXHAUSTED"
+
+
+def test_property_facts_output_path_rejects_malformed_file_id(tmp_path):
+    assert extract_templates.property_facts_output_path(None, tmp_path) is None
+    assert extract_templates.property_facts_output_path("not-a-sha", tmp_path) is None
+    assert extract_templates.property_facts_output_path("md5:abc", tmp_path) is None

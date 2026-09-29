@@ -137,6 +137,30 @@
       "domain": ["DOCUMENT"], "range": ["number"], "aliases": [], "inverse": null,
       "definition": "The interest component of an accertamento.",
       "source_reference": "Real IMU accertamento: '(c) TOTALE INTERESSI 150,49' -> 150.49"
+    },
+    {
+      "predicate_id": "ha_decorrenza", "predicate_class": "EVENT", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["date"], "aliases": [], "inverse": null,
+      "definition": "The start date of a contract's or obligation's validity period -- distinct from ha_scadenza, which is a specific payment due date within an ongoing obligation, not the contract's own validity window.",
+      "source_reference": "Real VIG35 Wonderful Italy atto integrativo (2022): 'il suddetto contratto e' in vigore dal 01/09/2021 con scadenza il 31/08/2027' -> 2021-09-01"
+    },
+    {
+      "predicate_id": "ha_termine", "predicate_class": "EVENT", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["date"], "aliases": [], "inverse": null,
+      "definition": "The end date of a contract's or obligation's validity period.",
+      "source_reference": "Real VIG35 Wonderful Italy atto integrativo (2022): 'il suddetto contratto e' in vigore dal 01/09/2021 con scadenza il 31/08/2027' -> 2027-08-31"
+    },
+    {
+      "predicate_id": "ha_ricorrenza", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["string"], "aliases": [], "inverse": null,
+      "definition": "How often a stated amount recurs (e.g. 'mensile', 'trimestrale', 'annuale', 'una tantum'). Deliberately generic -- covers a lease canone's periodicity and a recurring service charge's periodicity with one predicate, avoiding lease-specific and utility-specific near-duplicates.",
+      "source_reference": "Real VIG35 Wonderful Italy atto integrativo (2022): 'da corrispondersi in canoni mensili anticipati pari ad euro 5.833,33' -> 'mensile'"
+    },
+    {
+      "predicate_id": "ha_causale_obbligo", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["string"], "aliases": [], "inverse": null,
+      "definition": "The stated reason/nature of an amount owed (e.g. 'canone di locazione', 'raccolta rifiuti', 'spese cortile comune'). Deliberately generic -- covers the lease-canone case and the recurring-service-expense case, avoiding a real-estate-narrow ha_tipo_servizio as a near-duplicate of the same underlying question ('why is this owed'). Only 'canone di locazione' is evidenced so far; the other examples are anticipated, not yet backed by a real document in hand.",
+      "source_reference": "Real VIG35 Wonderful Italy atto integrativo (2022): 'il canone annuo di locazione e' pari ed euro 70.000,00' -> 'canone di locazione'"
     }
   ],
 
@@ -177,7 +201,8 @@
       "pratiche_e_contenziosi": ["ha_numero_pratica", "ha_ente_competente", "ha_oggetto_pratica", "ha_stato_pratica", "richiede_adempimento", "ha_termine_adempimento", "ha_importo_contestato", "ha_responsabile_azione"],
       "valutazioni_patrimoniali": ["ha_valore_stimato", "ha_data_stima", "ha_autore_stima", "ha_metodo_stima", "ha_finalita_stima"]
     },
-    "already_promoted_to_candidate": ["ha_tipo_documento", "riguarda_immobile", "ha_tipo_tributo", "ha_anno_imposta", "ha_ente_impositore", "ha_debitore", "ha_creditore", "ha_importo_dovuto", "ha_numero_rata", "ha_scadenza"],
+    "already_promoted_to_candidate": ["ha_tipo_documento", "riguarda_immobile", "ha_tipo_tributo", "ha_anno_imposta", "ha_ente_impositore", "ha_debitore", "ha_creditore", "ha_importo_dovuto", "ha_numero_rata", "ha_scadenza", "ha_maggior_tributo", "ha_interessi", "ha_decorrenza", "ha_termine", "ha_ricorrenza", "ha_causale_obbligo"],
+    "note_2026_09_29": "ha_decorrenza/ha_termine promoted as literally proposed. ha_ricorrenza/ha_causale_obbligo promoted as deliberately generic replacements for this list's own ha_periodicita_canone/ha_canone/ha_tipo_servizio -- one predicate covering both the lease-canone case and the recurring-service-expense case, per gmv-code-architect recommendation (avoid near-duplicate narrow predicates for the same underlying question). ha_tipo_contratto/ha_parte_contrattuale/ha_canone/ha_periodicita_canone/ha_tipo_servizio deliberately NOT promoted -- they duplicate ha_tipo_documento/ha_debitore+ha_creditore/ha_importo_dovuto+ha_causale_obbligo/ha_ricorrenza/ha_ricorrenza already CANDIDATE. ha_fornitore stays PROPOSED: no real VIG35 service invoice (raccolta rifiuti, cortile comune) exists in the local Dropbox folder to evidence whether fornitore is distinct from creditore.",
     "ambito_enum": ["immobile", "unita", "quota_individuale", "intero_condominio", "conto_corrente"]
   },
 
