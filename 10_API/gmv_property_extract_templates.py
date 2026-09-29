@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import gmv_evidence_pipeline as evidence  # noqa: E402
 from gmv_evidence_pipeline import nuextract_extract  # noqa: E402
-from gmv_ontology_check import predicate_is_governed  # noqa: E402
+from gmv_ontology_check import object_matches_range, predicate_is_governed  # noqa: E402
 
 DEFAULT_AMBITO_ENUM = ["immobile", "unita", "quota_individuale", "intero_condominio", "conto_corrente"]
 STATO_EVIDENZA_ENUM = ["esplicito", "inferito"]
@@ -75,6 +75,9 @@ def extract_facts(record: dict, registry: dict, *, endpoint: str, model: str = "
     facts, rejected = [], []
     for fact in raw_facts if isinstance(raw_facts, list) else []:
         if not isinstance(fact, dict) or not predicate_is_governed(fact.get("predicato"), registry):
+            rejected.append(fact)
+            continue
+        if not object_matches_range(fact.get("predicato"), fact.get("oggetto"), registry):
             rejected.append(fact)
             continue
         facts.append(fact)
@@ -366,36 +369,112 @@ def property_facts_batch(records: list[dict], registry: dict, evidence_root: Pat
     return {"facts": all_facts, "rejected_facts": all_rejected}
 
 
+def run_property_pipeline(property_id: str, dropbox_root: Path, evidence_root: Path, registry: dict, *,
+                          endpoint: str, model: str = "numind/nuextract3:q4_k_m", **kwargs) -> dict:
+    """End-to-end chain: scan -> extract -> per-document fact extraction ->
+    resolve -> consolidate. Every stage is an existing function, reused as-is:
+    scan/extract/resolve_claims/consolidate_claims come from
+    gmv_evidence_pipeline, property_facts_batch/facts_to_raw_claims from this
+    module. Nothing here re-implements any of them.
+
+    property_facts_batch() is called ONCE PER DOCUMENT rather than once for the
+    whole property: it raises EvidenceError and aborts the entire call on the
+    first unrecoverable document failure (deliberate, mirroring
+    semantic_extract_batch()), which would otherwise throw away every other
+    document of the same property. Per-document isolation is the whole point of
+    chaining them in a loop here.
+
+    resolve_claims() is called with an empty notion_rows dict on purpose: the
+    live Notion real-estate databases are populated by an independent ChatGPT
+    pipeline with its own confidence-tier reconciliation contract, and no
+    reconciliation contract has been decided here. An empty dict means no
+    subject/object can ever match, so every one of them deterministically
+    becomes NEW_ENTITY with a synthetic hash id -- no live comparison is
+    performed, and none of these ids correspond to a real Notion page.
+    """
+    evidence.scan(dropbox_root, evidence_root)
+    records = [r for r in evidence.extract(evidence_root, dropbox_root)
+               if r.get("extraction_status") == "SUCCESS"]
+    raw_claims: list[dict] = []
+    per_file: list[dict] = []
+    for record in records:
+        fid = record["file_id"]
+        try:
+            property_facts_batch([record], registry, evidence_root, property_id=property_id,
+                                 endpoint=endpoint, model=model, **kwargs)
+        except evidence.EvidenceError as exc:
+            per_file.append({"file_id": fid, "error": str(exc)})
+            continue
+        out_path = property_facts_output_path(fid, evidence_root)
+        data = evidence.read_json(out_path, {}) if out_path is not None else {}
+        facts, rejected = data.get("facts", []), data.get("rejected_facts", [])
+        raw_claims.extend(facts_to_raw_claims(facts, fid))
+        per_file.append({"file_id": fid, "facts": len(facts), "rejected": len(rejected)})
+    resolved = evidence.resolve_claims(raw_claims, {})
+    consolidated = evidence.consolidate_claims(resolved)
+    return {"property_id": property_id, "documents_processed": len(per_file),
+            "raw_claims": len(raw_claims), "consolidated_claims": len(consolidated),
+            "per_file": per_file, "consolidated": consolidated}
+
+
+DEFAULT_EVIDENCE_ROOT = Path.home() / ".gmv_core" / "area35-qa" / "evidence" / "immobili"
+
+# argparse gives a subparser's --evidence-root the same dest as the top-level
+# one, so passing it after the subcommand would silently overwrite the
+# top-level value with None (verified, not assumed). Distinct dests keep both
+# positions usable; _add_shared_args resolves them, subcommand-level winning.
+def _add_shared_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--endpoint", default="http://localhost:11434")
+    parser.add_argument("--model", default="numind/nuextract3:q4_k_m")
+    parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--max-chunk-chars", type=int, default=8000)
+    parser.add_argument("--ollama-context", type=int, default=8192)
+    parser.add_argument("--num-predict", type=int, default=4096)
+    parser.add_argument("--min-adaptive-chunk-chars", type=int, default=500)
+    parser.add_argument("--max-adaptive-depth", type=int, default=4)
+    parser.add_argument("--retry-limit", type=int, default=1,
+                        help="Max attempts per file for transient TIMEOUT/OLLAMA_UNAVAILABLE errors")
+    parser.add_argument("--resume", action="store_true", default=False,
+                        help="Skip files already marked valid/skipped in property_facts/analyze_manifest.json")
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--evidence-root", type=Path, required=True)
-    p.add_argument("--registry", type=Path, required=True,
-                    help="Path to GMV_ONTOLOGY_REGISTRY_REALESTATE_v0.1.json")
+    p.add_argument("--evidence-root", type=Path, dest="legacy_evidence_root", help=argparse.SUPPRESS)
+    p.add_argument("--registry", type=Path, dest="legacy_registry", help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="command", required=True)
     analyze_p = sub.add_parser("analyze")
     analyze_p.add_argument("record", type=Path)
-    analyze_p.add_argument("--endpoint", default="http://localhost:11434")
-    analyze_p.add_argument("--model", default="numind/nuextract3:q4_k_m")
     analyze_p.add_argument("--property-id", required=True)
-    analyze_p.add_argument("--timeout", type=int, default=180)
-    analyze_p.add_argument("--max-chunk-chars", type=int, default=8000)
-    analyze_p.add_argument("--ollama-context", type=int, default=8192)
-    analyze_p.add_argument("--num-predict", type=int, default=4096)
-    analyze_p.add_argument("--min-adaptive-chunk-chars", type=int, default=500)
-    analyze_p.add_argument("--max-adaptive-depth", type=int, default=4)
-    analyze_p.add_argument("--retry-limit", type=int, default=1,
-                            help="Max attempts per file for transient TIMEOUT/OLLAMA_UNAVAILABLE errors")
-    analyze_p.add_argument("--resume", action="store_true", default=False,
-                            help="Skip files already marked valid in property_facts/analyze_manifest.json")
+    analyze_p.add_argument("--evidence-root", type=Path, dest="evidence_root")
+    analyze_p.add_argument("--registry", type=Path)
+    _add_shared_args(analyze_p)
+    property_p = sub.add_parser("analyze-property")
+    property_p.add_argument("property_id")
+    property_p.add_argument("--dropbox-root", type=Path, required=True)
+    property_p.add_argument("--evidence-root", type=Path, default=DEFAULT_EVIDENCE_ROOT)
+    property_p.add_argument("--registry", type=Path, required=True)
+    _add_shared_args(property_p)
     args = p.parse_args()
-    registry = json.loads(args.registry.read_text(encoding="utf-8"))
+    evidence_root = getattr(args, "evidence_root", None) or args.legacy_evidence_root
+    registry_path = getattr(args, "registry", None) or args.legacy_registry
+    if evidence_root is None or registry_path is None:
+        p.error("--evidence-root and --registry are required")
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    shared = {"endpoint": args.endpoint, "model": args.model, "timeout": args.timeout,
+              "max_chunk_chars": args.max_chunk_chars, "num_ctx": args.ollama_context,
+              "num_predict": args.num_predict,
+              "min_adaptive_chunk_chars": args.min_adaptive_chunk_chars,
+              "max_adaptive_depth": args.max_adaptive_depth,
+              "resume": args.resume, "retry_limit": args.retry_limit}
     try:
-        output = property_facts_batch(
-            [evidence.read_json(args.record, {})], registry, args.evidence_root,
-            property_id=args.property_id, endpoint=args.endpoint, model=args.model,
-            timeout=args.timeout, max_chunk_chars=args.max_chunk_chars, num_ctx=args.ollama_context,
-            num_predict=args.num_predict, min_adaptive_chunk_chars=args.min_adaptive_chunk_chars,
-            max_adaptive_depth=args.max_adaptive_depth, resume=args.resume, retry_limit=args.retry_limit)
+        if args.command == "analyze":
+            output = property_facts_batch(
+                [evidence.read_json(args.record, {})], registry, evidence_root,
+                property_id=args.property_id, **shared)
+        else:
+            output = run_property_pipeline(
+                args.property_id, args.dropbox_root, evidence_root, registry, **shared)
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
     except evidence.EvidenceError as exc:

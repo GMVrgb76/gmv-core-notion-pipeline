@@ -322,3 +322,75 @@ def test_property_facts_batch_resume_skips_previously_gated_document(monkeypatch
     record = {"file_id": "sha256:norma1", "extraction_status": "SUCCESS", "text": "irrelevant text, resume must short-circuit"}
     out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="VIG35", endpoint="x", model="m", resume=True)
     assert out == {"facts": [], "rejected_facts": []}
+
+
+# --- run_property_pipeline() -- the end-to-end chain, with every Ollama-touching
+# stage mocked. The real per-document failure isolation is the point of the loop
+# in run_property_pipeline, so the isolation itself is what's tested here.
+
+def _fake_records(n):
+    return [{"file_id": f"sha256:{i}", "extraction_status": "SUCCESS", "text": f"doc {i}"}
+            for i in range(1, n + 1)]
+
+
+def test_run_property_pipeline_chains_scan_extract_and_consolidates(monkeypatch, tmp_path, registry):
+    records = _fake_records(2)
+    monkeypatch.setattr(evidence, "scan", lambda root, ev: records)
+    monkeypatch.setattr(evidence, "extract", lambda ev, root: records)
+    monkeypatch.setattr(extract_templates, "extract_facts", _fake_extract_facts_fixed)
+    out = extract_templates.run_property_pipeline(
+        "GERMIGNAGA", tmp_path / "dropbox", tmp_path, registry, endpoint="x", model="m")
+    assert out["property_id"] == "GERMIGNAGA"
+    assert out["documents_processed"] == 2
+    # Two documents, same subject/predicate/object -> one consolidated claim.
+    assert out["raw_claims"] == 2
+    assert out["consolidated_claims"] == 1
+    assert out["consolidated"][0]["predicate"] == "p"
+    assert sorted(out["consolidated"][0]["source_file_ids"]) == ["sha256:1", "sha256:2"]
+
+
+def test_run_property_pipeline_skips_non_successful_extraction_records(monkeypatch, tmp_path, registry):
+    records = _fake_records(2) + [{"file_id": "sha256:bad", "extraction_status": "OCR_REQUIRED", "text": ""}]
+    monkeypatch.setattr(evidence, "scan", lambda root, ev: records)
+    monkeypatch.setattr(evidence, "extract", lambda ev, root: records)
+    monkeypatch.setattr(extract_templates, "extract_facts", _fake_extract_facts_fixed)
+    out = extract_templates.run_property_pipeline("P", tmp_path, tmp_path, registry, endpoint="x", model="m")
+    assert out["documents_processed"] == 2
+    assert all(entry["file_id"] != "sha256:bad" for entry in out["per_file"])
+
+
+def test_run_property_pipeline_one_failed_document_does_not_block_the_others(monkeypatch, tmp_path, registry):
+    """The reason run_property_pipeline calls property_facts_batch per document:
+    one unrecoverable failure must not discard the whole property's work."""
+    records = _fake_records(3)
+    monkeypatch.setattr(evidence, "scan", lambda root, ev: records)
+    monkeypatch.setattr(evidence, "extract", lambda ev, root: records)
+    def _only_second_fails(record, registry, **kwargs):
+        if record["file_id"] == "sha256:2":
+            raise evidence.EvidenceError("OLLAMA_SCHEMA_INVALID")
+        return _fake_extract_facts_fixed(record, registry, **kwargs)
+    monkeypatch.setattr(extract_templates, "extract_facts", _only_second_fails)
+    out = extract_templates.run_property_pipeline("P", tmp_path, tmp_path, registry, endpoint="x", model="m")
+    assert out["documents_processed"] == 3
+    assert out["per_file"][1] == {"file_id": "sha256:2", "error": "OLLAMA_SCHEMA_INVALID"}
+    assert out["consolidated_claims"] == 1
+    assert out["consolidated"][0]["source_file_ids"] == ["sha256:1", "sha256:3"]
+
+
+def test_run_property_pipeline_assigns_no_real_notion_match_to_any_entity(monkeypatch, tmp_path, registry):
+    """resolve_claims is called with an empty notion_rows dict, so every
+    subject/object must become a synthetic NEW_ENTITY id -- never a real Notion
+    page id, because no live comparison was performed."""
+    records = [{"file_id": "sha256:1", "extraction_status": "SUCCESS", "text": "doc"}]
+    monkeypatch.setattr(evidence, "scan", lambda root, ev: records)
+    monkeypatch.setattr(evidence, "extract", lambda ev, root: records)
+    monkeypatch.setattr(extract_templates, "extract_facts", _fake_extract_facts_fixed)
+    out = extract_templates.run_property_pipeline("P", tmp_path, tmp_path, registry, endpoint="x", model="m")
+    resolved = evidence.resolve_claims(
+        extract_templates.facts_to_raw_claims(
+            evidence.read_json(extract_templates.property_facts_output_path("sha256:1", tmp_path), {})["facts"],
+            "sha256:1"), {})
+    assert all(item["resolution_status"] == "RESOLVED" for item in resolved)
+    assert all(str(item["resolved_subject_id"]).startswith("new:") for item in resolved)
+    assert all(str(item["resolved_object_id"]).startswith("new:") for item in resolved)
+    assert out["consolidated_claims"] == 1

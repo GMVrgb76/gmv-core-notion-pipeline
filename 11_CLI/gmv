@@ -363,6 +363,16 @@ fi
 "$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_property_extract_templates.py" "$@"
 ;;
 
+property-notion-candidate)
+shift
+CORE_ROOT="${GMV_CORE_ROOT:-$HOME/.gmv_core}"
+PYTHON_BIN="$CORE_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+"$PYTHON_BIN" "$CORE_ROOT/10_API/gmv_property_notion_candidate.py" "$@"
+;;
+
 snapshot)
 sub="${2:-}"
 
@@ -516,6 +526,8 @@ echo "  gmv evidence candidate <entity-name> --entity-type <type> --claims <clai
 echo "  gmv evidence publish <bundle-path> --config <config.json> [--skip-staleness-check]"
 echo "  gmv property-signals <extraction_record.json> --evidence-root <path> [--timeout <seconds>]"
 echo "  gmv property-facts analyze <extraction_record.json> --evidence-root <path> --registry <registry.json> --property-id <id> [--resume] [--retry-limit <n>]"
+echo "  gmv property-facts analyze-property <property_id> --dropbox-root <path> --evidence-root <path> --registry <registry.json> [--resume] [--retry-limit <n>]"
+echo "  gmv property-notion-candidate candidate <analyze-property result.json> --run-dir <path>"
 echo "  gmv queue list"
 echo "  gmv queue pending"
 echo "  gmv queue show <import_id>"
