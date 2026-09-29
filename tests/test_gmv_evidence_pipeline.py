@@ -25,6 +25,114 @@ def test_index_move_and_extract_hash_guard(tmp_path):
     state2 = tmp_path / "state2"; evidence.scan(source, state2); (source / "moved.txt").write_text("changed twice", encoding="utf8")
     assert evidence.extract(state2, source)[0]["extraction_status"] == "EXTRACTION_ABORTED_STALE_HASH"
 
+def test_extract_success_record_includes_text_quality(tmp_path):
+    source = tmp_path / "dropbox"; source.mkdir(); (source / "a.txt").write_text("Federico Garibaldi", encoding="utf8")
+    state = tmp_path / "state"; evidence.scan(source, state)
+    record = evidence.extract(state, source)[0]
+    assert record["extraction_status"] == "SUCCESS"
+    assert record["text_quality"] == {"possibly_garbled": False, "numeric_line_fraction": 0.0, "short_line_fraction": 0.0}
+
+# Real excerpts, not synthetic -- copied verbatim from the two document types that
+# motivated this heuristic (see project memory "GMV real estate pipeline",
+# 2026-09-28): a scanned/CAD cadastral map (spatially-scattered labels, garbled by
+# pypdf's linear text extraction) and a pre-printed F24 tax form (boxed fields
+# interleaved out of reading order). Real full-document scores at calibration time:
+# catasto 0.541/0.514 (numeric/short fraction), F24 form fragment far higher still.
+REAL_GARBLED_CATASTO_EXCERPT = """SCHEMA.
+FOGNSTURD。
+IMMOBILE SITO IN GERMIGNAGO
+V△ IV NOVEMBRE N=68
+LEGENDA。
+FOSS△ SETTIC△△≌CAMERE
+RETE DI CANALI PER
+520
+八
+SUB IRRIG△ZIONE.
+517
+POZZETO DI RACCOLTA
+△CQUE BIANCHE
+680
+12
+525
+522
+NOVEMBRE
+10
+VI△
+527
+GERMIGNAGA。
+SC.1/1000.
+528
+MAPPLE.
+522
+ETT.07.80
+525
+11 04.70
+11
+680
+1104.60
+11
+1244
+09.70
+11
+0,26,80"""
+
+REAL_GARBLED_F24_FORM_EXCERPT = """3944
+106.00
+EL
+TEFA
+D987
+2
+0102
+2026
+500
+252/864251
+2K
+SALDO
+EURO
++
+111,00
+FIRMA
+FINALE"""
+
+# Real excerpt from a clean bank-payment-confirmation PDF for the same property --
+# same domain (tax payment), same real document set, extracted cleanly.
+REAL_CLEAN_F24_CONFIRMATION_EXCERPT = """Presa in carico - F24 semplificato
+inserito in data 04.09.2026 16:25
+Di seguito il riepilogo dell'operazione.
+Numero operazione
+INTER20260904XVTCO590787294
+Operazione effettuata da
+GIACOMO MARCO VALERIO
+N C/C
+1000/00012088
+Intestato a
+VALERIO GIACOMO MARCO
+Filiale
+MILANO CORSO ITALIA
+Contribuente
+VALERIO GIACOMO MARCO
+Codice fiscale
+VLRGMM76T03F205C
+Saldo finale
+111,00 Euro
+Data pagamento
+04.09.2026"""
+
+def test_text_quality_flags_catches_real_garbled_catasto_excerpt():
+    flags = evidence.text_quality_flags(REAL_GARBLED_CATASTO_EXCERPT)
+    assert flags["possibly_garbled"] is True
+
+def test_text_quality_flags_catches_real_garbled_f24_form_excerpt():
+    flags = evidence.text_quality_flags(REAL_GARBLED_F24_FORM_EXCERPT)
+    assert flags["possibly_garbled"] is True
+
+def test_text_quality_flags_does_not_flag_real_clean_document():
+    flags = evidence.text_quality_flags(REAL_CLEAN_F24_CONFIRMATION_EXCERPT)
+    assert flags["possibly_garbled"] is False
+
+def test_text_quality_flags_empty_text():
+    assert evidence.text_quality_flags("") == {"possibly_garbled": False, "numeric_line_fraction": 0.0, "short_line_fraction": 0.0}
+
 def test_post_resolution_consolidation_and_pending():
     raw = [
         {"file_id":"sha256:a", "subject_raw":"Federico Garibaldi", "predicate":"participated_in", "object_raw":"Through", "evidence_excerpt":"a"},
@@ -147,6 +255,153 @@ def test_adaptive_split_recursive_and_provenance(monkeypatch, tmp_path):
     assert len(leaves) > 2 and all(n["input_chars"] <= 8000 for n in leaves)
     assert all(c["leaf_chunk_id"] for c in out["claims"])
     monkeypatch.setattr(evidence, "ollama_extract", original)
+
+class _FakeHTTPResponse:
+    def __init__(self, payload): self._body = json.dumps(payload).encode()
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def read(self, *a): return self._body
+
+def test_ollama_extract_generate_style_unchanged_request_shape(monkeypatch):
+    """Regression guard: adding api_style="chat_template" must not alter the default
+    "generate" request shape -- the exact call already in production for Area35."""
+    captured = {}
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        payload = json.loads(request.data)
+        captured["payload"] = payload
+        return _FakeHTTPResponse({"response": json.dumps({"entities": [], "claims": []}), "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    evidence.ollama_extract(record, endpoint="http://localhost:11434", model="gemma4:12b")
+    assert captured["url"].endswith("/api/generate")
+    assert "prompt" in captured["payload"] and "messages" not in captured["payload"]
+    assert captured["payload"]["format"] == evidence.SEMANTIC_OUTPUT_SCHEMA
+
+def test_ollama_extract_chat_template_style_request_shape(monkeypatch):
+    captured = {}
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data)
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": json.dumps({"entities": [], "claims": []})}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    evidence.ollama_extract(record, endpoint="http://localhost:11434", model="numind/nuextract3:q4_k_m", api_style="chat_template")
+    assert captured["url"].endswith("/api/chat")
+    payload = captured["payload"]
+    assert "prompt" not in payload
+    roles = [m["role"] for m in payload["messages"]]
+    assert roles == ["template", "instructions", "user"]
+    assert json.loads(payload["messages"][0]["content"]) == evidence.NUEXTRACT_TEMPLATE
+    assert payload["messages"][2]["content"] == "hello"
+    assert payload["options"]["temperature"] == 0
+
+def test_ollama_extract_chat_template_parses_message_content_into_same_shape(monkeypatch):
+    """Both api_style values must return the identical {"file_id","entities","claims","_runtime"}
+    shape so resolve_claims/consolidate_claims need no changes for either style."""
+    def fake_urlopen(request, timeout=None):
+        body = {"entities": [{"name": "Comune di Germignaga", "evidence_excerpt": "Comune di Germignaga"}],
+                "claims": [{"subject_raw": "TARI 2026", "predicate": "has amount", "object_raw": "222,00€", "evidence_excerpt": "Totale da pagare 222,00€"}]}
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": json.dumps(body)}, "done_reason": "stop", "eval_count": 10})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    out = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="numind/nuextract3:q4_k_m", api_style="chat_template")
+    assert out["file_id"] == "sha256:f"
+    assert out["entities"][0]["name"] == "Comune di Germignaga"
+    assert out["claims"][0]["object_raw"] == "222,00€"
+    assert out["claims"][0]["status"] == "SUPPORTED_BY_ARCHIVE"
+
+def test_ollama_extract_chat_template_truncation_detected(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": "{incomplete"}, "done_reason": "length"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    with pytest.raises(evidence.OllamaResponseError) as exc_info:
+        evidence.ollama_extract(record, endpoint="http://localhost:11434", model="numind/nuextract3:q4_k_m", api_style="chat_template")
+    assert exc_info.value.code == "OLLAMA_OUTPUT_TRUNCATED"
+
+def test_ollama_extract_explicit_null_status_defaults_same_as_missing(monkeypatch):
+    """Regression guard for a real bug found live 2026-09-28: nuextract3's chat_template
+    output emitted "status": null explicitly (not omitted) on every claim/entity for a
+    real Germignaga TARI document. dict.get(key, default) only substitutes default when
+    the key is ABSENT, so an explicit null previously produced the literal string "NONE"
+    instead of "SUPPORTED_BY_ARCHIVE"."""
+    def fake_urlopen(request, timeout=None):
+        body = {"entities": [{"name": "X", "evidence_excerpt": "x", "status": None}],
+                "claims": [{"subject_raw": "A", "predicate": "p", "object_raw": "o", "evidence_excerpt": "e", "status": None}]}
+        return _FakeHTTPResponse({"response": json.dumps(body), "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    out = evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m")
+    assert out["entities"][0]["status"] == "SUPPORTED_BY_ARCHIVE"
+    assert out["claims"][0]["status"] == "SUPPORTED_BY_ARCHIVE"
+
+def test_ollama_extract_rejects_unknown_api_style():
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    with pytest.raises(ValueError):
+        evidence.ollama_extract(record, endpoint="http://localhost:11434", model="m", api_style="nonexistent")
+
+def test_cached_ollama_extract_api_style_is_part_of_cache_identity(monkeypatch, tmp_path):
+    calls = []
+    def fake_extract(record, **kwargs):
+        calls.append(kwargs.get("api_style"))
+        return {"file_id": record["file_id"], "entities": [], "claims": [], "_runtime": {}}
+    monkeypatch.setattr(evidence, "ollama_extract", fake_extract)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    evidence.cached_ollama_extract(record, tmp_path, endpoint="x", model="m", api_style="generate")
+    evidence.cached_ollama_extract(record, tmp_path, endpoint="x", model="m", api_style="chat_template")
+    assert calls == ["generate", "chat_template"]  # both actually called, not served from the other's cache entry
+
+def test_nuextract_extract_default_repeat_penalty_is_1_1(monkeypatch):
+    """Regression guard for a real bug found live 2026-09-28: at repeat_penalty=1.0
+    (Ollama's no-penalty value) and temperature=0, nuextract3 fell into an exact-fact
+    repetition loop and never terminated, exhausting num_predict. 1.1 was the first
+    value that both terminated cleanly and preserved real extracted content -- must
+    not silently regress back to 1.0."""
+    captured = {}
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data)
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": json.dumps({"fatti": []})}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    template = {"fatti": [{"soggetto": "verbatim-string"}]}
+    out = evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="numind/nuextract3:q4_k_m", template=template)
+    assert captured["url"].endswith("/api/chat")
+    payload = captured["payload"]
+    assert payload["options"]["repeat_penalty"] == 1.1
+    assert payload["options"]["repeat_last_n"] == 256
+    assert payload["options"]["temperature"] == 0
+    roles = [m["role"] for m in payload["messages"]]
+    assert roles == ["template", "user"]
+    assert json.loads(payload["messages"][0]["content"]) == template
+    assert out["extracted"] == {"fatti": []}
+    assert out["file_id"] == "sha256:f"
+
+def test_nuextract_extract_repeat_penalty_is_overridable(monkeypatch):
+    captured = {}
+    def fake_urlopen(request, timeout=None):
+        captured["payload"] = json.loads(request.data)
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": json.dumps({"fatti": []})}, "done_reason": "stop"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="m", template={}, repeat_penalty=1.3, repeat_last_n=128)
+    assert captured["payload"]["options"]["repeat_penalty"] == 1.3
+    assert captured["payload"]["options"]["repeat_last_n"] == 128
+
+def test_nuextract_extract_truncation_detected(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        return _FakeHTTPResponse({"message": {"role": "assistant", "content": "{incomplete"}, "done_reason": "length"})
+    monkeypatch.setattr(evidence.urllib.request, "urlopen", fake_urlopen)
+    record = {"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "hello"}
+    with pytest.raises(evidence.OllamaResponseError) as exc_info:
+        evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="m", template={})
+    assert exc_info.value.code == "OLLAMA_OUTPUT_TRUNCATED"
+
+def test_nuextract_extract_rejects_non_success_record():
+    record = {"file_id": "sha256:f", "extraction_status": "EXTRACTION_ABORTED_STALE_HASH"}
+    with pytest.raises(evidence.EvidenceError):
+        evidence.nuextract_extract(record, endpoint="http://localhost:11434", model="m", template={})
 
 SOFFICE_MISSING = not (shutil.which("soffice") or shutil.which("libreoffice"))
 

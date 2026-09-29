@@ -57,6 +57,19 @@ def test_chunk_text_long_text_splits_with_overlap():
     assert "".join(chunks).count("x") >= len(text)
 
 
+def test_excerpt_centers_on_regex_match_when_present():
+    text = "a" * 200 + "il pagamento e' dovuto entro la fine del mese come da accordi" + "b" * 200
+    excerpt = worker._excerpt(text)
+    assert "entro la fine del mese" in excerpt
+    assert len(excerpt) < len(text)
+
+
+def test_excerpt_falls_back_to_leading_slice_without_regex_match():
+    text = "x" * 500
+    excerpt = worker._excerpt(text)
+    assert excerpt == text[:worker.EXCERPT_CHARS]
+
+
 def test_chunk_text_marker_at_boundary_survives_in_some_chunk():
     marker = "ENTRO_IL_10_OTTOBRE"
     text = ("a" * 1400) + marker + ("b" * 1400)
@@ -67,15 +80,16 @@ def test_chunk_text_marker_at_boundary_survives_in_some_chunk():
 def test_aggregate_or_semantics_for_scadenza_and_rischio():
     chunk_results = [
         {"dominio": "real_estate", "scadenza_p_true": 0.01, "scadenza_combined": False,
-         "regex_relative_deadline": False, "rischio_p_alto": 0.02, "rischio_p_medio": 0.0,
+         "regex_relative_deadline": False, "scadenza_excerpt": "no deadline text", "rischio_p_alto": 0.02, "rischio_p_medio": 0.0,
          "rischio_p_basso": 0.0, "rischio_level": "nessuno", "usage": {"input_tokens": 100}},
         {"dominio": "real_estate", "scadenza_p_true": 0.95, "scadenza_combined": True,
-         "regex_relative_deadline": False, "rischio_p_alto": 0.6, "rischio_p_medio": 0.0,
+         "regex_relative_deadline": False, "scadenza_excerpt": "entro il 10 ottobre", "rischio_p_alto": 0.6, "rischio_p_medio": 0.0,
          "rischio_p_basso": 0.0, "rischio_level": "alto", "usage": {"input_tokens": 100}},
     ]
     out = worker.aggregate(chunk_results, "some long text")
     assert out["scadenza_presente"]["value"] is True
     assert out["scadenza_presente"]["p_true_max"] == 0.95
+    assert out["scadenza_presente"]["evidence_excerpt"] == "entro il 10 ottobre"
     assert out["rischio"]["alto"] is True
     assert out["rischio"]["p_alto_max"] == 0.6
     assert out["rischio"]["reliability"] == "low_recall_advisory"
@@ -84,13 +98,42 @@ def test_aggregate_or_semantics_for_scadenza_and_rischio():
     assert out["n_chunks"] == 2
 
 
+def test_aggregate_prefers_regex_anchored_excerpt_over_higher_probability_chunk():
+    """Regression guard for a real bug found by gmv-code-reviewer: picking the
+    excerpt by p_true alone could attach a claim to a competing chunk's text
+    that does not itself support the claim. A regex-anchored positive chunk
+    (a real 'entro ...' match) must win the excerpt even if a different,
+    higher-confidence chunk has no textual anchor at all."""
+    chunk_results = [
+        {"dominio": "real_estate", "scadenza_p_true": 0.1, "scadenza_combined": True,
+         "regex_relative_deadline": True, "scadenza_excerpt": "...deve essere pagato entro il 10 ottobre...",
+         "rischio_p_alto": 0.0, "rischio_p_medio": 0.0, "rischio_p_basso": 0.0, "rischio_level": "nessuno", "usage": {}},
+        {"dominio": "real_estate", "scadenza_p_true": 0.99, "scadenza_combined": True,
+         "regex_relative_deadline": False, "scadenza_excerpt": "Il presente documento non contiene riferimenti a scadenze specifiche.",
+         "rischio_p_alto": 0.0, "rischio_p_medio": 0.0, "rischio_p_basso": 0.0, "rischio_level": "nessuno", "usage": {}},
+    ]
+    out = worker.aggregate(chunk_results, "text")
+    assert out["scadenza_presente"]["evidence_excerpt"] == "...deve essere pagato entro il 10 ottobre..."
+
+
+def test_aggregate_evidence_excerpt_is_none_when_no_deadline_found():
+    chunk_results = [
+        {"dominio": "real_estate", "scadenza_p_true": 0.01, "scadenza_combined": False,
+         "regex_relative_deadline": False, "scadenza_excerpt": "no deadline text", "rischio_p_alto": 0.0, "rischio_p_medio": 0.0,
+         "rischio_p_basso": 0.0, "rischio_level": "nessuno", "usage": {}},
+    ]
+    out = worker.aggregate(chunk_results, "text")
+    assert out["scadenza_presente"]["value"] is False
+    assert out["scadenza_presente"]["evidence_excerpt"] is None
+
+
 def test_aggregate_surfaces_dominio_disagreement():
     chunk_results = [
         {"dominio": "real_estate", "scadenza_p_true": 0.0, "scadenza_combined": False,
-         "regex_relative_deadline": False, "rischio_p_alto": 0.0, "rischio_p_medio": 0.0,
+         "regex_relative_deadline": False, "scadenza_excerpt": "", "rischio_p_alto": 0.0, "rischio_p_medio": 0.0,
          "rischio_p_basso": 0.0, "rischio_level": "nessuno", "usage": {}},
         {"dominio": "altro", "scadenza_p_true": 0.0, "scadenza_combined": False,
-         "regex_relative_deadline": False, "rischio_p_alto": 0.0, "rischio_p_medio": 0.0,
+         "regex_relative_deadline": False, "scadenza_excerpt": "", "rischio_p_alto": 0.0, "rischio_p_medio": 0.0,
          "rischio_p_basso": 0.0, "rischio_level": "nessuno", "usage": {}},
     ]
     out = worker.aggregate(chunk_results, "text")

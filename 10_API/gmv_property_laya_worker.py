@@ -196,6 +196,25 @@ def load_agent():
     return laya.load(MODEL, dtype=DTYPE, revision=REVISION)
 
 
+EXCERPT_CHARS = 300
+EXCERPT_CONTEXT_CHARS = 80
+
+
+def _excerpt(chunk: str) -> str:
+    """A short, human-checkable text snippet for a positive scadenza_presente
+    chunk -- required because a downstream governed claim (gmv_property_claims.py)
+    must carry a real evidence_excerpt, never an unsupported assertion (mirrors
+    gmv_evidence_pipeline's own CLAIM_WITHOUT_EVIDENCE guard). Centers on the
+    regex match when there is one (the more informative anchor); otherwise takes
+    a leading slice, since the noul alone gives no span to anchor on."""
+    match = _RELATIVE_DEADLINE_RE.search(chunk)
+    if match:
+        start = max(match.start() - EXCERPT_CONTEXT_CHARS, 0)
+        end = min(match.end() + EXCERPT_CONTEXT_CHARS, len(chunk))
+        return chunk[start:end].strip()
+    return chunk[:EXCERPT_CHARS].strip()
+
+
 def predict_chunk(agent, chunk: str) -> dict:
     result = agent.predict(chunk, PRODUCTION_QUESTIONS)
     answers = result["answers"]
@@ -208,6 +227,7 @@ def predict_chunk(agent, chunk: str) -> dict:
         "scadenza_p_true": p_scad,
         "scadenza_combined": combined_scadenza_presente(chunk, p_scad),
         "regex_relative_deadline": relative_deadline_detected(chunk),
+        "scadenza_excerpt": _excerpt(chunk),
         "rischio_p_alto": p_alto,
         "rischio_p_medio": p_medio,
         "rischio_p_basso": p_basso,
@@ -222,6 +242,26 @@ def aggregate(chunk_results: list[dict], text: str) -> dict:
     usually stable across its own chunks; disagreement is surfaced, not hidden)."""
     scad_true = any(c["scadenza_combined"] for c in chunk_results)
     scad_p = max(c["scadenza_p_true"] for c in chunk_results)
+    # The excerpt must come from a chunk whose own text actually supports the
+    # claim, not just whichever positive chunk had the highest model probability.
+    # A regex-anchored chunk (a real "entro ..." match) is preferred over a
+    # model-only positive chunk: on a multi-chunk document (the norm, not the
+    # exception, at CHUNK_CHARS=1500) picking by p_true alone could attach an
+    # excerpt from an unrelated high-confidence chunk that does not itself
+    # mention a deadline -- found by live review, not by inspection alone.
+    # KNOWN RESIDUAL GAP, re-verified live after this fix: RELATIVE_DEADLINE_PATTERNS
+    # only covers relative phrasing ("entro la fine del mese"), not absolute dates
+    # ("entro il 10 ottobre") -- an absolute-date deadline is caught by the noul
+    # alone, with no regex anchor at all. When every positive chunk lacks a regex
+    # match (the common case for absolute dates), this still falls back to
+    # highest-p_true, which can still select a non-supporting filler chunk over the
+    # one actually containing the date -- reproduced live on a 6000-char synthetic
+    # document. Not fixed here: would require a second, broader regex for absolute
+    # dates too, a new unvalidated capability out of this session's minimal scope.
+    positive_chunks = [c for c in chunk_results if c["scadenza_combined"]]
+    regex_chunks = [c for c in positive_chunks if c["regex_relative_deadline"]]
+    excerpt_pool = regex_chunks or positive_chunks
+    scad_excerpt = max(excerpt_pool, key=lambda c: c["scadenza_p_true"])["scadenza_excerpt"] if excerpt_pool else None
     alto_true = any(c["rischio_p_alto"] >= 0.5 for c in chunk_results)
     alto_p = max(c["rischio_p_alto"] for c in chunk_results)
 
@@ -238,6 +278,7 @@ def aggregate(chunk_results: list[dict], text: str) -> dict:
             "value": scad_true,
             "p_true_max": scad_p,
             "regex_relative_deadline_any_chunk": any(c["regex_relative_deadline"] for c in chunk_results),
+            "evidence_excerpt": scad_excerpt,
         },
         "rischio": {
             "alto": alto_true,

@@ -1,0 +1,188 @@
+{
+  "version": "0.2",
+  "authority": "REQUIRED",
+  "scope": "Predicate/entity governance for the real-estate vertical only (property status/deadline signals via Laya, 10_API/gmv_property_signals.py + gmv_property_claims.py; fact extraction via NuExtract3, 10_API/gmv_property_extract_templates.py). A separate, domain-neutral + Area35-art ontology registry (GMV_ONTOLOGY_REGISTRY_v0.1.json, same top-level shape) exists but only on the unmerged branch worktree-bridge-cse_01EFSz2nNresRvPh9GbfwwzK -- not depended on here deliberately. If that branch is ever merged, CORE-tier entries here (DOCUMENT) should be reconciled against its CORE tier, not treated as permanently separate.",
+  "governance_rule": "reuse-before-invention: a new entity class or predicate must be registered here as CANDIDATE, with real evidence and rationale, before use. It cannot silently enter canonical (CORE/DOMAIN) vocabulary. A predicate absent from this file's CANDIDATE/DOMAIN/CORE list must never be emitted by an extraction template -- see fact_extraction_contract below.",
+  "status_values": {
+    "CORE": "Domain-neutral, expected to apply across any GMV vertical.",
+    "DOMAIN": "Specific to the real-estate vertical. Not expected to generalize without review.",
+    "CANDIDATE": "Proposed, evidenced, but not yet governed. May be promoted only by an explicit decision, never silently.",
+    "DEPRECATED": "Superseded; retained only so historical references resolve.",
+    "PROPOSED": "Named in the user's 2026-09-28 v0.1 vocabulary proposal (see proposed_vocabulary_v0_1 below) but not yet evidenced by any real document. Never usable in an extraction template's predicate enum until promoted to CANDIDATE with a real source_reference, same bar as every other entry here."
+  },
+  "predicate_classes": ["IDENTITY", "ATTRIBUTE", "RELATION", "EVENT", "MEASURE", "EPISTEMIC"],
+
+  "note_on_scope_v1": "2026-09-28, first pass: only mentions_deadline (Laya's typed-decision signal, validated 14/14) was registered.",
+  "note_on_scope_v2": "2026-09-28, second pass: registered a first small set of NuExtract-evidenced predicates (tributo_*/obbligo_*/rata_* families) from one real TARI notice, cross-checked against the GMV Real Estate Knowledge Pipeline Notion workspace (a separate, already-active ChatGPT-built pipeline for the same six properties -- not duplicated here, its 'Codice immobile' identity scheme was adopted for PROPERTY).",
+  "note_on_scope_v3": "2026-09-28, third pass (this version): user proposed a cleaner, more complete v0.1 vocabulary -- uniform `ha_*`/verb-style predicate names (not per-entity-prefixed), a SOGGETTO->PREDICATO->OGGETTO triple as the base shape, and a mandatory rich evidence envelope per fact (see fact_extraction_contract below), critically including `ambito` to stop a shared condominium expense from being misattributed to a single unit -- a real correctness risk the v2 registry did not guard against. The v2 tributo_*/obbligo_*/rata_* predicates are DEPRECATED in favor of the new naming (same real TARI-notice evidence carried over, re-expressed); the full proposed vocabulary (~140 predicates across 14 categories) is recorded verbatim in proposed_vocabulary_v0_1 for traceability, but NOT registered as CANDIDATE wholesale -- same reuse-before-invention discipline as before, now made mechanically enforceable: gmv_property_extract_templates.py's fact-extraction template constrains NuExtract's own `predicato` field to an enum of only the CANDIDATE/DOMAIN/CORE predicate_ids below, so an unevidenced PROPOSED predicate cannot even be emitted, let alone silently governed. A second, explicitly deferred reconciliation-predicate set (movimento_attribuito_a_immobile, obbligo_saldato_da, etc.) is recorded separately below and intentionally excluded from any extraction template -- per the user's own stated rule, these require cross-document matching/rules/review, not single-document extraction, and NuExtract must never be asked to infer them.",
+
+  "fact_extraction_contract": {
+    "shape": "SOGGETTO -> PREDICATO -> OGGETTO, e.g. 'Rata condominiale 3/2026' -> 'ha_scadenza' -> '2026-04-20'.",
+    "mandatory_envelope_fields": {
+      "soggetto": "string -- the fact's subject, verbatim or a short constructed identifier (e.g. a rata's own label)",
+      "predicato": "string -- MUST be one of this registry's CANDIDATE/DOMAIN/CORE predicate_ids, enforced by the template's own enum, never free text",
+      "oggetto": "string | number | date -- typed per the matching predicate's range",
+      "valuta": "string | null -- ISO currency code when oggetto is a monetary amount, else null",
+      "ambito": "one of: immobile | unita | quota_individuale | intero_condominio | conto_corrente -- MANDATORY distinction so a shared condominium cost is never attributed as if it were owed by/about a single property or unit",
+      "fonte": "string -- source document identifier (this repo's file_id, sha256:<hex>)",
+      "pagina": "integer | null",
+      "testo_evidenza": "string -- the exact source text the fact was read from, never paraphrased",
+      "data_documento": "date | null",
+      "competenza_da": "date | null",
+      "competenza_a": "date | null",
+      "stato_evidenza": "one of: esplicito | inferito -- esplicito only when the document states the fact in these words; inferito is not the same as guessed -- an inferito fact must still be traceable to testo_evidenza, not invented"
+    },
+    "central_rule": "NuExtract extracts only what a document states. A payment plan documents what is owed; a bank instruction documents an order; a proof of execution documents a payment. Reconciling these into 'is this obligation actually paid' is a SEPARATE, deferred step (see deferred_reconciliation_predicates) -- never something a single extraction call should be asked to conclude. An absent field stays null; an unmatched payment stays unverified, never assumed."
+  },
+
+  "entity_classes": [
+    {
+      "class_id": "DOCUMENT", "status": "CORE", "aliases": [],
+      "definition": "A source artifact (contract, verbale, email, report) anchoring provenance. Same concept as gmv_evidence_pipeline.py's file_id (sha256:<hex>).",
+      "source_reference": "10_API/gmv_evidence_pipeline.py (scan()/extract(), file_id convention)"
+    },
+    {
+      "class_id": "PROPERTY", "status": "CANDIDATE", "aliases": ["immobile", "stabile"],
+      "definition": "A real-estate property (a building or unit) as a graph-vocabulary subject for claims. NOT a Core OID type (ADR_DB008_OID_PREFIX_TYPE_CONSISTENCY.md's OID contract is a closed six-prefix map). Identity source is Dropbox 02_IMMOBILI/01_PORTFOLIO/<PROPERTY>/OBJECT.yaml, realigned 2026-09-28 to match the real Notion 'Codice immobile' convention (e.g. gmv_id='GERMIGNAGA').",
+      "source_reference": "Notion 'Immobili' data sources under each property's Pilota/Scheda page (Codice immobile field, queried live 2026-09-28)"
+    },
+    {
+      "class_id": "CONTRACT", "status": "CANDIDATE", "aliases": [],
+      "definition": "A real-estate legal/commercial agreement document (lease, renewal, insurance policy, sale preliminary).",
+      "source_reference": "~/GMV/models/laya/tests/real_estate_validation_cases.json cases RE01/RE04/RE07/RE11"
+    },
+    {
+      "class_id": "SOGGETTO", "status": "CANDIDATE", "aliases": ["soggetto", "subject_party"],
+      "definition": "A person or institution acting as debtor, creditor, landlord, tenant, or other party. Deliberately not split into PERSON vs ORGANIZATION -- not evidenced as a real distinction needed yet.",
+      "source_reference": "Real TARI notice, 2026-09-28: debtor 'VALERIO GIACOMO MARCO' (a person), creditor 'Comune di Germignaga' (an institution)"
+    }
+  ],
+
+  "predicates": [
+    {
+      "predicate_id": "mentions_deadline", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["PROPERTY", "CONTRACT"], "range": ["string"], "aliases": [], "inverse": null,
+      "definition": "Laya's typed-decision signal (not NuExtract): subject document/property text contains an explicit operative deadline. object_raw is the evidence excerpt itself, not a parsed date -- a coarser, faster, cheaper cousin of ha_scadenza below (see relationship note). Kept as its own predicate: different production mechanism (Laya, ~8ms, always-on triage) than the NuExtract fact predicates in this file (slower, deliberate, per-document extraction).",
+      "source_reference": "~/GMV/models/laya/results/real_estate_validation_summary.md §2 (14/14 on the real-estate suite)",
+      "relationship_note": "Where both run on the same document, ha_scadenza (below) is the more precise, dated fact; mentions_deadline is the fast pre-filter that decides whether it's worth running NuExtract at all."
+    },
+    {
+      "predicate_id": "ha_tipo_documento", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["string"], "aliases": [], "inverse": null,
+      "definition": "The kind of document (e.g. 'avviso TARI', 'accertamento IMU', 'contratto di locazione').",
+      "source_reference": "Real TARI notice, 2026-09-28: 'AVVISO DI PAGAMENTO TARI - ANNO 2026'"
+    },
+    {
+      "predicate_id": "riguarda_immobile", "predicate_class": "RELATION", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["PROPERTY"], "aliases": [], "inverse": null,
+      "definition": "Subject document concerns the object property. Supersedes v2's tributo_riguarda_immobile/obbligo_riguarda_immobile (one relation at the document level, not duplicated per fact type).",
+      "source_reference": "Real TARI notice: contextual link via the property folder scanned, same convention gmv_property_signals.py relies on -- not yet stated verbatim inside a document's own text in any case tested so far"
+    },
+    {
+      "predicate_id": "ha_tipo_tributo", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["string"], "aliases": [], "inverse": null,
+      "definition": "The kind of tax (e.g. 'TARI', 'IMU').",
+      "source_reference": "Real TARI notice: 'AVVISO DI PAGAMENTO TARI - ANNO 2026'; real IMU accertamento, 2026-09-28: 'IMPOSTA MUNICIPALE PROPRIA ANNO 2021'"
+    },
+    {
+      "predicate_id": "ha_anno_imposta", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["integer"], "aliases": [], "inverse": null,
+      "definition": "The tax year the assessment covers.",
+      "source_reference": "Real TARI notice: 'ANNO 2026'; real IMU accertamento: 'ANNO 2021'"
+    },
+    {
+      "predicate_id": "ha_ente_impositore", "predicate_class": "RELATION", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["SOGGETTO"], "aliases": [], "inverse": null,
+      "definition": "The institution requesting the tax.",
+      "source_reference": "Real TARI notice + IMU accertamento: 'Comune di Germignaga ... Area Finanziaria - Servizio Tributi'"
+    },
+    {
+      "predicate_id": "ha_debitore", "predicate_class": "RELATION", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["SOGGETTO"], "aliases": [], "inverse": null,
+      "definition": "The party who owes the obligation stated in the document.",
+      "source_reference": "Real TARI notice: 'Intestatario: VALERIO GIACOMO MARCO C.F./P.IVA: VLRGMM76T03F205C'"
+    },
+    {
+      "predicate_id": "ha_creditore", "predicate_class": "RELATION", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["SOGGETTO"], "aliases": [], "inverse": null,
+      "definition": "The party owed by the obligation stated in the document.",
+      "source_reference": "Real TARI notice: 'Comune di Germignaga'"
+    },
+    {
+      "predicate_id": "ha_importo_dovuto", "predicate_class": "MEASURE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["number"], "aliases": [], "inverse": null,
+      "definition": "The total amount owed, a real typed number (not a descriptive string like v2's obbligo_ha_importo -- NuExtract3's `number` type hint verified to return a real JSON float, e.g. 222.0, not text). Currency goes in the envelope's separate `valuta` field, never embedded in the number.",
+      "source_reference": "Real TARI notice: 'Totale da pagare 222,00€' -> 222.0; real IMU accertamento: 'TOTALE DA PAGARE (d)+(f) 1.809,00' -> 1809.0"
+    },
+    {
+      "predicate_id": "ha_numero_rata", "predicate_class": "ATTRIBUTE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["integer"], "aliases": [], "inverse": null,
+      "definition": "Which installment number a rata-shaped fact refers to (1, 2, ...).",
+      "source_reference": "Real TARI notice: '1^ RATA - 15.09.2026', '2^ RATA - 15.12.2026'"
+    },
+    {
+      "predicate_id": "ha_scadenza", "predicate_class": "EVENT", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["date"], "aliases": [], "inverse": null,
+      "definition": "The due date of an obligation or one of its installments. Supersedes v2's rata_scade_il, now typed as a real date (NuExtract3's `date-time` type hint verified to return a real ISO date string, e.g. '2026-09-15').",
+      "source_reference": "Real TARI notice: '1^ RATA - 15.09.2026' -> 2026-09-15, '2^ RATA - 15.12.2026' -> 2026-12-15"
+    },
+    {
+      "predicate_id": "ha_maggior_tributo", "predicate_class": "MEASURE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["number"], "aliases": [], "inverse": null,
+      "definition": "The base tax-assessment component of an accertamento, distinct from sanzioni/interessi.",
+      "source_reference": "Real IMU accertamento, 2026-09-28: '(a) TOTALE MAGGIOR TRIBUTO (IMPOSTA) 1.276,00' -> 1276.0"
+    },
+    {
+      "predicate_id": "ha_interessi", "predicate_class": "MEASURE", "status": "CANDIDATE",
+      "domain": ["DOCUMENT"], "range": ["number"], "aliases": [], "inverse": null,
+      "definition": "The interest component of an accertamento.",
+      "source_reference": "Real IMU accertamento: '(c) TOTALE INTERESSI 150,49' -> 150.49"
+    }
+  ],
+
+  "deprecated_predicates_v2": [
+    {"predicate_id": "tributo_riguarda_immobile", "superseded_by": "riguarda_immobile"},
+    {"predicate_id": "tributo_ha_tipo", "superseded_by": "ha_tipo_tributo"},
+    {"predicate_id": "tributo_riferito_ad_anno", "superseded_by": "ha_anno_imposta"},
+    {"predicate_id": "tributo_richiesto_da", "superseded_by": "ha_ente_impositore"},
+    {"predicate_id": "obbligo_riguarda_immobile", "superseded_by": "riguarda_immobile"},
+    {"predicate_id": "obbligo_ha_debitore", "superseded_by": "ha_debitore"},
+    {"predicate_id": "obbligo_ha_creditore", "superseded_by": "ha_creditore"},
+    {"predicate_id": "obbligo_ha_importo", "superseded_by": "ha_importo_dovuto"},
+    {"predicate_id": "obbligo_articolato_in_rata", "superseded_by": "ha_numero_rata (now a field on the rata's own fact, not a separate relation -- a rata is its own SOGGETTO per the user's own example, e.g. 'Rata condominiale 3/2026')"},
+    {"predicate_id": "obbligo_deriva_da_documento", "superseded_by": "the envelope's mandatory `fonte` field -- every fact already carries its source document, a separate relation predicate was redundant"},
+    {"predicate_id": "rata_ha_importo", "superseded_by": "ha_importo_dovuto (applied with soggetto = the rata's own label)"},
+    {"predicate_id": "rata_scade_il", "superseded_by": "ha_scadenza"}
+  ],
+  "deprecated_entity_classes_v2": [
+    {"class_id": "TRIBUTO", "note": "Folded into DOCUMENT -- a tax notice's facts are now attributed to the document itself as SOGGETTO (or a constructed per-fact label like 'TARI 2026 GERMIGNAGA'), not a separate registered entity class."},
+    {"class_id": "OBBLIGO", "note": "Same as TRIBUTO -- folded into DOCUMENT / per-fact SOGGETTO."},
+    {"class_id": "RATA", "note": "A rata is now just a SOGGETTO string (e.g. 'TARI 2026 GERMIGNAGA rata 1'), not a registered entity class with its own relation predicates."}
+  ],
+
+  "proposed_vocabulary_v0_1": {
+    "source": "User proposal, 2026-09-28, verbatim predicate names, NOT evidenced yet -- see status_values.PROPOSED. Promote individual entries to the `predicates` list above, one at a time, only when a real document evidences them (same discipline as ha_maggior_tributo/ha_interessi above, added the same day from a real IMU accertamento).",
+    "categories": {
+      "documento_e_provenienza": ["ha_tipo_documento", "ha_data_documento", "emesso_da", "indirizzato_a", "riguarda_immobile", "riguarda_periodo", "rettifica_documento", "sostituisce_documento"],
+      "identita_immobile": ["ha_codice_immobile", "ha_indirizzo", "situato_nel_comune", "ha_destinazione_uso", "ha_superficie", "comprende_unita", "ha_pertinenza", "appartiene_a_condominio"],
+      "catasto": ["ha_sezione_catastale", "ha_foglio", "ha_particella", "ha_subalterno", "ha_categoria_catastale", "ha_classe_catastale", "ha_consistenza", "ha_rendita_catastale"],
+      "titolarita_e_soggetti": ["ha_titolare", "ha_diritto_reale", "ha_quota_titolarita", "acquisito_con_atto", "ha_amministratore", "ha_conduttore", "ha_comodatario", "ha_fornitore", "ha_referente"],
+      "contratti": ["ha_tipo_contratto", "ha_parte_contrattuale", "ha_data_stipula", "ha_decorrenza", "ha_termine", "ha_canone", "ha_periodicita_canone", "ha_deposito_cauzionale", "ha_garanzia", "ha_regola_rinnovo", "ha_preavviso_disdetta", "ha_estremi_registrazione", "attribuisce_spesa_a"],
+      "condominio_e_assemblee": ["ha_esercizio_gestionale", "ha_millesimi", "ha_tabella_millesimale", "approva_preventivo", "approva_consuntivo", "delibera_intervento", "approva_riparto", "prevede_rata", "riporta_saldo_precedente", "determina_conguaglio"],
+      "obblighi_e_scadenze": ["ha_creditore", "ha_debitore", "ha_causale_obbligo", "ha_importo_dovuto", "ha_valuta", "ha_periodo_competenza", "ha_scadenza", "ha_numero_rata", "ha_modalita_pagamento", "ha_identificativo_pagamento", "ha_ricorrenza", "ha_condizione_esigibilita"],
+      "fiscalita": ["ha_tipo_tributo", "ha_anno_imposta", "ha_ente_impositore", "ha_codice_tributo", "ha_codice_ente", "ha_base_imponibile", "ha_aliquota", "ha_detrazione", "ha_agevolazione", "ha_importo_imposta", "ha_sanzione", "ha_interessi", "ha_data_notifica"],
+      "movimenti_bancari_e_ricevute": ["ha_data_operazione", "ha_data_valuta", "ha_importo_movimento", "ha_direzione_movimento", "ha_ordinante", "ha_beneficiario", "ha_causale_bancaria", "ha_identificativo_transazione", "ha_identificativo_mandato", "ha_commissione", "ha_stato_esecuzione"],
+      "utenze_e_assicurazioni": ["ha_tipo_servizio", "ha_intestatario", "ha_indirizzo_fornitura", "ha_codice_fornitura", "ha_numero_fattura", "ha_periodo_fatturazione", "ha_consumo", "ha_tipo_lettura", "ha_importo_fattura", "ha_termine_condizioni_economiche", "ha_numero_polizza", "ha_copertura", "ha_premio", "ha_franchigia"],
+      "lavori_e_manutenzioni": ["riguarda_intervento", "ha_natura_intervento", "ha_stato_intervento", "ha_impresa_esecutrice", "ha_importo_preventivato", "ha_importo_approvato", "ha_importo_consuntivato", "ha_data_inizio", "ha_data_fine", "ha_quota_a_carico", "richiede_verifica_tecnica"],
+      "pratiche_e_contenziosi": ["ha_numero_pratica", "ha_ente_competente", "ha_oggetto_pratica", "ha_stato_pratica", "richiede_adempimento", "ha_termine_adempimento", "ha_importo_contestato", "ha_responsabile_azione"],
+      "valutazioni_patrimoniali": ["ha_valore_stimato", "ha_data_stima", "ha_autore_stima", "ha_metodo_stima", "ha_finalita_stima"]
+    },
+    "already_promoted_to_candidate": ["ha_tipo_documento", "riguarda_immobile", "ha_tipo_tributo", "ha_anno_imposta", "ha_ente_impositore", "ha_debitore", "ha_creditore", "ha_importo_dovuto", "ha_numero_rata", "ha_scadenza"],
+    "ambito_enum": ["immobile", "unita", "quota_individuale", "intero_condominio", "conto_corrente"]
+  },
+
+  "deferred_reconciliation_predicates": {
+    "note": "Explicitly OUT of any extraction template's predicate enum, per the user's own stated rule: these require cross-document matching, rules, and review (matching the real Notion 'Contratto Identity Resolution Immobiliare v1.0' contract's own CONFERMATO_UTENTE/DOCUMENTATO/CONTROLLATO/DA_RIVEDERE evidence tiers) -- NuExtract must never be asked to conclude these from a single document.",
+    "predicates": ["movimento_attribuito_a_immobile", "movimento_allocato_a_obbligo", "pagamento_documentato_da", "obbligo_saldato_da", "ha_importo_allocato", "ha_residuo_calcolato", "presenta_differenza_importo", "in_conflitto_con"]
+  }
+}
