@@ -123,6 +123,63 @@ def facts_to_raw_claims(facts: list[dict], file_id: str) -> list[dict]:
 
 PROPERTY_FACTS_OUTPUT_VERSION = "0.1"
 
+# Deterministic two-level gate for generic planning-law/zoning reference documents
+# (2026-09-29 finding: VIG35's 06_PROGETTI_EDILIZI/.../02_NORMA/ folder holds
+# Milan-wide PGT/Norme Tecniche di Attuazione/Regolamento Edilizio documents that
+# are NOT specific to that property -- at full-batch scale these produced ~1/4 of
+# all consolidated claims, almost entirely noise, e.g. "Le disposizioni di cui
+# agli artt. 5, 6, 8... -> ha_anno_imposta -> tutti gli atti PGT"). User's explicit
+# call: don't try to have the local model judge applicability, exclude these from
+# local extraction entirely -- "se c'e' un file come questo dovrebbe essere
+# necessario usare un cloud llm". This gate identifies them; it does NOT call any
+# cloud LLM itself (none is configured in this pipeline) -- flagged documents are
+# skipped with an explicit, auditable status, not silently dropped, so a future
+# cloud-LLM pass has a real worklist to pick up.
+#
+# Path-level tokens generalize beyond VIG35's own "02_NORMA" folder convention
+# (confirmed absent from the other 5 portfolio properties -- gmv-code-architect
+# consultation, 2026-09-29) only insofar as other properties may use similar
+# Italian planning-law naming; content-level markers are the real generalization,
+# since they look at what the document says, not where it lives. Fail-open by
+# design: a document matching neither level is treated as property-specific and
+# processed normally -- never excluded without an explicit marker.
+GENERIC_REFERENCE_PATH_TOKENS = ("norma", "normativ", "pgt", "piano di governo del territorio",
+                                  "piano delle regole", "norme tecniche di attuazione", "regolamento edilizio")
+GENERIC_REFERENCE_CONTENT_MARKERS = ("piano di governo del territorio", "piano delle regole",
+                                      "norme tecniche di attuazione", "tav. r.")
+# Content-marker detection alone (no path hint) false-positived live on two real
+# GERMIGNAGA documents (2026-09-29): a file-listing PDF whose text happened to
+# include another file's name containing "piano delle regole" (first occurrence
+# at char 2250 of 2981), and a building-permit declaration form with a passing
+# checkbox mention "PGT (documento di piano - piano delle regole...)" (first
+# occurrence at char 5762 of 24531) -- both property-specific documents that
+# would have lost real facts if gated. A genuine zoning/planning-law reference
+# document names itself as such near the top (confirmed on the real GERMIGNAGA
+# PGT/Piano delle Regole/Norme di Attuazione document: first occurrence at char
+# 29 of 338807 chars, repeated 117 times) -- a passing mention deep in the body
+# does not. Position threshold separates the two classes cleanly on every real
+# example found so far.
+GENERIC_REFERENCE_CONTENT_MARKER_MAX_POSITION = 500
+
+
+def is_generic_regulatory_reference(record: dict, paths: list[str] | None = None) -> bool:
+    """True if `record` looks like a generic planning-law/zoning reference
+    document rather than a property-specific one. `paths` are the file's
+    known relative paths (from the scan index) -- optional, since a caller
+    may not always have them; content-level detection alone still applies,
+    but only trusts a marker found near the top of the text (see comment
+    above) -- a path-level match needs no such position check, it's already
+    a reliable signal on its own (verified 12/12 correct on the real
+    2026-09-29 VIG35 batch)."""
+    if paths:
+        for path in paths:
+            lower_path = path.lower()
+            if any(token in lower_path for token in GENERIC_REFERENCE_PATH_TOKENS):
+                return True
+    text = record.get("text", "").lower()
+    return any(0 <= text.find(marker) <= GENERIC_REFERENCE_CONTENT_MARKER_MAX_POSITION
+               for marker in GENERIC_REFERENCE_CONTENT_MARKERS)
+
 
 def property_facts_output_path(fid: str | None, evidence_root: Path) -> Path | None:
     """Mirrors gmv_evidence_pipeline.semantic_output_path's fid-parsing convention."""
@@ -149,7 +206,7 @@ def mark_property_facts_analyzed(evidence_root: Path, fid: str, status: str, *,
                                   updated_at: str | None = None) -> None:
     """Mirrors gmv_evidence_pipeline.mark_analyzed, keyed by property_id instead
     of artist."""
-    if status not in {"valid", "failed"}:
+    if status not in {"valid", "failed", "skipped"}:
         raise ValueError(f"invalid status: {status}")
     if updated_at is None:
         updated_at = evidence.now()
@@ -173,6 +230,7 @@ def property_facts_batch(records: list[dict], registry: dict, evidence_root: Pat
     log_path = log_path or (evidence_root / "property_facts" / "runtime.jsonl")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     manifest = load_property_facts_manifest(evidence_root)
+    index = evidence.load_index(evidence.paths(evidence_root)[0])
     attempts_manifest: list[dict] = []
     nodes_manifest: list[dict] = []
     skipped = 0
@@ -240,9 +298,25 @@ def property_facts_batch(records: list[dict], registry: dict, evidence_root: Pat
     try:
         for record in records:
             fid = record.get("file_id")
-            # Resume: skip files already marked valid in the manifest.
-            if resume and fid and manifest.get(fid, {}).get("status") == "valid":
+            # Resume: skip files already marked valid OR skipped (gated) in the manifest.
+            if resume and fid and manifest.get(fid, {}).get("status") in {"valid", "skipped"}:
                 skipped += 1
+                continue
+            # Generic regulatory/zoning reference gate: never runs NuExtract3 on these at
+            # all (see module-level GENERIC_REFERENCE_* comment) -- persisted as an
+            # explicit "skipped" status, not silently dropped, so a future cloud-LLM pass
+            # has a real worklist.
+            if is_generic_regulatory_reference(record, paths=index.get(fid, {}).get("paths")):
+                out_path = property_facts_output_path(fid, evidence_root)
+                if out_path is not None:
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    evidence.write_json(out_path, {"facts": [], "rejected_facts": [],
+                                                    "gate_status": "SKIPPED_GENERIC_REFERENCE"})
+                    mark_property_facts_analyzed(evidence_root, fid, "skipped", property_id=property_id,
+                                                  model=model, timeout=timeout)
+                log_node({"property_id": property_id, "file_id": fid, "chunk_id": "0", "parent_chunk_id": None,
+                          "depth": 0, "input_chars": len(record.get("text", "")), "outcome": "SKIPPED_GENERIC_REFERENCE",
+                          "facts": 0, "rejected_facts": 0, "split_performed": False})
                 continue
             record_facts = []
             record_rejected = []

@@ -254,3 +254,71 @@ def test_property_facts_output_path_rejects_malformed_file_id(tmp_path):
     assert extract_templates.property_facts_output_path(None, tmp_path) is None
     assert extract_templates.property_facts_output_path("not-a-sha", tmp_path) is None
     assert extract_templates.property_facts_output_path("md5:abc", tmp_path) is None
+
+
+# --- is_generic_regulatory_reference() -- real paths/markers from the
+# 2020_PROGETTO_CRISTIANO_RINALDI/02_NORMA/ VIG35 documents that motivated this
+# gate (2026-09-29): these produced ~1/4 of all consolidated VIG35 claims as
+# noise once chunking let them succeed instead of failing outright.
+
+def test_gate_flags_via_path_token_norma_folder():
+    record = {"text": "testo qualsiasi senza marcatori"}
+    paths = ["06_PROGETTI_EDILIZI/2020_PROGETTO_CRISTIANO RINALDI/02_NORMA/2020_12_25_NTA.pdf"]
+    assert extract_templates.is_generic_regulatory_reference(record, paths=paths) is True
+
+
+def test_gate_flags_via_content_marker_without_path_hint():
+    record = {"text": "Estratto dalle Norme Tecniche di Attuazione del Piano delle Regole vigente."}
+    assert extract_templates.is_generic_regulatory_reference(record) is True
+
+
+def test_gate_fails_open_on_property_specific_document():
+    record = {"text": "Comune di Germignaga - AVVISO DI PAGAMENTO TARI - ANNO 2026 - Totale da pagare 222,00€"}
+    paths = ["03_FISCALE/2026_tari_germignaga.pdf"]
+    assert extract_templates.is_generic_regulatory_reference(record, paths=paths) is False
+
+
+def test_gate_case_insensitive_content_match():
+    record = {"text": "PGT Milano. PR_Tavola R03. PIANO DELLE REGOLE - indicazioni morfologiche"}
+    assert extract_templates.is_generic_regulatory_reference(record) is True
+
+
+def test_gate_does_not_flag_a_passing_mention_deep_in_a_real_document():
+    """Regression guard for two real GERMIGNAGA false positives found live
+    2026-09-29: a file-listing PDF whose text happened to include another
+    file's name containing 'piano delle regole', and a building-permit
+    declaration form with a passing checkbox mention of the same phrase --
+    both property-specific documents, marker only appears deep in the body."""
+    filler = "x" * 600
+    record = {"text": filler + " ...documento di piano - norme di attuazione piano delle regole.pdf"}
+    assert extract_templates.is_generic_regulatory_reference(record) is False
+
+
+def test_gate_flags_marker_near_document_start():
+    record = {"text": "COMUNE di GERMIGNAGA - PGT - PIANO DELLE REGOLE - NORME di ATTUAZIONE" + " x" * 600}
+    assert extract_templates.is_generic_regulatory_reference(record) is True
+
+
+def test_property_facts_batch_skips_gated_document_without_calling_extract_facts(monkeypatch, tmp_path, registry):
+    def _raise_if_called(record, registry, **kwargs):
+        raise AssertionError("extract_facts must not be called on a gated document")
+    monkeypatch.setattr(extract_templates, "extract_facts", _raise_if_called)
+    record = {"file_id": "sha256:norma1", "extraction_status": "SUCCESS",
+              "text": "Norme Tecniche di Attuazione del Piano di Governo del Territorio."}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="VIG35", endpoint="x", model="m")
+    assert out == {"facts": [], "rejected_facts": []}
+    out_path = tmp_path / "property_facts" / "norma1-0.1.json"
+    data = evidence.read_json(out_path, None)
+    assert data["gate_status"] == "SKIPPED_GENERIC_REFERENCE"
+    manifest = extract_templates.load_property_facts_manifest(tmp_path)
+    assert manifest["sha256:norma1"]["status"] == "skipped"
+
+
+def test_property_facts_batch_resume_skips_previously_gated_document(monkeypatch, tmp_path, registry):
+    def _raise_if_called(record, registry, **kwargs):
+        raise AssertionError("extract_facts must not be called on a resumed, already-gated document")
+    extract_templates.mark_property_facts_analyzed(tmp_path, "sha256:norma1", "skipped", property_id="VIG35", model="m", timeout=60)
+    monkeypatch.setattr(extract_templates, "extract_facts", _raise_if_called)
+    record = {"file_id": "sha256:norma1", "extraction_status": "SUCCESS", "text": "irrelevant text, resume must short-circuit"}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="VIG35", endpoint="x", model="m", resume=True)
+    assert out == {"facts": [], "rejected_facts": []}
