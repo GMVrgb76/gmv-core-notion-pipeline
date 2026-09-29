@@ -55,6 +55,32 @@ def subject_type_matches_domain(subject_type: str, predicate_id: str, registry: 
     return subject_type in pred.get("domain", [])
 
 
+def object_matches_range(predicate_id: str, value, registry: dict) -> bool:
+    """True if predicate_id is governed AND value is plausibly compatible with its
+    declared range[] type. Only checks range: ["integer"]/["number"] -- both require
+    at least one digit somewhere in value, deliberately loose (matches an
+    already-accepted style where the object embeds surrounding label text
+    alongside the real value, e.g. '(a) TOTALE MAGGIOR TRIBUTO (IMPOSTA) 1.276,00'
+    for ha_maggior_tributo, a real live example already validated). This catches a
+    real live bug found 2026-09-29: ha_anno_imposta (range: ["integer"]) holding
+    'TARI' or 'TASSA SMALTIMENTO RIFIUTI (TARI)' -- a tax-type label with zero
+    digits, not a year -- without rejecting anything previously accepted.
+
+    range: ["date"] is deliberately NOT checked here -- same reasoning as
+    mentions_deadline's own range:[string] choice: a real deadline is sometimes
+    only expressible as relative text ("entro sessanta giorni dalla notifica"),
+    and rejecting that would lose real information. Entity-class ranges
+    (PROPERTY, SOGGETTO, ...) and range:["string"] accept any non-empty value --
+    an entity name or free text can't be validated without a real Notion lookup."""
+    pred = _predicate(predicate_id, registry)
+    if pred is None:
+        return False
+    declared = pred.get("range", [])
+    if "integer" in declared or "number" in declared:
+        return any(ch.isdigit() for ch in str(value))
+    return True
+
+
 def validate_claim(subject_type: str, predicate_id: str, registry: dict) -> None:
     """Raises UngovernedPredicateError / DomainMismatchError; returns None on success.
     Fail-closed by design, matching gmv_evidence_pipeline's own CLAIM_WITHOUT_EVIDENCE

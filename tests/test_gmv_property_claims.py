@@ -51,6 +51,46 @@ def test_registry_has_no_risk_predicate_yet(registry):
     assert "rischio_alto" not in predicate_ids
 
 
+def test_object_matches_range_rejects_ungoverned_predicate(registry):
+    assert ontology.object_matches_range("invented_predicate", "2026", registry) is False
+
+
+def test_object_matches_range_rejects_tax_type_label_for_integer_year(registry):
+    """Regression guard for a real bug found live 2026-09-29: ha_anno_imposta
+    (range: ["integer"]) held 'TARI' and 'TASSA SMALTIMENTO RIFIUTI (TARI)' --
+    a tax-type label with zero digits, not a year -- on real GERMIGNAGA/VIG35
+    documents after the zoning-noise gate was already applied, so this is a
+    distinct extraction defect, not the same bug."""
+    assert ontology.object_matches_range("ha_anno_imposta", "TARI", registry) is False
+    assert ontology.object_matches_range("ha_anno_imposta", "TASSA SMALTIMENTO RIFIUTI (TARI)", registry) is False
+
+
+def test_object_matches_range_accepts_real_year_value(registry):
+    assert ontology.object_matches_range("ha_anno_imposta", "2026", registry) is True
+
+
+def test_object_matches_range_accepts_number_embedded_in_label_text(registry):
+    """A real, already-validated live example: the model copies the whole
+    matched span verbatim, not just the bare number -- must not regress."""
+    assert ontology.object_matches_range("ha_maggior_tributo", "(a) TOTALE MAGGIOR TRIBUTO (IMPOSTA) 1.276,00", registry) is True
+
+
+def test_object_matches_range_rejects_number_with_no_digits(registry):
+    assert ontology.object_matches_range("ha_importo_dovuto", "importo non specificato", registry) is False
+
+
+def test_object_matches_range_does_not_check_date_range(registry):
+    """Deliberately permissive: a real deadline is sometimes only expressible as
+    relative text, not a parseable date -- same reasoning as mentions_deadline's
+    own range:[string] choice. Must not reject this."""
+    assert ontology.object_matches_range("ha_scadenza", "entro sessanta giorni dalla notifica", registry) is True
+
+
+def test_object_matches_range_always_true_for_string_and_entity_ranges(registry):
+    assert ontology.object_matches_range("ha_tipo_tributo", "TARI", registry) is True
+    assert ontology.object_matches_range("ha_debitore", "VALERIO GIACOMO MARCO", registry) is True
+
+
 # ---- gmv_property_claims.load_property_rows ----
 
 def test_load_property_rows_reads_real_object_yaml(tmp_path):
