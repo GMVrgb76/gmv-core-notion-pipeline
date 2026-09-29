@@ -68,9 +68,11 @@ def load_bundle(bundle_dir: Path) -> Bundle:
                 "single-entity NOTION_PATCH.json bundles from gmv_notion_candidate.py"
             )
         raise FileNotFoundError(
-            f"missing NOTION_PATCH.json in {bundle_dir} -- this bundle was likely "
-            "generated without --run-dir, so only the simple NOTION_PAYLOAD.json "
-            "shape exists; regenerate with gmv_notion_candidate.py --run-dir"
+            f"missing NOTION_PATCH.json in {bundle_dir} -- either this bundle was generated "
+            "without --run-dir (regenerate with gmv_notion_candidate.py --run-dir), or it is a "
+            "real-estate bundle from gmv_property_notion_candidate.py, which deliberately never "
+            "produces NOTION_PATCH.json (no comparison against live Notion is performed there) "
+            "and is not publishable by this command"
         )
     body_markdown = patch.get("body", {}).get("proposed_markdown")
     return Bundle(dir=bundle_dir, entity_name=entity["name"], entity_type=entity["entity_type"],
