@@ -394,3 +394,34 @@ def test_run_property_pipeline_assigns_no_real_notion_match_to_any_entity(monkey
     assert all(str(item["resolved_subject_id"]).startswith("new:") for item in resolved)
     assert all(str(item["resolved_object_id"]).startswith("new:") for item in resolved)
     assert out["consolidated_claims"] == 1
+
+
+def test_main_resolves_evidence_root_and_registry_before_and_after_subcommand(monkeypatch, tmp_path):
+    """Regression guard for a real bug found live 2026-09-29: argparse gives a
+    subparser's --evidence-root/--registry the same dest as the top-level ones
+    by default, so passing them after the subcommand silently overwrote the
+    top-level value with None. Both positions must resolve to the same value."""
+    captured = []
+
+    def fake_batch(records, registry, evidence_root, *, property_id, **kwargs):
+        captured.append(evidence_root)
+        return {"facts": [], "rejected_facts": []}
+
+    monkeypatch.setattr(extract_templates, "property_facts_batch", fake_batch)
+    record_path = tmp_path / "record.json"
+    record_path.write_text(json.dumps({"file_id": "sha256:f", "extraction_status": "SUCCESS", "text": "x"}), encoding="utf-8")
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps({"predicates": []}), encoding="utf-8")
+    evidence_root = tmp_path / "evroot"
+
+    original_argv = sys.argv
+    try:
+        sys.argv = ["gmv_property_extract_templates.py", "--evidence-root", str(evidence_root),
+                    "--registry", str(registry_path), "analyze", str(record_path), "--property-id", "P"]
+        assert extract_templates.main() == 0
+        sys.argv = ["gmv_property_extract_templates.py", "analyze", str(record_path), "--property-id", "P",
+                    "--evidence-root", str(evidence_root), "--registry", str(registry_path)]
+        assert extract_templates.main() == 0
+    finally:
+        sys.argv = original_argv
+    assert captured == [evidence_root, evidence_root]
