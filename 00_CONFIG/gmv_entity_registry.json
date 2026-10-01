@@ -6,7 +6,16 @@
       "gmv_id": "GMV-000001",
       "entity_type": "ARTIST",
       "canonical_name": "Federico Garibaldi",
-      "aliases": ["Garibaldi"],
+      "aliases": [
+        "Garibaldi"
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "gmv_id": "GMV-000002",
+      "entity_type": "ARTIST",
+      "canonical_name": "Danilo Bucchi",
+      "aliases": [],
       "status": "ACTIVE"
     }
   ]
