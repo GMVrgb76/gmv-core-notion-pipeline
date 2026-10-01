@@ -299,6 +299,93 @@ def test_gate_flags_marker_near_document_start():
     assert extract_templates.is_generic_regulatory_reference(record) is True
 
 
+# --- _marker_position() -- whitespace/newline-tolerant matching --------------
+
+def test_marker_position_tolerates_a_newline_inside_the_phrase():
+    """Regression guard for a real find 2026-09-29: the GERMIGNAGA construction-
+    safety document's own title is extracted as 'PIANO DI SICUREZZA E
+    \\nCOORDINAMENTO' -- a line break falls inside the phrase because of the
+    source PDF's layout. A plain str.find() on the full lowercase phrase misses
+    this near-the-top occurrence entirely and only matches a later, incidental
+    repeat deep in the body -- which would silently defeat the position
+    threshold this whole gate design depends on."""
+    text = "comune di germignaga\npiano di sicurezza e \ncoordinamento\n(allegato xv)"
+    assert extract_templates._marker_position(text, "piano di sicurezza e coordinamento") < 30
+
+
+def test_marker_position_returns_minus_one_when_absent():
+    assert extract_templates._marker_position("testo qualsiasi", "piano di sicurezza e coordinamento") == -1
+
+
+# --- is_construction_safety_document() -- real GERMIGNAGA PSC excerpt --------
+
+def test_construction_safety_gate_flags_real_psc_document():
+    """Real excerpt (2026-09-29) from GERMIGNAGA's own construction-safety plan
+    -- the document that motivated this whole second detector, after its facts
+    ('lavoratori -> ha_ricorrenza -> vaccinazione antitetanica') were found to
+    be structurally valid but semantically meaningless."""
+    record = {"text": ("Ristrutturazione di un edificio condominiale in c.a. - Pag. 1 \n"
+                       "Comune di \nGermignaga\nProvincia di VA\nPIANO DI SICUREZZA E \n"
+                       "COORDINAMENTO\n(Allegato XV e art. 100 del D.Lgs. 9 aprile 2008, n. 81 e s.m.i.) ")}
+    assert extract_templates.is_construction_safety_document(record) is True
+
+
+def test_construction_safety_gate_fails_open_on_property_specific_document():
+    record = {"text": "Comune di Germignaga - AVVISO DI PAGAMENTO TARI - ANNO 2026 - Totale da pagare 222,00€"}
+    assert extract_templates.is_construction_safety_document(record) is False
+
+
+def test_construction_safety_gate_does_not_flag_a_passing_mention_deep_in_a_document():
+    filler = "x" * 2100
+    record = {"text": filler + " ...come previsto dal piano di sicurezza e coordinamento del cantiere vicino."}
+    assert extract_templates.is_construction_safety_document(record) is False
+
+
+def test_out_of_domain_detectors_list_is_consulted_in_order():
+    names = [reason for reason, _ in extract_templates.OUT_OF_DOMAIN_DETECTORS]
+    assert names == ["GENERIC_REGULATORY_REFERENCE", "CONSTRUCTION_SAFETY_DOCUMENT"]
+
+
+# --- _skip_reason() -- text quality checked before domain relevance ----------
+
+def test_skip_reason_flags_garbled_text_before_checking_domain():
+    """Real GERMIGNAGA catasto document (2026-09-29): text_quality_flags()
+    already marks this possibly_garbled -- must be caught here without ever
+    reaching the out-of-domain detectors."""
+    record = {"text": "testo qualsiasi non normativo", "text_quality": {"possibly_garbled": True}}
+    assert extract_templates._skip_reason(record, None) == ("SKIPPED_UNRELIABLE_TEXT", "GARBLED_TEXT")
+
+
+def test_skip_reason_falls_through_to_out_of_domain_detectors():
+    record = {"text": "Piano di Sicurezza e Coordinamento D.Lgs. 81/2008", "text_quality": {"possibly_garbled": False}}
+    assert extract_templates._skip_reason(record, None) == ("SKIPPED_OUT_OF_DOMAIN", "CONSTRUCTION_SAFETY_DOCUMENT")
+
+
+def test_skip_reason_none_for_a_clean_in_domain_document():
+    record = {"text": "Comune di Germignaga - AVVISO DI PAGAMENTO TARI - ANNO 2026", "text_quality": {"possibly_garbled": False}}
+    assert extract_templates._skip_reason(record, None) is None
+
+
+def test_skip_reason_handles_missing_text_quality_field():
+    """A record without text_quality (e.g. an older cache format) must not
+    crash -- treated as not garbled, falls through to domain detectors."""
+    record = {"text": "Comune di Germignaga - AVVISO DI PAGAMENTO TARI - ANNO 2026"}
+    assert extract_templates._skip_reason(record, None) is None
+
+
+def test_property_facts_batch_skips_garbled_document_with_its_own_status(monkeypatch, tmp_path, registry):
+    def _raise_if_called(record, registry, **kwargs):
+        raise AssertionError("extract_facts must not be called on garbled text")
+    monkeypatch.setattr(extract_templates, "extract_facts", _raise_if_called)
+    record = {"file_id": "sha256:garbled1", "extraction_status": "SUCCESS", "text": "x",
+              "text_quality": {"possibly_garbled": True}}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="GERMIGNAGA", endpoint="x", model="m")
+    assert out == {"facts": [], "rejected_facts": []}
+    data = evidence.read_json(tmp_path / "property_facts" / "garbled1-0.1.json", None)
+    assert data["gate_status"] == "SKIPPED_UNRELIABLE_TEXT"
+    assert data["gate_reason"] == "GARBLED_TEXT"
+
+
 def test_property_facts_batch_skips_gated_document_without_calling_extract_facts(monkeypatch, tmp_path, registry):
     def _raise_if_called(record, registry, **kwargs):
         raise AssertionError("extract_facts must not be called on a gated document")
@@ -309,9 +396,23 @@ def test_property_facts_batch_skips_gated_document_without_calling_extract_facts
     assert out == {"facts": [], "rejected_facts": []}
     out_path = tmp_path / "property_facts" / "norma1-0.1.json"
     data = evidence.read_json(out_path, None)
-    assert data["gate_status"] == "SKIPPED_GENERIC_REFERENCE"
+    assert data["gate_status"] == "SKIPPED_OUT_OF_DOMAIN"
+    assert data["gate_reason"] == "GENERIC_REGULATORY_REFERENCE"
     manifest = extract_templates.load_property_facts_manifest(tmp_path)
     assert manifest["sha256:norma1"]["status"] == "skipped"
+
+
+def test_property_facts_batch_skips_construction_safety_document(monkeypatch, tmp_path, registry):
+    def _raise_if_called(record, registry, **kwargs):
+        raise AssertionError("extract_facts must not be called on a construction-safety document")
+    monkeypatch.setattr(extract_templates, "extract_facts", _raise_if_called)
+    record = {"file_id": "sha256:psc1", "extraction_status": "SUCCESS",
+              "text": "PIANO DI SICUREZZA E COORDINAMENTO (Allegato XV e art. 100 del D.Lgs. 9 aprile 2008, n. 81)"}
+    out = extract_templates.property_facts_batch([record], registry, tmp_path, property_id="GERMIGNAGA", endpoint="x", model="m")
+    assert out == {"facts": [], "rejected_facts": []}
+    data = evidence.read_json(tmp_path / "property_facts" / "psc1-0.1.json", None)
+    assert data["gate_status"] == "SKIPPED_OUT_OF_DOMAIN"
+    assert data["gate_reason"] == "CONSTRUCTION_SAFETY_DOCUMENT"
 
 
 def test_property_facts_batch_resume_skips_previously_gated_document(monkeypatch, tmp_path, registry):

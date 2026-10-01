@@ -311,3 +311,158 @@ CANDIDATE entry there cites concrete real-corpus case counts as
 `source_reference`, never invented — same discipline should apply to any
 new registry (cite the real validation evidence already in hand, e.g. an
 existing N-case validation summary file, not invented examples).
+
+## Real-estate "close the pipeline to Notion" consultation — verified 2026-09-29
+
+Read in full: `10_API/gmv_evidence_pipeline.py`, `gmv_property_extract_templates.py`,
+`gmv_property_claims.py`, `gmv_ontology_check.py`, `gmv_notion_candidate.py`,
+`gmv_notion_publish.py`, `notion_publish.py` (root), `00_CONFIG/notion_page_templates.json`,
+`00_CONFIG/GMV_ONTOLOGY_REGISTRY_REALESTATE_v0.1.json` (v0.2 despite the filename),
+`00_CONFIG/EVIDENCE_PIPELINE_STATUS.md`.
+
+- **Two distinct, easily-conflated config artifacts, confirmed again in this
+  consultation**: `00_CONFIG/notion_page_templates.json` (struttura_pagina/
+  field_hints/relation_hints/discovery_hints, multi_candidate-only) is NOT
+  the file with `entita.<tipo>.campi/relazioni` each carrying `notion:` real
+  property names + `notion_database_id`. That second shape is
+  `~/.gmv_core/area35-qa/config.json` — **outside the Git repo entirely**,
+  passed at runtime via `--config` to `gmv_notion_candidate.py`/
+  `gmv_notion_publish.py`. Confirmed via `grep -rl '"campi"' *.json` returning
+  nothing under the repo. `SOURCE_RUNTIME_BOUNDARIES.md` classifies
+  Configuration as Git/`00_CONFIG/`-backed — this real artifact does not
+  follow that classification today; a pre-existing gap, not something to fix
+  silently while adding a real-estate equivalent, but worth flagging every
+  time a new `entita.*` config is proposed.
+- **`gmv_notion_candidate.py`'s whole model (`compare_entity`/
+  `build_incremental_patch`) assumes one flat Notion database per entity
+  type, rows title-matched across the whole workspace, CREATE/UPDATE a
+  single page** — real estate's actual live target (six "Pilota
+  immobiliare" property pages, each with its own scoped sub-databases:
+  Immobili, Obblighi e scadenze, Movimenti e allocazioni, Documenti e fonti,
+  etc.) does not fit this shape. A real-estate candidate builder needs
+  property-scoped row lookup, not a workspace-wide title match, and is new
+  code, not a config-only adaptation of `build_incremental_patch`.
+- **No relation-writer exists anywhere in this codebase, confirmed again**
+  (`notion_publish.py`'s `NOTION_TYPE_BUILDERS` deliberately omits
+  "relation", comment "belt-and-suspenders, not an accident";
+  `build_incremental_patch` always emits CONFLICT for relations). For art
+  this is a tolerable gap (most claims are properties/body text). For real
+  estate it is much more central: nearly every fact needs a relation from
+  its own row (an Obbligo, a Documento) to its Immobile/property row —
+  without a real relation-writer, real estate "publish" cannot create
+  correctly-linked rows at all, only orphan ones. Treat building a
+  relation-writer (with merge-against-existing-list, never full-replace) as
+  necessary, isolated, high-risk new work — not an incidental extension.
+- **`resolve_claims()` was designed for entity-to-entity predicates (both
+  subject_raw and object_raw matched against `notion_rows` titles)** —
+  `gmv_property_claims.py`'s own docstring already discloses this mismatch
+  for its one v1 predicate (`mentions_deadline`, literal evidence-text
+  object): a literal object never matches an existing row, always resolves
+  as synthetic `new:<hash>` (NEW_ENTITY, non-blocking, so `resolution_status`
+  still ends up RESOLVED — functionally harmless for grouping/consolidation,
+  since `consolidate_claims` groups by hash of the normalized value either
+  way). What's new in this consultation: `gmv_property_extract_templates.py`'s
+  full 17-predicate fact template makes this the norm, not the exception —
+  most predicates are MEASURE/EVENT/ATTRIBUTE with literal (date/number/
+  string) objects, only a few (`ha_ente_impositore`, `ha_debitore`,
+  `ha_creditore`, `riguarda_immobile`) are true RELATION-class with entity
+  objects. Still works end-to-end (consolidation/dedup by literal value is
+  fine; `build_incremental_patch`-equivalent code already reads
+  `claim.get("object")` directly for property values, not
+  `resolved_object_id`), but is a semantic mislabeling worth carrying
+  forward as a known, accepted, self-disclosed limitation — not a blocker,
+  not something to silently "fix" by renaming NEW_ENTITY for literals
+  without a real decision.
+- **A real, independent, already-active ChatGPT-built pipeline
+  ("GMV Real Estate Knowledge Pipeline") already writes into the exact
+  target Notion databases** (Immobili, Obblighi e scadenze, Movimenti e
+  allocazioni, Documenti e fonti, etc., under six real "Pilota immobiliare"
+  property pages: GERMIGNAGA, VIG35, COURMA, C2, VM8, WITT12), with real,
+  already-verified-correct data (confirmed independently via Notion MCP,
+  not just by the user's claim) and its own reconciliation/identity
+  contract ("Contratto Identity Resolution Immobiliare v1.0",
+  CONFERMATO_UTENTE/DOCUMENTATO/CONTROLLATO/DA_RIVEDERE tiers — referenced,
+  not duplicated, inside
+  `GMV_ONTOLOGY_REGISTRY_REALESTATE_v0.1.json`'s own `deferred_reconciliation_predicates`
+  section). Recommended posture: do not let this new pipeline write directly
+  into those live databases until a reconciliation contract compatible with
+  that tier system is explicitly designed and approved (Project Owner /
+  pipeline-owner decision) — closing "this" pipeline for now means
+  candidate+bundle+human-reviewable proposal (reusing
+  `gmv_notion_publish.py::publish_bundle`'s safety machinery, interactive
+  confirm, hash-chained audit log, exactly as-is) stopping short of a live
+  write, not a new parallel "immobile" database either (that would fork
+  identity away from the already-correct live data). This mirrors the
+  registry's own explicit deferral logic for `deferred_reconciliation_predicates`
+  ("cross-document matching/rules/review... never something a single
+  extraction call should conclude") — same discipline, applied one level up
+  to the publish decision itself.
+- Reusable/domain-neutral, confirmed unchanged: `resolve_claims`/
+  `consolidate_claims`/`gate`/`write_evidence_bundle`/`norm` in
+  `gmv_evidence_pipeline.py` (already index- and domain-agnostic);
+  `gmv_property_extract_templates.py` (already built, ontology-governed,
+  deterministic `is_generic_regulatory_reference` gate, mirrors
+  `semantic_extract_batch`'s resume/retry/adaptive-split structure);
+  `gmv_ontology_check.py` (small, standalone, reusable for any domain's
+  registry, not tied to the unmerged ATOM system); `gmv_notion_publish.py`'s
+  `publish_bundle`/audit/review-server pattern (bundle-shape-in, reuse
+  unchanged once the bundle shape matches). `gmv_property_claims.py`
+  (Laya's fast `mentions_deadline` triage signal) and
+  `gmv_property_extract_templates.py` (NuExtract's slower, precise
+  `ha_scadenza` etc.) are complementary by the registry's own documented
+  design (`relationship_note` on `mentions_deadline`), not duplicative.
+
+## Real-estate fact-extraction gate: doc-domain classification request — verified 2026-09-29
+
+Consultation: user found a construction-safety document (POS,
+`06_PROGETTI_EDILIZI/.../CRISTIANO RINALDI` in GERMIGNAGA) passed through the
+uniform fiscal/contractual template, producing structurally-valid but
+semantically-meaningless triples ("lavoratori -> ha_ricorrenza -> vaccinazione
+antitetanica"). User chose "classify document type before extracting,
+whitelist relevant types" over "add another ad-hoc blacklist gate."
+
+- **`10_API/gmv_property_extract_templates.py`'s own module docstring (lines
+  5-10) already records an explicit prior decision, dated 2026-09-28, from
+  the SAME user**: "one uniform template across every document type (no
+  per-document-type template, no separate classification pass --
+  `ha_tipo_documento` is just one of the extracted facts)". Today's request
+  is a partial reversal of that decision, not a green-field choice — worth
+  surfacing explicitly to whoever implements, so the docstring gets updated
+  in the same change rather than left contradicting the code.
+- **Every predicate in `GMV_ONTOLOGY_REGISTRY_REALESTATE_v0.1.json` has
+  `domain: ["DOCUMENT"]`** and the whole fact_extraction_contract is
+  fiscal/contractual/obligation-shaped (tributo, ente_impositore, debitore,
+  creditore, importo_dovuto, scadenza, rata). There is no separate
+  "contratto di locazione"/"catasto"/"cantiere" ontology or template to
+  route to — only ONE template exists. This means a real per-type
+  classifier-and-router (the literal shape of the user's "whitelist"
+  framing) is over-engineering right now: there is nothing to route to but
+  "run the one template" or "don't." The correct-sized fix is a binary
+  in-domain/out-of-domain deterministic gate, generalizing
+  `is_generic_regulatory_reference` (same two-level path-token +
+  content-marker, fail-open, position-threshold-guarded pattern) to a small
+  ordered list of out-of-domain detectors, not a document-type classifier or
+  a second NuExtract call.
+- **`ha_tipo_documento` is an extracted governed fact (pipeline output),
+  never a gating input** — reusing it as a classification signal would
+  require running the very extraction call the gate exists to avoid, for
+  every document, defeating the purpose. Keep gating entirely separate from
+  any governed predicate, same boundary as `is_generic_regulatory_reference`
+  today (reads only `record["text"]`/`paths`, never a fact/claim).
+- **Path-token generalization could not be verified live in this
+  consultation** — this worktree/sandbox has no mounted Dropbox
+  (`find ~/Dropbox -ipath "*02_IMMOBILI*01_PORTFOLIO*"` returned nothing),
+  unlike whatever environment the 2026-09-29 VIG35 gate work was verified
+  in. Any new detector's path-token generalization across the six portfolio
+  properties needs verification by whoever has real Dropbox access before
+  shipping, exactly the same caution already documented for
+  `GENERIC_REFERENCE_PATH_TOKENS`.
+- **Vocabulary-proliferation risk flagged going in**: `gate_status` today has
+  exactly one non-SUCCESS value, `SKIPPED_GENERIC_REFERENCE`. Adding a
+  second ad-hoc string (e.g. `SKIPPED_CONSTRUCTION_SAFETY`) per newly
+  discovered out-of-domain type repeats the exact blacklist-per-type pattern
+  the user is trying to escape, just at the status-vocabulary level instead
+  of the gate-function level. Recommended if/when implemented: a single
+  `SKIPPED_OUT_OF_DOMAIN` status with a `gate_reason` sub-field carrying the
+  specific detector name — open design question, not yet decided, flag for
+  the implementer.

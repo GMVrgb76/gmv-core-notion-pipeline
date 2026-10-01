@@ -121,3 +121,71 @@ def test_rewrite_markdown_gate_raises_instead_of_silently_leaving_a_stale_gate(t
     markdown.write_text("# Evidence — X\n\n## Claims\n", encoding="utf-8")
     with pytest.raises(ValueError):
         candidate._rewrite_markdown_gate(markdown, "RECONCILIATION_CONTRACT_PENDING")
+
+
+# --- render_property_page_markdown() ----------------------------------------
+
+def _claim(predicate, subject="S", obj="O", pagina=None):
+    qualifiers = {"pagina": pagina} if pagina else {}
+    return {"claim_id": f"claim:{predicate}", "subject": subject, "predicate": predicate,
+            "object": obj, "qualifiers": qualifiers, "source_file_ids": ["sha256:1"],
+            "source_excerpts": ["e"], "status": "SUPPORTED_BY_ARCHIVE"}
+
+
+def test_render_places_fiscal_predicate_in_obblighi_fiscali_section():
+    markdown = candidate.render_property_page_markdown("GERMIGNAGA", [_claim("ha_tipo_tributo", obj="TARI")])
+    sections = markdown.split("## ")
+    fiscal = next(s for s in sections if s.startswith("Obblighi fiscali"))
+    assert "TARI" in fiscal
+    lease = next(s for s in sections if s.startswith("Contratti e locazioni"))
+    assert "Nessun fatto governato" in lease
+
+
+def test_render_places_lease_predicate_in_contratti_section():
+    markdown = candidate.render_property_page_markdown("VIG35", [_claim("ha_decorrenza", obj="2021-09-01")])
+    sections = markdown.split("## ")
+    lease = next(s for s in sections if s.startswith("Contratti e locazioni"))
+    assert "2021-09-01" in lease
+
+
+def test_render_utenze_section_is_always_present_and_always_empty():
+    markdown = candidate.render_property_page_markdown("GERMIGNAGA", [_claim("ha_tipo_tributo")])
+    assert "## Utenze e bollette" in markdown
+    assert "strutturalmente vuota" in markdown
+
+
+def test_render_unmapped_predicate_falls_into_altri_fatti_not_dropped():
+    markdown = candidate.render_property_page_markdown("GERMIGNAGA", [_claim("un_predicato_futuro", obj="X")])
+    assert "Altri fatti" in markdown
+    assert "un_predicato_futuro" in markdown
+    assert "X" in markdown
+
+
+def test_render_empty_claims_still_produces_all_sections_marked_empty():
+    markdown = candidate.render_property_page_markdown("GERMIGNAGA", [])
+    for title, _ in candidate.PAGE_SECTIONS:
+        assert f"## {title}" in markdown
+    assert markdown.count("Nessun fatto governato") == len(candidate.PAGE_SECTIONS)
+
+
+def test_render_returns_a_plain_string_no_side_effects():
+    markdown = candidate.render_property_page_markdown("GERMIGNAGA", [_claim("ha_tipo_tributo")])
+    assert isinstance(markdown, str) and markdown.startswith("# GERMIGNAGA")
+
+
+def test_render_cli_writes_to_output_file(tmp_path, capsys):
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({"property_id": "GERMIGNAGA", "consolidated": [_claim("ha_tipo_tributo", obj="TARI")]}),
+                      encoding="utf-8")
+    out_path = tmp_path / "page.md"
+    assert candidate.main(["render", str(result), "-o", str(out_path)]) == 0
+    assert "TARI" in out_path.read_text(encoding="utf-8")
+    assert capsys.readouterr().out == ""
+
+
+def test_render_cli_prints_to_stdout_by_default(tmp_path, capsys):
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({"property_id": "GERMIGNAGA", "consolidated": [_claim("ha_tipo_tributo", obj="TARI")]}),
+                      encoding="utf-8")
+    assert candidate.main(["render", str(result)]) == 0
+    assert "TARI" in capsys.readouterr().out

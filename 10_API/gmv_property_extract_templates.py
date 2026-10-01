@@ -14,11 +14,28 @@ Every fact is defensively re-validated against the registry after parsing
 own history today includes NuExtract3 not respecting a required-field
 constraint without explicit `format`). A fact with an ungoverned predicate is
 dropped, not silently kept or coerced.
+
+2026-09-29 partial reversal of the 2026-09-28 "no separate classification
+pass" decision above, on real evidence: a real construction-safety document
+(PIANO DI SICUREZZA E COORDINAMENTO, D.Lgs. 81/2008) was passed through the
+one fiscal/contractual template like any other document, and since the model
+must pick a predicate from the governed enum for every fact it finds, it
+produced structurally valid but semantically meaningless triples (e.g.
+"lavoratori -> ha_ricorrenza -> vaccinazione antitetanica") -- governance
+(predicate exists, object type matches) is necessary but not sufficient for
+relevance. The template itself is still one uniform template across every
+*in-domain* document type (that part of the 2026-09-28 decision holds); what
+changed is a deterministic pre-filter (see OUT_OF_DOMAIN_DETECTORS below)
+that now runs before the template at all for document classes that are
+provably never in its domain -- not a per-document-type extraction template,
+and not an LLM classification call (same deterministic-first reasoning
+already used for is_generic_regulatory_reference).
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -165,6 +182,21 @@ GENERIC_REFERENCE_CONTENT_MARKERS = ("piano di governo del territorio", "piano d
 GENERIC_REFERENCE_CONTENT_MARKER_MAX_POSITION = 500
 
 
+def _marker_position(text: str, marker: str) -> int:
+    """Locates `marker` (lowercase, space-separated words) in `text`, tolerating
+    any run of whitespace (including a newline) between its words instead of
+    requiring an exact substring. Found live 2026-09-29: a real construction-
+    safety document's title is extracted as "PIANO DI SICUREZZA E \\nCOORDINAMENTO"
+    -- a line break falls INSIDE the phrase because of the source PDF's layout --
+    so a plain `str.find()` misses the true near-the-top occurrence entirely and
+    would only match a later, incidental repeat deep in the body, defeating the
+    position threshold this same gate design relies on. Returns -1 if absent,
+    matching str.find()'s convention."""
+    pattern = re.escape(marker).replace(r"\ ", r"\s+")
+    match = re.search(pattern, text)
+    return match.start() if match else -1
+
+
 def is_generic_regulatory_reference(record: dict, paths: list[str] | None = None) -> bool:
     """True if `record` looks like a generic planning-law/zoning reference
     document rather than a property-specific one. `paths` are the file's
@@ -180,8 +212,88 @@ def is_generic_regulatory_reference(record: dict, paths: list[str] | None = None
             if any(token in lower_path for token in GENERIC_REFERENCE_PATH_TOKENS):
                 return True
     text = record.get("text", "").lower()
-    return any(0 <= text.find(marker) <= GENERIC_REFERENCE_CONTENT_MARKER_MAX_POSITION
+    return any(0 <= _marker_position(text, marker) <= GENERIC_REFERENCE_CONTENT_MARKER_MAX_POSITION
                for marker in GENERIC_REFERENCE_CONTENT_MARKERS)
+
+
+# Second out-of-domain detector, same shape as is_generic_regulatory_reference
+# (2026-09-29): construction-safety plans (Piano di Sicurezza e Coordinamento /
+# PSC, D.Lgs. 81/2008) produced structurally-valid-but-meaningless facts once
+# they reached the fiscal/contractual template (e.g. "lavoratori ->
+# ha_ricorrenza -> vaccinazione antitetanica"). No path-token list here --
+# unlike GERMIGNAGA's/VIG35's shared "02_NORMA" convention, no recurring
+# construction-project folder name was found to generalize across the
+# portfolio (only content was checked, per gmv-code-architect consultation,
+# 2026-09-29 -- a project's own folder name like "2020_PROGETTO_CRISTIANO
+# RINALDI" must never become a token). Italian workplace-safety law vocabulary
+# is nationally standardized, so content markers generalize on their own.
+# Position threshold set higher than the regulatory gate's (2000 vs 500):
+# verified live on the real GERMIGNAGA PSC document that "D.Lgs. 9 aprile
+# 2008, n. 81" appears at char 165 of 214974 (comfortable margin for a
+# cover-page/letterhead of varying length across documents), well before
+# "piano operativo di sicurezza" appears again later in the same document
+# (char 4971) as a cross-reference, not the document's own title.
+CONSTRUCTION_SAFETY_CONTENT_MARKERS = ("piano di sicurezza e coordinamento", "d.lgs. 81/2008",
+                                       "d.lgs. 9 aprile 2008, n. 81")
+CONSTRUCTION_SAFETY_MARKER_MAX_POSITION = 2000
+
+
+def is_construction_safety_document(record: dict, paths: list[str] | None = None) -> bool:
+    """True if `record` looks like a construction-safety plan (PSC/POS,
+    D.Lgs. 81/2008) rather than a property-specific fiscal/contractual
+    document. `paths` accepted for interface parity with
+    is_generic_regulatory_reference and OUT_OF_DOMAIN_DETECTORS' uniform call
+    shape; unused today (see comment above -- content-only, no path tokens)."""
+    text = record.get("text", "").lower()
+    return any(0 <= _marker_position(text, marker) <= CONSTRUCTION_SAFETY_MARKER_MAX_POSITION
+               for marker in CONSTRUCTION_SAFETY_CONTENT_MARKERS)
+
+
+# Ordered list of (gate_reason, detector) pairs consulted by property_facts_batch()
+# before ever calling extract_facts() on a document -- the single place to add a
+# newly-discovered out-of-domain document class, instead of growing a new bespoke
+# status string per type (that duplication was the user's own complaint about the
+# single-detector version of this gate, 2026-09-29). Every detector shares
+# is_generic_regulatory_reference's exact signature and fail-open contract: a
+# document matching none of them is always treated as in-domain.
+OUT_OF_DOMAIN_DETECTORS = (
+    ("GENERIC_REGULATORY_REFERENCE", is_generic_regulatory_reference),
+    ("CONSTRUCTION_SAFETY_DOCUMENT", is_construction_safety_document),
+)
+
+
+def _skip_reason(record: dict, paths: list[str] | None) -> tuple[str, str] | None:
+    """Returns (gate_status, gate_reason) if `record` should never reach
+    extract_facts(), else None. Two independent, deliberately separate
+    concerns, checked in this order:
+
+    1. Text quality (gmv_evidence_pipeline.text_quality_flags(), already
+       computed on every extract() SUCCESS record -- reused here unchanged,
+       not a new detector). A document whose extracted text is itself
+       garbled (a scanned/CAD cadastral map, a dense grid-form) can't
+       reliably yield real facts about ANY predicate, not just an
+       out-of-domain one -- checked first since a domain classification on
+       garbled text is unreliable too. Found live 2026-09-29: GERMIGNAGA's
+       own catasto document (numeric_line_fraction 0.649, short_line_fraction
+       0.744) produced "IMMOBILE SITO IN GERMIGNAG -> ha_tipo_documento ->
+       SCHEMA. FOGN△TURD。" -- OCR noise, not a real document type.
+    2. Domain relevance (OUT_OF_DOMAIN_DETECTORS above).
+
+    Deliberately NOT a fix for every source of nonsense: a real, clean,
+    property-relevant document (GERMIGNAGA's own atto di successione /
+    dichiarazione sostitutiva) was found the same day producing equally
+    nonsensical facts ("GERHiaNAGA -> ha_anno_imposta -> 01013") with
+    text_quality.possibly_garbled == False -- the model itself hallucinated
+    on good input. No deterministic pre-filter can catch that; it is the
+    same NuExtract3 reliability gap already documented elsewhere in this
+    project's memory, not a classification problem this function can solve."""
+    if record.get("text_quality", {}).get("possibly_garbled"):
+        return "SKIPPED_UNRELIABLE_TEXT", "GARBLED_TEXT"
+    reason = next((reason for reason, detector in OUT_OF_DOMAIN_DETECTORS
+                  if detector(record, paths=paths)), None)
+    if reason is not None:
+        return "SKIPPED_OUT_OF_DOMAIN", reason
+    return None
 
 
 def property_facts_output_path(fid: str | None, evidence_root: Path) -> Path | None:
@@ -305,20 +417,27 @@ def property_facts_batch(records: list[dict], registry: dict, evidence_root: Pat
             if resume and fid and manifest.get(fid, {}).get("status") in {"valid", "skipped"}:
                 skipped += 1
                 continue
-            # Generic regulatory/zoning reference gate: never runs NuExtract3 on these at
-            # all (see module-level GENERIC_REFERENCE_* comment) -- persisted as an
-            # explicit "skipped" status, not silently dropped, so a future cloud-LLM pass
-            # has a real worklist.
-            if is_generic_regulatory_reference(record, paths=index.get(fid, {}).get("paths")):
+            # Pre-extraction gate: never runs NuExtract3 on these at all (see
+            # _skip_reason() above) -- persisted as an explicit "skipped" status
+            # with a reason, not silently dropped, so a future cloud-LLM pass has
+            # a real worklist. One stable status per concern regardless of which
+            # detector fired -- adding a new detector never means adding a new
+            # status string.
+            paths = index.get(fid, {}).get("paths")
+            skip = _skip_reason(record, paths)
+            if skip is not None:
+                gate_status, gate_reason = skip
                 out_path = property_facts_output_path(fid, evidence_root)
                 if out_path is not None:
                     out_path.parent.mkdir(parents=True, exist_ok=True)
                     evidence.write_json(out_path, {"facts": [], "rejected_facts": [],
-                                                    "gate_status": "SKIPPED_GENERIC_REFERENCE"})
+                                                    "gate_status": gate_status,
+                                                    "gate_reason": gate_reason})
                     mark_property_facts_analyzed(evidence_root, fid, "skipped", property_id=property_id,
                                                   model=model, timeout=timeout)
                 log_node({"property_id": property_id, "file_id": fid, "chunk_id": "0", "parent_chunk_id": None,
-                          "depth": 0, "input_chars": len(record.get("text", "")), "outcome": "SKIPPED_GENERIC_REFERENCE",
+                          "depth": 0, "input_chars": len(record.get("text", "")),
+                          "outcome": gate_status, "gate_reason": gate_reason,
                           "facts": 0, "rejected_facts": 0, "split_performed": False})
                 continue
             record_facts = []
