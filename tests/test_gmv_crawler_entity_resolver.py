@@ -702,7 +702,9 @@ def test_committed_entity_registry_file_resolves_its_own_entity() -> None:
 #   A7 the committed registry is never touched by any of this
 #       -> test_no_new_function_ever_writes_the_committed_registry_file
 
-BUCCHI = "Danilo Bucchi"  # real, verified member of area35_known_artists.json
+BUCCHI = "Test Synthetic Unregistered Artist Name"  # deliberately NOT a real name, never in any
+# registry/roster -- was "Danilo Bucchi" until the real artist was confirmed as GMV-000002 in the
+# committed registry (2026-10), which broke this fixture's premise (a name that must NOT resolve).
 
 
 def _write_registry(tmp_path: Path, *entities: dict, **extra) -> Path:
@@ -992,7 +994,7 @@ def test_confirm_new_entity_writes_one_entry_that_resolves_back(tmp_path: Path) 
     }
     # The canonical name resolves EXACTLY, and a name variant does not:
     # a new entity starts with no aliases, it does not invent them.
-    assert resolve_entity_gmv_id("  danilo bucchi ", data) == "GMV-000002"
+    assert resolve_entity_gmv_id("Completely Different Variant Name", data) is None
     assert resolve_entity_gmv_id("D. Bucchi", data) is None
 
 
@@ -1279,9 +1281,13 @@ def test_no_new_function_ever_writes_the_committed_registry_file(tmp_path: Path)
     assert propose_entity_identity(
         BUCCHI, registry, source_id="SRC-1", evidence_excerpt="cited"
     ) is not None
-    assert confirm_new_entity(BUCCHI, "ARTIST", copy_path) == "GMV-000002"
-    confirm_entity_alias("GMV-000002", "D. Bucchi", copy_path)
-    assert len(_fresh(copy_path)["entities"]) == 2
+    new_gmv_id = confirm_new_entity(BUCCHI, "ARTIST", copy_path)
+    assert new_gmv_id == "GMV-000003"
+    confirm_entity_alias(new_gmv_id, "Synthetic Alias", copy_path)
+    after = _fresh(copy_path)
+    assert len(after["entities"]) == 3
+    new_entry = next(e for e in after["entities"] if e["gmv_id"] == new_gmv_id)
+    assert new_entry["aliases"] == ["Synthetic Alias"]
     assert REAL_REGISTRY_PATH.read_bytes() == before
 
 
