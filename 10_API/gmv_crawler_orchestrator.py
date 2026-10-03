@@ -113,7 +113,9 @@ from gmv_crawler_document_classifier import classify_document  # noqa: E402 -- r
 from gmv_crawler_entity_resolver import (  # noqa: E402 -- reused, not reimplemented
     EntityIdentityProposal,
     EntityTypeProposal,
+    _forma,
     _load_entity_registry,
+    _load_known_places,
     propose_entity_identity,
 )
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402 -- reused, not reimplemented
@@ -410,13 +412,18 @@ def process_document(
     )
 
     registry = _load_entity_registry()
+    known_places = _load_known_places()
+    filtered_entities = tuple(
+        entity for entity in entities
+        if _forma(entity.name) not in known_places
+    )
     identity_proposals = tuple(
         proposal for proposal in (
             propose_entity_identity(
                 entity.name, registry,
                 source_id=entity.source_id, evidence_excerpt=entity.evidence_excerpt,
             )
-            for entity in entities
+            for entity in filtered_entities
         )
         if proposal is not None
     )
@@ -497,6 +504,11 @@ def process_document(
     # proposals, and the human reading the identity queue sees "this name
     # appeared N times" by querying on raw_name. Collapsing them here
     # would be this function deciding they are one entity.
+    known_places_w = _load_known_places()
+    work_subject_propositions_filtered = tuple(
+        proposition for proposition in work_subject_propositions
+        if _forma(proposition.subject_raw) not in known_places_w
+    )
     work_identity_proposals = tuple(
         proposal for proposal in (
             propose_entity_identity(
@@ -505,7 +517,7 @@ def process_document(
                 evidence_excerpt=proposition.evidence_excerpt,
                 suggested_entity_type="WORK",
             )
-            for proposition in work_subject_propositions
+            for proposition in work_subject_propositions_filtered
         )
         if proposal is not None
     )

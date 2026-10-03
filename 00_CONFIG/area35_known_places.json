@@ -1,0 +1,18 @@
+{
+  "note": "GMV Crawler — known places (geographic names). Human-curated list of bare geographic references observed to create noise in the identity proposal queue. Read-only by the pipeline; maintained by humans only.",
+  "note_on_maintenance": "Only add a name here if it is a genuinely bare geographic reference (city/country/region) with no real institutional identity to verify in the context of this project. If uncertain, DO NOT ADD — flag for human review instead.",
+  "places": [
+    "Alessandria d’Egitto",
+    "Amsterdam",
+    "Baku",
+    "Buenos Aires",
+    "EGITTO",
+    "Giardini Naxos",
+    "ITALIA",
+    "Il Cairo",
+    "New York",
+    "Pechino",
+    "Roma",
+    "Singapore"
+  ]
+}

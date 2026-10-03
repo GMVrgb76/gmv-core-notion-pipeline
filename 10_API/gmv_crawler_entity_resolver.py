@@ -1056,3 +1056,15 @@ def confirm_entity_alias(gmv_id: str, new_alias: str, registry_path: Path) -> st
         f"Ids actually present: {present!r}. To register a brand-new entity use "
         "confirm_new_entity(), which mints the next sequential id itself."
     )
+
+# --- known places (read-only, deterministic) ---
+
+PLACES_PATH = REPO_ROOT / "00_CONFIG" / "area35_known_places.json"
+
+
+def _load_known_places() -> frozenset[str]:
+    """Human-curated set of bare geographic references that should never be
+    queued for identity proposal (no stable identity to confirm). Same
+    no-network, read-only discipline as the other roster loaders."""
+    data = json.loads(PLACES_PATH.read_text(encoding="utf-8"))
+    return frozenset(_forma(name) for name in data["places"])
