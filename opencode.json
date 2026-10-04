@@ -46,7 +46,7 @@
     },
     "webfetch": "ask",
     "websearch": "ask",
-    "external_directory": "ask",
+    "external_directory": "allow",
     "task": "ask",
     "skill": "allow",
     "question": "allow",

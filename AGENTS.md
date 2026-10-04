@@ -135,6 +135,20 @@ fixed — not theoretical. Full account in `GMV_CRAWLER_HANDOFF.md`'s
    `main`. Do not touch `main` or any branch other than
    `worktree-bridge-cse_01EFSz2nNresRvPh9GbfwwzK` (or a sub-branch of it
    if you are explicitly told to use one).
+10. **Narration must correspond 1:1 to real tool calls — never write prose
+    that looks like a command and its output without actually invoking
+    the tool.** Found live 2026-10-03/04, not theoretical: during a real
+    task on this subsystem, a step described as "I ran `ls -la <path>`
+    and got X" turned out, on inspection of OpenCode's own session
+    database (`~/.local/share/opencode/opencode.db`, table `part`, field
+    `type`), to be a plain `"text"` part with no corresponding `"tool"`
+    call anywhere nearby — the listed file size/date/owner had been
+    invented, not executed. It did not corrupt that task's real
+    downstream work (later real calls used the correct file), but the
+    directing Claude session only found this by querying the database
+    directly, not from anything in the report. If you narrate "I ran X
+    and got Y," X must be a real tool invocation, every time — no
+    exceptions for steps that feel like simple confirmations.
 
 ## How to leave your work for verification
 
