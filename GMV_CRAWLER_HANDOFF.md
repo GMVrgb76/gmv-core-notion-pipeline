@@ -927,6 +927,75 @@ explicitly as a 7th item for step 16 and beyond:
                                           production-usable.
 ```
 
+## Status as of 2026-10-04 evening (read this before "How to continue" below — some of it is stale)
+
+Written by the directing Claude session so the next session (human or AI) can restart with a
+clear, verified picture instead of re-deriving one. Everything below was independently verified
+this session (re-read the real code/files/hashes myself), not just taken from opencode's reports.
+
+**The single biggest fact**: this pipeline has gone from "1 atom ever built, 3 days of runs" to
+**7 real materialized Monads**, all backed up, with a real end-to-end path proven to work. Some
+claims in "How to continue" below (written much earlier) are now outdated — specifically #3 ("no
+orchestration loop exists") and #8 ("DropboxConnector never driven end-to-end against a real
+account") no longer hold: `gmv_crawler_orchestrator.py::process_document()` is a real, working,
+repeatedly-exercised orchestration function (extract → classify → build ATTRIBUTE+RELATION atoms
+→ identity-propose → this session additionally wires PUBLIC-text composition), and
+`DropboxConnector` has been driven against the real account dozens of times this session with
+real downloads, real `content_hash()` verification, zero failures attributable to the connector
+itself.
+
+**What's real right now:**
+- Entity registry (`00_CONFIG/gmv_entity_registry.json`): 7 confirmed entities (`GMV-000001`
+  Federico Garibaldi, `GMV-000002` Danilo Bucchi, `GMV-000003` Manuel Bonfanti, `GMV-000004`
+  Florencia Bruck / alias `Florencia S.M. Brück`, `GMV-000005` Davide Genna, `GMV-000006` Nicola
+  Evangelisti, `GMV-000007` Katia Dilella).
+- `03_STATE/ombra/`: 7 materialized Monad `.md` files, one per entity above. All mirrored to
+  `~/.gmv_backups/ombra/` (hash-verified, `10_API/gmv_monad_backup.py`, new this session).
+- **All 7 Monads have real, non-empty `# PUBLIC` text. Zero have any `# ATOMS` rows.** This is the
+  one fact most worth internalizing: the win so far is entirely on the free-text leg
+  (`10_API/gmv_crawler_unmapped_narrative.py::compose_unmapped_narrative()`, new this session,
+  assembles verbatim unmapped-rejection excerpts into PUBLIC text — zero LLM, zero new governance),
+  not on governed RELATION/ATTRIBUTE facts. None of these 7 real biographies happened to contain
+  either an already-mapped RELATION phrase or the specific "technique, WxH cm" caption pattern
+  `split_medium_dimensions_captions()` targets.
+- Geography noise in the identity-proposal queue is now filtered two ways: a hand-curated city
+  list (`00_CONFIG/area35_known_places.json`) and `pycountry` for ISO 3166-1 country names
+  (`_is_known_country()` in `gmv_crawler_entity_resolver.py`). Known gap: non-English/parenthetical
+  forms ("Italia", "Bergamo (Italy)") still get through.
+- GBrain (the separate, already-installed personal-knowledge-brain product this session connected
+  as the Shadow's consumption layer) is running locally (`gbrain serve --http`, 127.0.0.1:3131
+  only) and registered as an MCP server in Claude Code's own config. It has imported the Monad
+  directory at least once this session, but **re-import after the 5 newest Monads landed has not
+  been confirmed** — check `gbrain doctor`/`gbrain search` before assuming it's current.
+
+**What was investigated and found NOT to be a real gap (don't re-propose these)**:
+- Registering a new ATTRIBUTE predicate for descriptive-practice language ("explores", "combines"
+  — real survey, Task 28: 9 occurrences, 9 distinct raw texts, zero repetition — no stable pattern
+  exists to govern).
+- Adding `medium`/`dimensions` entries to `crawler_predicate_text_mapping.json` — that file is
+  RELATION-only by a hard-coded import-time guard in `gmv_crawler_relation_atom_builder.py`
+  (verified by reproducing the real `RuntimeError`); `medium`/`dimensions` are already wired
+  correctly through a completely different, already-production mechanism,
+  `split_medium_dimensions_captions()`, called from the orchestrator. The real reason these 7
+  Monads have 0 atoms is that none of their source documents contain that mechanism's specific
+  trigger pattern — not that the mechanism is missing.
+
+**The two real, still-open threads for tomorrow** (investigated, not yet acted on):
+1. **CSV/manifest misrouting**: a real chunk of the (stale, 2026-09-25) `rejection_queue.jsonl`
+   backlog (~670+ lines: `MOVE_CANONICAL`/`MOVE_TEMP_IMPORT`/`MOVE_DUPLICATE`) is file-management
+   metadata from `source_manifest.csv`-type files run through the prose-extraction pipeline by
+   mistake — same class of bug as the already-fixed price_list/contract misrouting, needs the same
+   `classify_document()`-style exclusion but for non-prose file types.
+2. **Exhibition-participation verb forms**: real, repeated raw predicates close to already-mapped
+   forms (`"present"` x210, `"exhibited"` x197, `"held"` x141, `"mostra"` x85, `"held at"` x76,
+   `"presente"` x71, `"exhibited at"` x56) in the same stale queue — the most promising real lead
+   for actually getting RELATION atoms out of biography-type documents, but every one needs a real
+   domain/range check against a real example before mapping (this session caught a real
+   Garibaldi/`located_at` subject-shape error doing exactly this kind of check — don't skip it).
+
+Both are real, scoped, not yet started. Neither requires a new design decision — both are
+curation/filtering work following precedent already established this session.
+
 ## How to continue
 
 **There is no next numbered step — §33's order is fully built.** What
