@@ -1283,14 +1283,23 @@ def test_no_new_function_ever_writes_the_committed_registry_file(tmp_path: Path)
     copy_path = tmp_path / "registry-copy.json"
     copy_path.write_bytes(before)
     registry = _fresh(copy_path)
+    before_count = len(registry["entities"])
+    before_ids = {e["gmv_id"] for e in registry["entities"]}
     assert propose_entity_identity(
         BUCCHI, registry, source_id="SRC-1", evidence_excerpt="cited"
     ) is not None
+    # Deliberately NOT a hardcoded "GMV-00000N" literal: this test runs
+    # against the REAL committed registry, whose size grows over time as
+    # real entities are confirmed (GMV-000003..007 confirmed 2026-10-04,
+    # breaking an earlier hardcoded "GMV-000003"/count==3 version of this
+    # exact assertion). Asserting the real invariant (a genuinely new id,
+    # count +1) instead of a snapshot of today's size keeps this test true
+    # regardless of how many real entities exist when it runs.
     new_gmv_id = confirm_new_entity(BUCCHI, "ARTIST", copy_path)
-    assert new_gmv_id == "GMV-000003"
+    assert new_gmv_id not in before_ids
     confirm_entity_alias(new_gmv_id, "Synthetic Alias", copy_path)
     after = _fresh(copy_path)
-    assert len(after["entities"]) == 3
+    assert len(after["entities"]) == before_count + 1
     new_entry = next(e for e in after["entities"] if e["gmv_id"] == new_gmv_id)
     assert new_entry["aliases"] == ["Synthetic Alias"]
     assert REAL_REGISTRY_PATH.read_bytes() == before

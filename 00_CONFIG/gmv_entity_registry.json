@@ -17,6 +17,43 @@
       "canonical_name": "Danilo Bucchi",
       "aliases": [],
       "status": "ACTIVE"
+    },
+    {
+      "gmv_id": "GMV-000003",
+      "entity_type": "ARTIST",
+      "canonical_name": "Manuel Bonfanti",
+      "aliases": [],
+      "status": "ACTIVE"
+    },
+    {
+      "gmv_id": "GMV-000004",
+      "entity_type": "ARTIST",
+      "canonical_name": "Florencia Bruck",
+      "aliases": [
+        "Florencia S.M. Brück"
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "gmv_id": "GMV-000005",
+      "entity_type": "ARTIST",
+      "canonical_name": "Davide Genna",
+      "aliases": [],
+      "status": "ACTIVE"
+    },
+    {
+      "gmv_id": "GMV-000006",
+      "entity_type": "ARTIST",
+      "canonical_name": "Nicola Evangelisti",
+      "aliases": [],
+      "status": "ACTIVE"
+    },
+    {
+      "gmv_id": "GMV-000007",
+      "entity_type": "ARTIST",
+      "canonical_name": "Katia Dilella",
+      "aliases": [],
+      "status": "ACTIVE"
     }
   ]
 }
