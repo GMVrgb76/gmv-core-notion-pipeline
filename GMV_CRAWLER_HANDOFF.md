@@ -1688,3 +1688,132 @@ section is the one place it writes.
   variable-name typo AFTER printing every number quoted above, so the log
   `/tmp/opencode/task29/live_rerun.log` is the artifact of record (162 + 159
   = 321 printed proposals, internally consistent).
+
+- **2026-10-04 — Task 31 done: `compose_unmapped_narrative()` routes
+  `PREDICATE_TEXT_NOT_MAPPED` rejections into a Monad's `# PUBLIC` (task
+  brief `opencode_task_31.md`).** Read before writing, in full:
+  `gmv_crawler_public_projector.py` (its stated atoms→PUBLIC scope and
+  its "Reuse, verified by import line" inventory), `gmv_monad_materializer.py`
+  (`materialize_monad()` takes `public_text` as a plain string and writes
+  it verbatim — unchanged, as the brief requires), `gmv_crawler_atom_builder.py`
+  (`RejectedCandidate`, all 8 fields; `_rejected()`; the
+  `"ATOM-"+sha256(source_id|ref)[:16]` id formula),
+  `gmv_crawler_relation_atom_builder.py` (pass 1 `predicate_id is None`
+  is the real writer of the reason code),
+  `gmv_crawler_candidate_extractor.py`, `gmv_crawler_orchestrator.py`'s
+  documented routing, `gmv_crawler_entity_resolver.py::resolve_entity_gmv_id()`,
+  and `00_CONFIG/crawler_predicate_text_mapping.json`'s own governance note.
+
+  Placement: a NEW small module `10_API/gmv_crawler_unmapped_narrative.py`,
+  not a sibling inside `gmv_crawler_public_projector.py` — grounded in what
+  that file actually says, not preference: `RejectedCandidate` has no STATUS,
+  VISIBILITY, PREDICATE_CLASS or OBJECT_TYPE, so none of that module's
+  `select_public_atoms()` gates has a field to read; its docstring promises
+  its output is "the exact string a caller should pass as
+  `MonadDocument.public_text`", which two different producers in one module
+  would make ambiguous; and importing `RejectedCandidate` there would add a
+  step-15→atom-builder dependency edge that its own inventory would then
+  misreport. `project_public()` and `gmv_monad_materializer.py` are NOT
+  modified (`git diff` empty for both).
+
+  What it does: filter to `reason_code == "PREDICATE_TEXT_NOT_MAPPED"`,
+  drop rows with no non-whitespace character, collapse exact-string
+  duplicates to first occurrence, join with `"\n\n"`. Pure: no I/O, no
+  registry, no network, no clock, no LLM. **One deliberate narrowing after
+  re-reading the brief in full**: an earlier draft stripped each excerpt
+  before dedup AND before emitting. It now emits the stored
+  `evidence_excerpt` unmodified and dedups on it unmodified; `.strip()`
+  survives only as the emptiness test. Reason: the brief asks for "verbatim
+  only" and "exact string equality", and the in-repo precedent for
+  strip-then-compare (`resolve_entity_gmv_id()`) documents WHY it normalizes
+  — a registry name must match despite a model spelling it `Garibaldi,
+  Federico` — which does not transfer to a quoted passage. Measured on the
+  real Garibaldi document, stripping was a no-op (all 9 real excerpts
+  already free of surrounding whitespace) and the rendered `.md` is
+  byte-identical under both readings, so the stricter rule costs nothing
+  demonstrated. Disclosed consequence: two rows quoting the same sentence
+  with different incidental whitespace are NOT collapsed, because they are
+  not the same string; pinned by a test so a future normalization has to be
+  deliberate.
+
+  Live proof, real Dropbox document
+  `/gmv_master_system/01_area35_master/01_artists/garibaldi_federico/00_master/2026_06_17_mutualart_biography.md`
+  (1591 bytes, rev `65474cd3bd4cb028b377d`, sha256
+  `a68cd8c60bc80d631b6a7d7e9c89364176728d4a5502d6aa21bf06953c36a00b` —
+  `sha256_file()` and the connector's own `content_hash()` agree):
+  extraction SUCCESS (`text`) → 20 entities / 9 propositions / 0 extraction
+  rejections → `build_atoms()` 0 built, 0 rejected → `build_relation_atoms()`
+  0 built, **9 rejected, all `PREDICATE_TEXT_NOT_MAPPED`** (the real mapped
+  text→predicate JSON has no entry for `explores`, `combines`,
+  `investigating`, `presented`, `held`, `earning`, `acquired`, `presenting`,
+  `under the patronage of`). `GMV-000001` confirmed as Federico
+  Garibaldi/ARTIST/ACTIVE in `00_CONFIG/gmv_entity_registry.json` before use.
+  `03_STATE/ombra/GMV-000001.md` materialized: PUBLIC = 6 paragraphs /
+  558 chars, ATOMS = header rows only (empty, unchanged, not papered over),
+  SOURCES = 1 row with the real Dropbox locator. `GMV-000002.md` (Bucchi)
+  untouched. `03_STATE/` is gitignored, so the proof artifact is local.
+
+  Two things I decided in the PROOF SCRIPT only, not in the module, and the
+  brief does not mention either — flagging rather than burying: (a) I passed
+  to the function only the 6 rejections whose `subject_raw` resolves to
+  `GMV-000001` via `resolve_entity_gmv_id()`, because 3 of the 9 rejections
+  are about `Museo di Palazzo Ravaschieri`, `AttraversaMenti` and `A New
+  Horizon Unfolds. Venice, Riyadh and the Legacy of Marco Polo` — none of
+  them is in the entity registry, and putting their sentences in Garibaldi's
+  Monad would be factually wrong content in a knowledge artifact. Feeding
+  all 9 as the brief's literal "the real `rejected` tuple" wording reads
+  would give 804 chars / 7 paragraphs, i.e. 3 paragraphs about other
+  subjects; that number is recorded so the choice can be reversed if the
+  brief meant it literally. (b) The rendered HASH is bare hex, matching the
+  existing `GMV-000002.md` row, while the connector's own `content_hash()`
+  is `sha256:`-prefixed; nothing in the materializer validates the format.
+
+  Also measured, not assumed: all 6 emitted paragraphs are byte-for-byte
+  substrings of the real source document (6/6). That is a property of THIS
+  document and model, not a guarantee — `gmv_crawler_candidate_extractor.py`'s
+  `DEFAULT_MODEL` comment records ~4.5% non-substring excerpts for
+  `numind/nuextract3:q4_k_m` and ~15.7% for `gemma4:12b` over 4 real
+  documents, and this function cannot detect or fix that (it has no access
+  to the source document by design).
+
+  Tests: `tests/test_gmv_crawler_unmapped_narrative.py`, 18 tests. Two are
+  grounding tests that EXECUTE the real producer rather than grep a file:
+  `build_relation_atoms()` run with a real unmapped predicate asserting the
+  `reason_code` it really writes, and a field-by-field read of the committed
+  real snapshot `00_CONFIG/crawler_snapshots/rejection_queue_2026-09-17_garibaldi.jsonl`
+  (8 rows, exactly 2 distinct codes, 7 eligible; it carries no `excerpt`
+  field, which the test states rather than working around). Mutation-checked
+  with 11 adversarial mutations (no filter, dedup-before-filter, no emptiness
+  guard, wrong separator, sorted output, case-folded key, case-folded claim,
+  strip-before-emit, no dedup, bullet marker added, inverted eligibility) —
+  all 11 caught, source restored byte-identical.
+
+  Full suite **1304 passed, 1 failed**; `ruff check .` clean. The single
+  failure is the same pre-existing, unrelated
+  `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`
+  — 4 `personal_absolute_path` findings in `automation/gmv_crawler_review_tool.py`
+  (lines 16, 49) and `automation/run_nightly.sh` (lines 16, 17), both files
+  untouched here (`git status --porcelain automation/` empty). Both new files
+  are untracked, so `POLICY.tracked_files()` does not include them.
+
+  Honest read, since it decides whether this generalizes: the output is
+  readable but NOT prose. It is six verbatim fragments, several starting
+  mid-sentence (`whose work explores …`, `investigating …`, `in 2019 held
+  …`) with no subject, because the brief forbids adding a subject prefix or
+  any synthesis and the model's excerpts are clause-level. Good enough as a
+  faithful, auditable "there is real text here that no predicate fits"
+  record; NOT good enough to ship as a reader-facing biography section. Two
+  things would have to happen first, both out of this task's scope: the
+  §14 epistemic gate this module explicitly cannot evaluate (no STATUS,
+  VISIBILITY or `validate_atom()` behind any of these sentences), and some
+  non-synthetic way to get sentence-level rather than clause-level excerpts.
+
+  NOT done, deliberately: no ontology/mapping edit, no `project_public()` or
+  materializer edit, no orchestrator wiring (nothing calls
+  `compose_unmapped_narrative()` in production yet — it is a proof-backed
+  library function, and who selects which rejections belong to which Monad
+  is the caller's call), no `sqlite3`/DML/write anywhere, no Run Ledger
+  integration. Could not verify: whether brief step 2's "exact string
+  equality" was intended to mean whitespace-normalized equality — I took the
+  literal reading and documented the alternative in the module docstring; the
+  live data cannot distinguish the two.
