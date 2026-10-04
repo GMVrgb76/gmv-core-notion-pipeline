@@ -1817,3 +1817,131 @@ section is the one place it writes.
   equality" was intended to mean whitespace-normalized equality — I took the
   literal reading and documented the alternative in the module docstring; the
   live data cannot distinguish the two.
+
+- **2026-10-04 — Task 30 done: standalone backup for materialized Monads
+  (`10_API/gmv_monad_backup.py`, brief `opencode_task_30.md`).** Read
+  before writing: `10_API/secure_storage.py` (all 56 lines),
+  `00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md` (`03_STATE/` and
+  `03_STATE/ombra/` rows), `10_API/backup_service.py::create_backup()`
+  (line 184) and `::main()` (line 436), `tests/conftest.py`,
+  `tests/security/`, `scripts/check_runtime_git_policy.py`,
+  `tests/test_write_authorization.py`, and the real construction pattern
+  in `tests/test_gmv_monad_materializer.py`.
+
+  **The brief's premise correction is confirmed by reading the code:**
+  `create_backup()` backs up exactly two things — `09_DATABASE/GMV.db`
+  via `_sqlite_backup()` and a `git archive HEAD` tarball — and its own
+  manifest records `"excluded": ["runtime", "cache", "temporary outputs",
+  "generated indexes"]`. Nothing in production backs up `03_STATE/ombra/`
+  today, so `gmv_monad_materializer.py`'s "within
+  `secure_storage.py`'s/`backup_service.py`'s perimeter" phrase is a
+  spec-level statement about write safety, not about an existing backup.
+
+  **`SOURCE_RUNTIME_BOUNDARIES.md`, verbatim.** `03_STATE/` row:
+  "Full-system backup after S002-20; never Git". `03_STATE/ombra/` row:
+  "Full-system backup after S002-20; never Git. Sub-path decision
+  (crawler preplan step 8/9 handoff, this session): the canonical on-disk
+  directory for materialized Monad `.md` files (the \"Ombra\") produced by
+  `10_API/gmv_monad_materializer.py`. Already covered by `03_STATE/`'s
+  existing \"Live state\" classification above; called out separately only
+  because a caller-supplied `target_path` needed a concrete default. No
+  new top-level path or governance class was created." It did not change
+  the approach: no conflicting convention exists for this directory, and
+  this module does not claim to discharge the wider `03_STATE/`
+  full-system obligation.
+
+  **Destination: `~/.gmv_backups/ombra`**, the same root
+  `backup_service.py::main()`'s own `--root` already defaults to (line
+  436), in its own `ombra/` subfolder. Verified non-interference live
+  after the run: `sets/` still holds the same 145 entries with no new
+  `BKP-id`, and `audit/` is untouched. `Path.home()` rather than a
+  literal because the repo's own `scripts/check_runtime_git_policy.py`
+  flags hardcoded per-account absolute paths in tracked files — and
+  because the autouse `isolated_gmv` fixture redirects `HOME` to
+  `tmp_path`, which is the only reason letting the module pick its own
+  destination is safe in a test suite at all. That redirect is asserted
+  by a test rather than assumed.
+
+  Design decisions, each with the failure mode it avoids:
+  - `rglob("*.md")` + destination mirroring the relative path, not
+    `glob` + a flat destination. `glob` would silently skip a nested
+    Monad and still report success; a flat destination would let two
+    same-named files in different subdirectories overwrite each other,
+    also silently. Both pinned.
+  - An absent source directory AND an existing-but-empty one both return
+    `()` without raising or creating anything — `03_STATE/` is gitignored,
+    so on a fresh clone the Ombra does not exist at all. Disclosed cost:
+    a typo'd source path is a quiet no-op too, which is why the CLI
+    prints the source it used.
+  - Read with `newline=""`. This is the one real correctness risk in a
+    read/write backup: `Path.read_text()` defaults to universal-newline
+    mode, which rewrites `\r\n` and lone `\r` to `\n`, so a CRLF source
+    would be "backed up" with silently normalized line endings — content
+    changed, no error raised. Measured before relying on it: with
+    `newline=""` a CRLF file round-trips byte-identically, with the
+    default it does not. Pinned for both shapes.
+  - Honest precondition, not hidden: the source must be valid UTF-8 or
+    `read_text()` raises `UnicodeDecodeError` and leaves no partial
+    backup. Every file `materialize_monad()` writes is UTF-8 by
+    construction, so this is the producer's property, not a new
+    restriction.
+  - **Current-state mirror, not an archive.** Two runs on different days
+    leave one copy, the newer one. No manifest, no verify, no retention,
+    no audit log. If a dated, verified, restorable history is wanted,
+    `backup_service.py`'s `sets/<BKP-id>/` + `manifest.json` +
+    `verify_backup()` is where it belongs, and wiring Ombra files into
+    that schema is out of scope here.
+
+  Live proof, real CLI, real destination, no `HOME` redirect:
+  `python 10_API/gmv_monad_backup.py` reported `backed up : 2` and wrote
+  `~/.gmv_backups/ombra/GMV-000001.md` and `GMV-000002.md`. `cmp`
+  reports no differences and sha256 matches on both sides for both
+  files (`GMV-000001` `9382eb4f...344579`, `GMV-000002` `da42976d...2240ca`);
+  source hashes and `0600` modes unchanged after the run, i.e. the
+  backup did not touch live state. Destination dir is `0700`, files
+  `0600`, inherited from `secure_storage` rather than set separately.
+
+  Tests: `tests/test_gmv_monad_backup.py`, 22 tests. The headline ones do
+  NOT use a hand-written `.md` — they call the real
+  `materialize_monad()` and back up what it produced, so what is proven
+  is that the two real components compose. No test reads `03_STATE/`:
+  `SOURCE_RUNTIME_BOUNDARIES.md` classes `tests/` as "Fixture" with "live
+  data prohibited", so the real on-disk Ombra is proven in the live proof
+  only. Two of my own scope tests were wrong on the first run — they
+  grepped the module's raw text and so matched its own docstring
+  explaining what it refuses to touch. Rewritten as AST checks over
+  imports and call names, following the approach
+  `tests/test_write_authorization.py` already uses for its own static
+  DML/DDL scan. 13 adversarial mutations all caught, source restored
+  byte-identical: `rglob`->`glob`, flat destination, `newline` translation
+  reintroduced, plain `write_text` instead of the secure primitive,
+  `shutil.copy`, missing dir raising, destination created on an empty
+  run, suffix filter widened, returning nothing, replacing suppressed,
+  source clobbered after copy, only the first file copied, unsorted
+  return order.
+
+  Two bugs my own checks caught, worth recording because both would have
+  shipped silently: the first draft used `OMBA_BACKUP_DIRNAME` where the
+  definition was `OMBRA_BACKUP_DIRNAME` (ruff F821, and confirmed by
+  importing the module and reading the `NameError`'s own "Did you mean"),
+  and the module docstring's first draft quoted the two POSIX home path
+  shapes literally, which `check_runtime_git_policy.py` flagged as
+  `personal_absolute_path` in a tracked file — the policy text describing
+  the policy tripped the policy.
+
+  Full suite **1326 passed, 1 failed**; `ruff check .` clean. The single
+  failure is the same pre-existing, unrelated
+  `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`
+  — still exactly the same 4 `personal_absolute_path` findings in
+  `automation/gmv_crawler_review_tool.py` (16, 49) and
+  `automation/run_nightly.sh` (16, 17), files untouched here. Checked
+  explicitly with both new files STAGED, so the audit really did scan
+  them: 4 findings, all in `automation/`, none from this task.
+
+  NOT done, deliberately: no edit to `backup_service.py` or its manifest
+  schema, no edit to `gmv_monad_materializer.py`, no SQL, no new
+  dependency, no `11_CLI/gmv` subcommand, no `sqlite3`/DML anywhere, no
+  change to the `sets/` retention model. Could not verify: whether a
+  current-state mirror is sufficient for the operator's real recovery
+  needs — "Full-system backup after S002-20" arguably implies dated,
+  verified sets, which this module deliberately does not provide.
