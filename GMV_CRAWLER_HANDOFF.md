@@ -1553,3 +1553,138 @@ section is the one place it writes.
   nessuna run reale notturna (nessuna rete, nessun Ollama in questa sessione); gli atomi
   sintetici sono provati solo su test + live proof, non ancora materializzati in un
   Monad; e `creation_year` resta senza fonte pulita (fuori scope, dichiarato).
+
+- **2026-10-04 — Task 29 done: deterministic COUNTRY-level geography filter
+  via `pycountry`, wired into both identity-queue filter points (brief
+  `opencode_task_29.md`).** Read before writing: `gmv_crawler_entity_resolver.py`
+  in full (all three `_load_known_*()` siblings and their stated
+  "re-read every call, nothing cached" reasoning, plus `resolve_entity_gmv_id()`/
+  `propose_entity_identity()`), `gmv_crawler_orchestrator.py::process_document()`
+  in full (both Task 26/27 filter points), `area35_validator.py::_forma()` and
+  `norm()` (lines 50-56, 386-390 — NFKD accent strip, lowercase, comma
+  inversion, **tokens sorted, one-character tokens dropped**),
+  `00_CONFIG/area35_known_places.json` (the 12 curated names), the existing
+  mocking convention in `tests/test_gmv_crawler_orchestrator.py`, and both
+  static security boundary tests (`test_sqlite_connection_boundary.py`,
+  `test_write_authorization.py` — this change adds no `sqlite3`, no DML, no
+  write of any kind, so neither is in play). Read pycountry's OWN source in
+  `.venv/.../pycountry/db.py` and `pycountry/__init__.py` rather than trusting
+  its docs.
+
+  **What I verified empirically, not assumed (the reason the implementation
+  looks the way it does):**
+  1. `pycountry.countries.lookup()` is a TRAP for this use. `Database.lookup()`
+     loops over `self.indices`, and `ExistingCountries` indexes **every**
+     field — `alpha_2`, `alpha_3`, `numeric`, `flag` included. Verified:
+     `lookup("IT")`→Italy, `lookup("IN")`→India, `lookup("NO")`→Norway,
+     `lookup("380")`→Italy, `lookup("🇮🇹")`→Italy. Filtering on that would
+     silently drop bare two-letter tokens and bare numbers from the identity
+     queue. **This is why the implementation builds a set of NAME keys and
+     never calls `lookup()`**, and there is a dedicated adversarial test that
+     first asserts the trap is live for all 12 probes, then asserts we avoid it.
+  2. `common_name` is real but sparse — present on exactly **11 of 249**
+     records (BO, IR, KR, KP, LA, MD, SY, TW, TZ, VE, VN), absent on the other
+     238, so a bare `record.common_name` would raise AttributeError for most of
+     the world. It is also load-bearing: for those 11 it is often the ONLY
+     everyday spelling ("Iran" appears nowhere in ISO 3166-1 as `name` or
+     `official_name`). `official_name` is present on 173 and differs from
+     `name` on 241 of 249. So the field tuple is `("name","official_name",
+     "common_name")`, read through `record._fields.get(...)`.
+  3. `_forma()` is safe here despite being lossy (it sorts tokens, so "United
+     States" keys as "states united") because BOTH sides call it. The built set
+     is **417 keys, zero empty key, zero keys shared by two different
+     countries** — verified against the real dataset, and pinned by a test.
+  4. `historic_countries` is NOT added, on evidence. ISO 3166-3 stores the
+     INVERTED English ISO form ("USSR, Union of Soviet Socialist
+     Republics"), and the only strings matching its 31 records are those
+     literal inverted forms: "Soviet Union", "USSR", "Yugoslavia",
+     "Czechoslovakia" — and the Italian "Unione Sovietica", "Jugoslavia",
+     "Cecoslovacchia" — all MISS. Across the 321 distinct entity names of the
+     7 real documents in the Task 28 survey there are **zero**
+     historic-country hits. The brief said "don't add unused surface", so it is
+     left out; worth revisiting only if a real document ever names a former
+     country in ISO's own inverted wording.
+  5. Memoizing is safe here and the cost was measured, not guessed: building
+     the set is ~0.8 ms vs ~1.15 µs per lookup, so rebuilding per candidate
+     entity would be ~700× the cost of the check. The three `_load_known_*()`
+     siblings re-read every call on purpose because a human can edit a
+     hand-curated file mid-run; pycountry's dataset is static version-pinned
+     JSON in `site-packages` and cannot change mid-run. This is the one place
+     I deliberately departed from the sibling pattern, and the docstring says
+     so explicitly.
+
+  What I changed: `pycountry==26.2.16` pinned in `requirements-dev.txt` (the
+  real, actually-used dependency file — `pyproject.toml` has deliberately
+  empty `dependencies = []`); `_COUNTRY_NAME_FIELDS`, `@cache
+  _country_name_keys()` and `_is_known_country(name)` appended to
+  `gmv_crawler_entity_resolver.py` after `_load_known_places()`; both filter
+  points in `process_document()` extended with `and not _is_known_country(...)`
+  (the `CandidateEntity` loop and the WORK-subject loop); 9 new tests in
+  `tests/test_gmv_crawler_entity_resolver.py` and 4 in
+  `tests/test_gmv_crawler_orchestrator.py`. Three of the new tests are
+  mutation-verified: reverting the WORK-subject filter fails
+  `..._covers_the_work_subject_loop`; turning the check into a substring rule
+  fails `test_country_filter_is_exact_and_never_substring`; dropping
+  `common_name` fails both `test_country_filter_set_is_built_from_the_real_pycountry_dataset`
+  and `test_common_name_is_the_only_everyday_form_for_eleven_countries`.
+
+  **Step 4 of the brief asked me to remove from `area35_known_places.json` any
+  entry `pycountry` now catches, naming `ITALIA` and `EGITTO` — I did NOT
+  remove them, and the file is unchanged.** Verified: pycountry is
+  English-only, `lookup`/`_forma` both miss "Italia" and "Egitto" (and
+  "Spagna"), and `_is_known_country("ITALIA")` is False. The brief said
+  "confirm before removing, do not remove on assumption"; the confirmation
+  came back negative, so the curated file keeps carrying those two countries
+  by hand. That is a real, disclosed gap of the pycountry approach, not a
+  silent narrowing: a future sweep of Italian/other non-English country names
+  is curation work, not something this dependency can do.
+
+  Live re-run (step 7), real numbers: the real Danilo Bucchi document
+  `/gmv_master_system/01_area35_master/01_artists/bucchi_danilo/10_md_processed_files/09_temp_import__danilo bucchi cat.pdf.md`,
+  real Dropbox `metadata()` → size **11339**, content hash
+  `sha256:b2c9df372366c708e7b736723dfd7df6b6f94b46a61270e480aa568e5f7a8fc9`
+  (matches Task 24's independently verified reading), `extract_document()`
+  SUCCESS / text / 10986 chars, real `extract_candidates()` against
+  `numind/nuextract3:q4_k_m` at temperature=0 seed=42 → **167 entities, 85
+  propositions, 0 extraction rejections**. That ONE real extraction was then
+  fed to the real `process_document()` twice, so the A/B is not confounded by
+  model nondeterminism: BEFORE (curated-places filter only, country check
+  neutralized) **162** identity proposals; AFTER (both filters) **159**. The
+  three names dropped are exactly `['ROMANIA', 'Bulgaria', 'Montenegro']` —
+  all three from the brief, all three present in the real extraction, all three
+  caught. `atoms` 12→12, `rejected` 73→73, `all_entities` 167→167, i.e. the
+  filter touched ONLY the identity queue, which is the intended scope.
+  **The real run also confirmed the exact-match guarantee on real data:**
+  `Tivit-Porto Montenegro` and `Varna City Ar Gallery` both SURVIVE (they
+  contain a country/city name but are real names with an identity to verify),
+  and the uncurated cities (`Varna`, `Napoli`, `Lecce`, `Foligno`,
+  `Catanzaro`, `Cosenza`, `Bari`, `Fasano`, `Reggio Emilia`, `Bologna`,
+  `Milano`) are still proposed — city-level noise remains the curated file's
+  job, exactly as approved. `ROMANIA` appears UPPERCASE in the real
+  extraction, which is the case `_forma()` normalization exists for.
+
+  Full suite **1286 passed, 1 failed** (was 1273 passed / same 1 failed before
+  this task; +13 = the new tests). The single failure is the pre-existing,
+  unrelated `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`
+  — its 4 `personal_absolute_path` findings are in
+  `automation/gmv_crawler_review_tool.py` and `automation/run_nightly.sh`,
+  files this task did not touch (`git diff HEAD -- automation/` is empty); run
+  explicitly per Task 17's precedent, `POLICY.audit_tracked_files()` over this
+  task's 4 changed tracked files returns `[]`. `ruff check .` clean.
+
+  NOT in scope, respected: no edit to `00_CONFIG/area35_known_places.json`, no
+  edit to the ontology registry or the predicate-text mapping, no
+  `sqlite3`/DML/write anywhere, no fuzzy or substring country matching, no
+  Italian/non-English country names, no change to the atom/rejection paths.
+  Honest limits: (a) this is an exact-match filter on English ISO names only —
+  names in Italian ("ITALIA", "Spagna"), and compound forms where the country
+  is a parenthetical ("Bergamo (Italy)", "Galleria Blu di Valladolid
+  (Spagna)" — both real strings from the Task 28 corpus) are NOT filtered and
+  stay curation work; (b) I did not re-run the extraction twice, so the
+  before/after delta is attributable to the filter by construction rather than
+  by two independent samples — a stronger comparison, but stated so it is not
+  mistaken for two live runs; (c) the throwaway re-run script lives in
+  `/tmp/opencode/task29/` (volatile), and its final JSON write crashed on a
+  variable-name typo AFTER printing every number quoted above, so the log
+  `/tmp/opencode/task29/live_rerun.log` is the artifact of record (162 + 159
+  = 321 printed proposals, internally consistent).

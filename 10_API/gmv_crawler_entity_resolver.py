@@ -148,7 +148,10 @@ import urllib.error
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
+
+import pycountry
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -1068,3 +1071,115 @@ def _load_known_places() -> frozenset[str]:
     no-network, read-only discipline as the other roster loaders."""
     data = json.loads(PLACES_PATH.read_text(encoding="utf-8"))
     return frozenset(_forma(name) for name in data["places"])
+
+
+# --- known countries (ISO 3166, deterministic, no network) ---
+
+#: The three name attributes read off each `pycountry.countries` record,
+#: declared as a constant so the test can assert the set is built from
+#: exactly these and nothing else. Verified against the installed
+#: pycountry 26.2.16 (see `_country_name_keys()` for the real probe output):
+#: `common_name` is NOT present on every record -- it exists on exactly 11 of
+#: the 249 (BO, IR, KR, KP, LA, MD, SY, TW, TZ, VE, VN) -- and on those 11 it
+#: is often the ONLY everyday form of the name. Without it "Iran",
+#: "Bolivia", "Syria", "Tanzania", "Venezuela", "Vietnam", "Moldova" and
+#: "Taiwan" would all MISS, because their `name` is the inverted ISO form
+#: ("Iran, Islamic Republic of"). `official_name` differs from `name` on 241
+#: of the 249, so it contributes real everyday forms too ("Italy" ->
+#: "Italian Republic"). Field names come from `dir()` on a real record, not
+#: from memory; `Data.__getattr__` raises AttributeError for absent keys,
+#: which is why every read goes through `record._fields.get(...)`.
+_COUNTRY_NAME_FIELDS = ("name", "official_name", "common_name")
+
+
+@cache
+def _country_name_keys() -> frozenset[str]:
+    """The `_forma()`-normalized set of every name ISO 3166-1 gives a current
+    country, for `_is_known_country()`'s O(1) membership check.
+
+    1. **It builds a set of NAME keys; it does NOT call
+    `pycountry.countries.lookup()`.** This is the whole reason the
+    function exists in this shape rather than as a three-line
+    `try: lookup(name)` wrapper, and it is not a stylistic preference.
+    `Database.lookup()` (verified in the installed pycountry 26.2.16
+    source, `pycountry/db.py`) loops over `self.indices`, and for
+    `ExistingCountries` EVERY field is indexed -- `alpha_2`, `alpha_3`,
+    `numeric`, `official_name`, `common_name` AND `flag`. So
+    `lookup("IT")` returns Italy, `lookup("IN")` returns India,
+    `lookup("NO")` returns Norway, `lookup("380")` returns Italy and
+    `lookup("\U0001F1EE\U0001F1F9")` returns Italy. Filtering on that
+    would silently drop bare two-letter tokens and bare numbers from the
+    identity queue -- a name that is NOT a country name. Iterating the
+    records and keying only their names cannot do that.
+    2. **Iterating `.name`/`.official_name`/`.common_name`, not guessing
+    attributes.** All three were confirmed to exist in the shipped ISO
+    3166-1 JSON (`name` and `official_name` on every record,
+    `common_name` on 11) and `common_name` is confirmed ABSENT on most
+    records, so a bare `record.common_name` would raise AttributeError for
+    238 of 249 countries. See `_COUNTRY_NAME_FIELDS`.
+    3. **`_forma()`, not `.strip().lower()`, so both sides of the
+    comparison go through ONE normalizer.** This is the same discipline
+    as `_load_known_artists()`/`_load_known_places()` above, and it is
+    load-bearing rather than cosmetic: `_forma()` calls `norm()`, which
+    NFKD-strips accents and lowercases, so "ITALIA"/"Bulgaria"/
+    "  ROMANIA  " all key the same way. `_forma()` additionally sorts
+    tokens and drops one-character tokens, which is lossy ("United
+    States" keys as "states united") but SELF-CONSISTENT -- both the
+    pycountry side and the candidate side call the same function, so
+    multi-word names still match. Verified: this set has 417 keys, ZERO
+    empty key, and ZERO keys shared by two different countries (no
+    cross-country collision for the filter to confuse).
+    4. **`historic_countries` is deliberately NOT consulted.** The task
+    brief asked for it only "if relevant to real archive data", and it
+    is not reachable. ISO 3166-3 stores the INVERTED English ISO form
+    ("USSR, Union of Soviet Socialist Republics"), and the only strings
+    that key-match its 31 records are those literal inverted forms
+    themselves: "Soviet Union", "USSR", "Yugoslavia",
+    "Czechoslovakia" -- and the Italian "Unione Sovietica",
+    "Jugoslavia", "Cecoslovacchia" -- all MISS. The real corpus is
+    Italian-language artist documents (all 321 distinct entity names
+    across the 7 real documents in the Task 28 survey produce ZERO
+    historic-country hits). Adding it would be unreachable surface, so
+    per the brief it is left out; revisit only if a real document ever
+    names a former country in ISO's own inverted wording.
+    5. **Memoized with `@cache`, unlike the three loaders above.** The
+    loaders re-read on every call on purpose, because a human can edit a
+    hand-curated governance file mid-run (see `_load_entity_registry()`'s
+    docstring, point 7). pycountry's dataset is not that: it is static,
+    version-pinned JSON inside `site-packages` that cannot change
+    mid-run. The cost of that difference is measured, not assumed --
+    building this set costs ~0.8 ms versus ~1.15 us per lookup, so
+    rebuilding it per candidate entity would be roughly 700x the cost of
+    the check itself. Nothing here is a mutable input.
+    """
+    return frozenset(
+        _forma(value)
+        for record in pycountry.countries
+        for field in _COUNTRY_NAME_FIELDS
+        if (value := record._fields.get(field))
+    )
+
+
+def _is_known_country(name: str) -> bool:
+    """True when `name` is a bare country name from ISO 3166-1, meaning it
+    has no stable identity for a human to confirm and must never reach the
+    identity-proposal queue.
+
+    A read-only predicate, the same contract as `_load_known_places()`:
+    no network, no file read of its own (the dataset is a package resource),
+    no sqlite, no write anywhere, and no `gmv_id` minted.
+
+    Deliberately NOT a fuzzy or substring check. It is an exact match on a
+    normalized key, so a real institution whose name merely CONTAINS a
+    country name ("Biennale di Venezia, Padiglione Italia", "Embassy of
+    Italy in Saudi Arabia", "Galleria Blu di Valladolid (Spagna)") is
+    still proposed -- those have a real identity to verify, and a
+    substring rule would have silently discarded them. Only a name that IS
+    the country is filtered.
+
+    A blank or non-country name returns False. Note `_forma("In")` is the
+    empty string (it drops one-character tokens), which is precisely why
+    the empty key is asserted absent from the set above and why this
+    function never tests membership of an unnormalized raw string.
+    """
+    return _forma(name) in _country_name_keys()

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+import pycountry
+
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "10_API"))
 sys.path.insert(0, str(ROOT))
@@ -30,6 +32,9 @@ import gmv_crawler_entity_resolver as resolver  # noqa: E402
 from area35_validator import _forma  # noqa: E402
 from gmv_crawler_candidate_extractor import CandidateEntity  # noqa: E402
 from gmv_crawler_entity_resolver import (  # noqa: E402
+    _COUNTRY_NAME_FIELDS,
+    _country_name_keys,
+    _is_known_country,
     CLASSIFICATION_SCHEMA,
     EntityIdentityProposal,
     EntityTypeProposal,
@@ -1355,3 +1360,140 @@ def test_no_production_module_calls_a_registry_write_function(callee: str) -> No
         "if automation/gmv_crawler_review_tool.py's wiring was removed, that is a real "
         "regression this test should catch, not silently pass on zero callers."
     )
+
+
+# --- ISO 3166-1 country filter (task brief opencode_task_29.md) ---
+
+#: A real country name from the live run that opened the task brief, and a
+#: second one, both checked against the real hand-curated file below so this
+#: pair cannot rot into "already covered by the old list" (which would make
+#: the whole test vacuous).
+LIVE_RUN_COUNTRIES = ("Bulgaria", "Montenegro")
+
+
+def test_country_filter_catches_live_run_names_absent_from_the_curated_file() -> None:
+    """The premise of the whole task: these three countries were live noise
+    the hand-curated list did NOT cover. Assert the absence against the REAL
+    loader reading the REAL file first, so if a human ever curates
+    "Bulgaria" by hand this test fails loudly instead of quietly proving
+    nothing."""
+    curated = resolver._load_known_places()
+    assert curated, "the real curated file loaded empty; this test would prove nothing"
+    for name in (*LIVE_RUN_COUNTRIES, "ROMANIA"):
+        assert _forma(name) not in curated, (
+            f"{name!r} is now in {resolver.PLACES_PATH.name}; this test's premise is gone"
+        )
+        assert _is_known_country(name) is True, name
+
+
+def test_country_filter_set_is_built_from_the_real_pycountry_dataset() -> None:
+    """Driven from the real pycountry records rather than a second hardcoded
+    list (this repo's recurring review finding: a duplicated literal list
+    passes its own tautological test and drifts silently). For EVERY name
+    ISO 3166-1 exposes, `_is_known_country` must be True -- so a field being
+    dropped from `_COUNTRY_NAME_FIELDS` fails here instead of quietly
+    shrinking coverage."""
+    assert _COUNTRY_NAME_FIELDS == ("name", "official_name", "common_name")
+    names = {
+        record._fields[field]
+        for record in pycountry.countries
+        for field in _COUNTRY_NAME_FIELDS
+        if record._fields.get(field)
+    }
+    assert len(names) > 200, f"suspiciously few country names: {len(names)}"
+    for name in sorted(names):
+        assert _is_known_country(name) is True, name
+
+
+def test_common_name_is_the_only_everyday_form_for_eleven_countries() -> None:
+    """Why `common_name` is read at all, asserted against the real dataset
+    rather than left as a claim in the docstring: for these records
+    `common_name` differs from `name`, so dropping the field would lose the
+    everyday spelling entirely. Today "Iran" is NOT a `name` or
+    `official_name` anywhere in ISO 3166-1 -- it is only a `common_name`."""
+    only_in_common = sorted(
+        record.common_name
+        for record in pycountry.countries
+        if "common_name" in record._fields
+        and record.common_name != record._fields["name"]
+    )
+    assert "Iran" in only_in_common
+    for name in only_in_common:
+        assert _is_known_country(name) is True, name
+
+
+def test_country_filter_never_uses_pycountry_lookup_which_matches_codes() -> None:
+    """The direct adversarial test of the guarantee in
+    `_country_name_keys()`'s docstring, point 1. `pycountry.countries`
+    indexes EVERY field, so `.lookup()` resolves bare ISO codes, bare
+    numeric codes and the flag emoji to a country. `_is_known_country` must
+    NOT do that: a name that is not a country name must never be filtered.
+    If this test fails, the implementation regressed to `lookup()`."""
+    for code in ("IT", "IN", "NO", "IS", "ME", "SO", "TO", "DO", "US", "380", "056", "\U0001F1EE\U0001F1F9"):
+        # Prove the trap is real for every one of these before asserting we
+        # avoid it, so this cannot pass for the wrong reason (e.g. a pycountry
+        # upgrade making `lookup()` stricter, which would make the assertion
+        # below vacuous).
+        assert pycountry.countries.lookup(code).name, code
+        assert _is_known_country(code) is False, code
+
+
+def test_country_filter_is_exact_and_never_substring() -> None:
+    """The guarantee in `_is_known_country()`'s own docstring: a name that
+    merely CONTAINS a country has a real identity for a human to verify and
+    must survive. Four real institution names from the 321 distinct entity
+    names of the 7 real documents surveyed in Task 28, all containing a
+    country name."""
+    for name in (
+        "Biennale di Venezia, Padiglione Italia",
+        "Embassy of Italy in Saudi Arabia",
+        "Galleria Blu di Valladolid (Spagna)",
+        "ArtVerona 2009, Verona (Italy)",
+    ):
+        assert _is_known_country(name) is False, name
+
+
+def test_country_filter_leaves_cities_and_italian_country_names_alone() -> None:
+    """The boundary the brief drew: pycountry is COUNTRY-level only, and
+    Italian country names are NOT country names to it. "Milano", "Roma" and
+    "Il Cairo" stay the hand-curated file's job, and "ITALIA"/"EGITTO" --
+    which the brief asked to be re-checked before removing -- are still NOT
+    caught here, which is why they were left in the file."""
+    for name in ("Milano", "Milan", "Roma", "Il Cairo", "New York", "ITALIA", "EGITTO", "Spagna"):
+        assert _is_known_country(name) is False, name
+
+
+def test_country_filter_returns_false_for_blank_and_degenerate_names() -> None:
+    """`_forma()` drops one-character tokens, so `_forma("In")` is the EMPTY
+    string. If the empty key were ever in the key set, every blank or
+    single-character name in every document would be silently filtered. Both
+    halves are asserted: the key set has no empty key, and the predicate
+    answers False."""
+    assert "" not in _country_name_keys()
+    for name in ("", "   ", "In", "A", "1", "  Bulgaria  \n"):
+        expected = name.strip().lower() == "bulgaria"
+        assert _is_known_country(name) is expected, name
+
+
+def test_country_filter_never_raises_and_never_touches_network() -> None:
+    """Same contract as `_load_known_places()`: read-only, no network, no
+    sqlite, no write. A malformed/non-string-ish name degrades to False
+    rather than raising mid-document, because a crash in this filter would
+    lose the whole document's identity proposals."""
+    for name in ("\x00\x01", "()", "🙂", "a" * 5000, "-", "N/A"):
+        assert _is_known_country(name) is False, repr(name)
+
+
+def test_country_keys_have_no_cross_country_collision() -> None:
+    """`_forma()` sorts tokens, so it is lossy ("United States" keys as
+    "states united"). That is safe only while no two countries share a key;
+    assert it on the real dataset so a future pycountry release cannot make
+    one country's name filter another."""
+    owners: dict[str, set[str]] = {}
+    for record in pycountry.countries:
+        for field in _COUNTRY_NAME_FIELDS:
+            value = record._fields.get(field)
+            if value:
+                owners.setdefault(_forma(value), set()).add(record.alpha_2)
+    collisions = {key: sorted(codes) for key, codes in owners.items() if len(codes) > 1}
+    assert collisions == {}

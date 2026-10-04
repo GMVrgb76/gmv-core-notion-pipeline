@@ -114,6 +114,7 @@ from gmv_crawler_entity_resolver import (  # noqa: E402 -- reused, not reimpleme
     EntityIdentityProposal,
     EntityTypeProposal,
     _forma,
+    _is_known_country,
     _load_entity_registry,
     _load_known_places,
     propose_entity_identity,
@@ -413,9 +414,28 @@ def process_document(
 
     registry = _load_entity_registry()
     known_places = _load_known_places()
+    # The second, deterministic geography filter (task brief
+    # opencode_task_29.md), alongside `known_places` rather than inside
+    # it: `area35_known_places.json` is a human-curated FILE and this is
+    # ISO 3166-1, so they have different failure modes to reason about and
+    # different maintenance (one is edited by a human, the other ships
+    # with a pinned dependency). Merging them would make "which roster
+    # filtered this?" unanswerable from the file alone, and would force a
+    # package upgrade to be diffed against a governance file.
+    #
+    # Both checks are exact normalized matches, so neither can swallow an
+    # institution that merely CONTAINS a country name -- a real name from
+    # the corpus, "Biennale di Venezia, Padiglione Italia", is still
+    # proposed. See `_is_known_country()`'s own docstring.
+    #
+    # Deliberately NOT applied to `all_entities`/atom building: it is an
+    # identity-queue filter, exactly like the `known_places` check it
+    # sits beside, and a country-named proposition still belongs in the
+    # atom/rejection paths on its own merits.
     filtered_entities = tuple(
         entity for entity in entities
         if _forma(entity.name) not in known_places
+        and not _is_known_country(entity.name)
     )
     identity_proposals = tuple(
         proposal for proposal in (
@@ -508,6 +528,7 @@ def process_document(
     work_subject_propositions_filtered = tuple(
         proposition for proposition in work_subject_propositions
         if _forma(proposition.subject_raw) not in known_places_w
+        and not _is_known_country(proposition.subject_raw)
     )
     work_identity_proposals = tuple(
         proposal for proposal in (

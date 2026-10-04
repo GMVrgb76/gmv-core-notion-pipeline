@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "10_API"))
 
 from gmv_crawler_candidate_extractor import CandidateEntity, CandidateProposition  # noqa: E402
-from gmv_crawler_entity_resolver import EntityIdentityProposal, EntityTypeProposal  # noqa: E402
+from gmv_crawler_entity_resolver import EntityIdentityProposal, EntityTypeProposal, _forma  # noqa: E402
 from gmv_crawler_extractor import ExtractionDocument  # noqa: E402
 from gmv_crawler_orchestrator import ProcessDocumentResult, process_document  # noqa: E402
 
@@ -820,3 +820,97 @@ def test_process_document_unaffected_for_unresolved_institution(
 
     result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
     assert [p.raw_name for p in result.entity_identity_proposals] == ["Accademia di Belle Arti"]
+
+
+def test_process_document_does_not_propose_identity_for_country_not_in_curated_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 29's end-to-end country filter, at the filter point Task 26/27
+    built. "Bulgaria" is a real bare country name from the live run and is
+    deliberately NOT in 00_CONFIG/area35_known_places.json -- asserted here
+    against the real loader so this test cannot become vacuous if a human
+    curates it by hand later. The city case below is what keeps the
+    hand-curated file load-bearing."""
+    curated = orchestrator._load_known_places()
+    for name in ("Bulgaria", "Montenegro", "ROMANIA"):
+        assert _forma(name) not in curated, name
+        monkeypatch.setattr(
+            orchestrator, "_load_entity_registry",
+            lambda: {"note": "test fixture", "entities": []},
+        )
+        entities = (make_entity(name),)
+        monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: (entities, (), ()))
+
+        result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+        assert result.entity_identity_proposals == (), name
+
+
+def test_process_document_still_proposes_uncurated_city(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the guarantee: a real CITY that is neither a country
+    nor in the hand-curated list must still be proposed. If the new check ever
+    degraded into "not a known curated place", this real unresolved name would
+    be silently dropped."""
+    name = "Trieste"
+    assert _forma(name) not in orchestrator._load_known_places()
+    assert not orchestrator._is_known_country(name)
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": []},
+    )
+    entities = (make_entity(name),)
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: (entities, (), ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert [p.raw_name for p in result.entity_identity_proposals] == [name]
+
+
+def test_process_document_still_proposes_institution_naming_a_country(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adversarial test of the exact-match guarantee, through the real
+    orchestrator. "Biennale di Venezia, Padiglione Italia" contains a
+    country name and is a real string from the corpus; it has a real
+    institutional identity for a human to verify, so a substring or
+    partial-name rule would have discarded it."""
+    name = "Biennale di Venezia, Padiglione Italia"
+    assert not orchestrator._is_known_country(name)
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": []},
+    )
+    entities = (make_entity(name),)
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: (entities, (), ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert [p.raw_name for p in result.entity_identity_proposals] == [name]
+
+
+def test_process_document_country_filter_also_covers_the_work_subject_loop(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """The SECOND filter point, which the first test above cannot reach: a
+    WORK-domain proposition whose subject is a country name. `dimensions` is
+    a real WORK-domain predicate per the real ontology registry, so this
+    drives the same ontology lookup the orchestrator itself uses rather than
+    hardcoding a belief about it."""
+    propositions = (
+        make_proposition("Montenegro", "dimensions", "90 x 60 x 5 cm", ref="CLAIM-CTY-1"),
+        make_proposition("Il bacio", "dimensions", "90 x 60 x 5 cm", ref="CLAIM-CTY-2"),
+    )
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), propositions, ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    # "Montenegro" dropped from the identity queue, "Il bacio" kept: same
+    # loop, same predicate, only the subject differs.
+    assert [p.raw_name for p in result.entity_identity_proposals] == ["Il bacio"]
+    # And the atom is still built for the dropped subject -- this is an
+    # identity-queue filter, not a proposition filter. Asserted on the
+    # subject, because AtomCandidate (the frozen 18-field schema) carries no
+    # claim ref; the two claims differ only by claim_ref, so identical
+    # subjects here would mean the atoms collided.
+    assert [(a.predicate, a.subject) for a in result.atoms] == [
+        ("dimensions", "Montenegro"),
+        ("dimensions", "Il bacio"),
+    ]
