@@ -784,3 +784,39 @@ def test_a_resolvable_work_subject_produces_no_identity_proposal(
     result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
     assert result.entity_identity_proposals == ()
     assert [a.predicate for a in result.atoms] == ["dimensions"]
+
+def test_process_document_does_not_propose_identity_for_known_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bare geographic name in 00_CONFIG/area35_known_places.json ("Roma")
+    must never reach propose_entity_identity(), even though it does not
+    resolve against the entity registry -- mirrors
+    test_a_resolvable_work_subject_produces_no_identity_proposal's mocking
+    convention (extract_candidates() stubbed, no real Ollama call) rather
+    than exercising the real extractor."""
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": []},
+    )
+    entities = (make_entity("Roma"),)
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: (entities, (), ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert result.entity_identity_proposals == ()
+
+
+def test_process_document_unaffected_for_unresolved_institution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real, unresolved institution name NOT in area35_known_places.json
+    must still produce an identity proposal -- proves the places filter
+    only blocks what it's meant to, not every unresolved name."""
+    monkeypatch.setattr(
+        orchestrator, "_load_entity_registry",
+        lambda: {"note": "test fixture", "entities": []},
+    )
+    entities = (make_entity("Accademia di Belle Arti"),)
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: (entities, (), ()))
+
+    result = process_document(make_document(), evidence_ids=("EV-1",), now=NOW)
+    assert [p.raw_name for p in result.entity_identity_proposals] == ["Accademia di Belle Arti"]
