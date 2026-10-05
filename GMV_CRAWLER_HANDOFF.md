@@ -2014,3 +2014,144 @@ section is the one place it writes.
   current-state mirror is sufficient for the operator's real recovery
   needs — "Full-system backup after S002-20" arguably implies dated,
   verified sets, which this module deliberately does not provide.
+
+- **2026-10-05 — Task 37 done: Notion Area35 canon export into
+  `03_STATE/area35_canon/` (brief `opencode_task_37.md`), new module
+  `10_API/gmv_notion_canon_export.py` +
+  `tests/test_gmv_notion_canon_export.py` (18 tests).** Read in full
+  before writing: `adapter_notion.py`, `notion_extract.py`,
+  `credentials.py`, `03_STATE/ombra/GMV-000001.md` and `GMV-000007.md`,
+  `10_API/gmv_monad_materializer.py`,
+  `10_API/secure_storage.py`, `10_API/gmv_crawler_entity_resolver.py`
+  (`resolve_entity_gmv_id()`/`propose_entity_identity()`/`_load_entity_registry()`),
+  `10_API/gmv_crawler_entity_identity_proposal_queue.py`,
+  `10_API/gmv_crawler_entity_proposal_queue.py`,
+  `00_CONFIG/gmv_entity_registry.json`,
+  `00_CONFIG/SOURCE_RUNTIME_BOUNDARIES.md` (lines 33-52),
+  `scripts/check_runtime_git_policy.py`, `.gitignore`,
+  `automation/gmv_crawler_nightly_run.py`, `automation/gmv_crawler_review_tool.py`,
+  `pyproject.toml`, `tests/conftest.py`, and the test conventions in
+  `tests/test_gmv_crawler_entity_identity_proposal_queue.py` /
+  `tests/test_gmv_crawler_orchestrator.py`.
+
+  **Location decision (brief constraint 6), grounded not guessed:** the
+  module went into `10_API/` because that is where the pipeline's
+  Notion-facing code already lives (`gmv_notion_candidate.py`,
+  `gmv_notion_multi_candidate.py`, `gmv_notion_projection_adapter.py`)
+  AND because it needs three `10_API/` modules this task must not
+  duplicate (`gmv_crawler_entity_resolver`,
+  `gmv_crawler_entity_identity_proposal_queue`, `secure_storage`). It
+  imports the root Notion reader instead of the other way round, matching
+  the existing precedent `10_API/gmv_notion_publish.py:26` (`from
+  notion_extract import Notion` behind the same `sys.path` insert); grep
+  confirmed no root module imports from `10_API/`, so the dependency runs
+  one way only.
+
+  **Credentials (brief constraint 2) — REAL AND WORKING, verified, not
+  assumed.** `NOTION_TOKEN` is unset in this shell and `config.json` does
+  not exist in this worktree, but `notion_extract.py`'s own documented
+  default token file exists: `~/.config/area35-qa/notion_token` (mode
+  0600, `ntn_` prefix). `credentials.get_token("NOTION_TOKEN",
+  "~/.config/area35-qa/notion_token")` resolves with `origin="file"`, and
+  a live `GET /users/me` against `api.notion.com` returns the real
+  "Area35 QA" bot integration. `config.json` also exists outside the
+  worktree at `~/.gmv_core/area35-qa/config.json` (the six data sources,
+  `biografia_in_corpo` true for `artista`/`mostra`/`persona`/`istituzione`
+  and false for `opera`/`sponsor`). So live proof WAS possible and was
+  done — see below.
+
+  **Live proof, real, 2026-10-05:** `python 10_API/gmv_notion_canon_export.py
+  --config ~/.gmv_core/area35-qa/config.json --entities artista --now
+  2026-10-05T10:30:00Z --proposal-queue <temp>` read all **102** real
+  `artista` pages and wrote **6** real files to `03_STATE/area35_canon/`
+  (0700 dir, 0600 files): `GMV-000001` Garibaldi, `GMV-000003` Bonfanti,
+  `GMV-000004` Brück, `GMV-000005` Genna, `GMV-000006` Evangelisti,
+  `GMV-000007` Dilella. **96** names went to the proposal queue and
+  **0** pages were unnamed. Re-running with the same `--now` reproduced
+  all six files byte-identically (sha256 compared).
+
+  Two real findings the next session should not have to re-derive:
+  (1) `GMV-000004` resolves through the registry's **alias** — Notion
+  titles the page "Florencia S.M. Brück", the registry's
+  `canonical_name` is "Florencia Bruck". That is why the canon file
+  keeps `# NOTION TITLE` verbatim instead of only the frontmatter name,
+  and it is pinned by a test against the real registry.
+  (2) **`GMV-000002` (Danilo Bucchi) has no Notion page at all.** All
+  442 pages across the six data sources were walked on 2026-10-05:
+  102+95+41+42+149+13, of which exactly 6 resolve, one-to-one, with
+  **zero** collisions (two Notion pages mapping to one `gmv_id`). The
+  other five data sources (`mostra`, `persona`, `istituzione`, `opera`,
+  `sponsor`) resolve nothing today, because the registry's 7 entities are
+  all ARTISTs.
+
+  **What the module does:** `export_notion_page_to_canon(record,
+  entity_name, target_dir, *, now, registry=None) -> CanonExportResult`
+  writes one `<gmv_id>.md` per page via
+  `secure_storage.atomic_write_text`. `schema:
+  GMV_NOTION_CANON_SNAPSHOT_V1` and `status: canon_unaudited` are module
+  constants, never the Monad's `GMV_KNOWLEDGE_MONAD_V1`. It does NOT
+  queue anything (mirroring `propose_entity_identity()`'s own contract);
+  `main()` is the caller that appends through the real
+  `append_entity_identity_proposals()`.
+
+  **Two judgement calls made, flagged rather than buried:**
+  (a) Frontmatter **field order** follows the real Monad file
+  (`schema`, `gmv_id`, `entity_type`, `canonical_name`, `status`, then
+  the two Notion-specific ones), not the brief's sketch, which listed
+  `canonical_name` before `entity_type`. The brief itself deferred order
+  to the real file ("mirror its conventions, don't invent a divergent
+  style"), so the real file won; the six decided field NAMES are used
+  verbatim. A test reads the real `03_STATE/ombra/GMV-000001.md` and
+  asserts the order matches, so the two cannot drift.
+  (b) No Notion-entity-kind → GMV `entity_type` mapping was invented
+  (`config.json` says `artista`/`mostra`/`persona`/…, the governed
+  vocabulary says `ARTIST`/`EXHIBITION`/…). Frontmatter `entity_type`
+  comes from the REGISTRY entry; Notion's own strings stay in the body.
+  That mapping is a governance decision (Group B), and it is not needed.
+
+  **Hard wall held and tested:** the module imports none of
+  `gmv_monad_materializer`, `gmv_monad_backup`, `gmv_crawler_atom_builder`,
+  `gmv_crawler_relation_atom_builder`, `gmv_atom_validator`,
+  `gmv_crawler_public_projector`, `gmv_notion_projection_adapter`,
+  `gmv_crawler_orchestrator`, `gmv_run_ledger`, `area35_validator` —
+  pinned with `ast` over the real imports (not a substring scan: the
+  docstring names all of them on purpose), plus a runtime test that
+  records every path handed to `atomic_write_text` and asserts each one
+  is inside the caller's `target_dir`. Nothing under `03_STATE/ombra/`
+  was read or written.
+
+  **Flagged, NOT guarded (Group B call, per the brief):** GBrain's real
+  configuration for this repo is explicitly unverified (see
+  `.claude/agent-memory/gmv-code-architect/MEMORY.md`), and no repo code
+  references GBrain at all (grep: zero hits). So I could not rule out
+  that a new `03_STATE/area35_canon/*.md` is picked up by whatever
+  folder GBrain actually watches. Grepping repo code did confirm nothing
+  globs `03_STATE/**` broadly: `gmv_monad_backup.py:141` is pinned to
+  `ombra/`, `status_service.py` to `03_STATE/evidence`,
+  `json_identity_audit` to `03_STATE/objects/*.json`. Also not done:
+  no backup mirror for this folder (the `gmv_monad_backup.py` pattern is
+  the reference if one is wanted) and no scheduler.
+
+  **Disclosed non-goals** (each pinned by a test so it is a documented
+  consequence, not a surprise): no duplicate detection when two Notion
+  pages map to one `gmv_id` — the later export overwrites the earlier;
+  no Notion-side EIC-09 validation of the page text; no web
+  cross-checking.
+
+  **Test/ruff baseline:** full suite **1344 passed, 1 failed** (the same
+  pre-existing `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`);
+  `ruff check .` clean. Baseline correction for the next reader: the
+  scanner now reports **8** findings, not the 4 recorded in the Task 31
+  entry above — the four extra are in `opencode_task_21.md` (17, 20, 88)
+  and `opencode_task_32.md` (12), both task briefs committed later, all
+  `personal_absolute_path`, none in a file this task touched. Re-checked
+  with both new files **staged** (`git add -N`) so the audit really did
+  scan them: still exactly those 8, zero from either new file.
+
+  **Deliberately NOT done in the live run:** the 96 unresolved names went
+  to a temp queue file, not to
+  `01_RUNTIME/gmv_crawler/entity_identity_proposal_queue.jsonl`, which
+  the nightly crawler also owns and which already held 262 lines. Dump-
+  ing 96 Notion-derived names into a human's live review queue is a
+  decision for the human, not a side effect of a proof run; the CLI's
+  default is that shared queue whenever they want it.
