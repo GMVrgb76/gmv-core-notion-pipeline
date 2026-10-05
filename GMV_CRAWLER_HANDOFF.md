@@ -2261,3 +2261,150 @@ section is the one place it writes.
   directing session's manual step and I did not run it. No backup mirror for
   this folder, no scheduler, no `11_CLI/gmv` subcommand, no change to the
   registry (verified byte-identical before/after the real run).
+
+### 2026-10-05 — OpenCode Task 36: seven exhibition-participation candidates, ONE mapped
+
+**What I was asked to do.** `opencode_task_36.md`: take seven real, still-unmapped
+raw predicate texts found by frequency analysis of the rejection queue
+(`present` 210, `exhibited` 197, `held` 141, `mostra` 85, `held at` 76,
+`presente` 71, `exhibited at` 56), re-derive their REAL subject/object shape by
+reading real source documents (the queue is stale and its `raw_predicate`
+string alone is not evidence), and map only the ones that survive a real
+domain/range check.
+
+**Result: 1 mapped, 6 explicitly excluded.** No new predicate_id, no ontology
+registry edit (verified byte-identical).
+
+**Disclosed deviation, stated up front.** The brief says to download via
+`DropboxConnector`. I could not: `DROPBOX_ACCESS_TOKEN`,
+`DROPBOX_REFRESH_TOKEN`, `DROPBOX_APP_KEY` and `DROPBOX_APP_SECRET` are all
+unset, and per the `gmv-core-safety` rule I did NOT read
+`~/.gmv_dropbox_oauth.json` to obtain them. Instead I read the real documents
+from the local Dropbox-synced mirror
+(`~/Library/CloudStorage/Dropbox/GMV_MASTER_SYSTEM/01_AREA35_MASTER`), and
+verified content identity where it was checkable: for the 7 documents Task 28
+had already fetched through the real connector, the local SHA-256 **matches**
+Task 28's recorded download hashes. So the bytes are the real bytes, but the
+fetch path was NOT the connector, and the directing session should re-verify
+that substitution.
+
+**The one mapping added — `held at` → `located_at`.** Grounded in **76 real
+propositions** re-extracted for this entry from one real document
+(`01_artists/morales_ernesto/10_md_processed_files/07_career__01_biography__bio
+completa en - ernesto morales.doc.md`), not read off the queue: 63 distinct
+subjects, **every one an exhibition/show/fair title, zero person subjects**
+(checked explicitly against that document's own extracted entity list), and 67
+distinct objects, all real venues. Domain/range read fresh from
+`GMV_ONTOLOGY_REGISTRY_v0.1.json` as the brief required:
+`located_at` domain `[EXHIBITION,EVENT,ORGANIZATION]`, range
+`[PLACE,INSTITUTION]`. The entry cites four verbatim real cases, including one
+whose venue (`Galleria Il Sole Arte Contemporanea`) is already the citation
+for the pre-existing `presente in` entry.
+
+**The six exclusions, each with its real reason** (recorded in the mapping
+file's new `note_on_task36_exclusions` so a future reader who sees the counts
+cannot re-add them on frequency alone):
+
+- `held` — **split across two real variants of the SAME biography into
+  incompatible shapes.** The 80 cases in `...EN - Ernesto Morales.pdf.md` have
+  subject = `Ernesto Morales` (a PERSON) → show title
+  (`participated_in`-shaped); the 52 cases in `...EN - IT Ernesto Morales.doc.md`
+  have subject = exhibition title (`Al Infinito`, `Astrolabio da viaggio`, …)
+  → venue (`located_at`-shaped). The pipeline cannot tell which is which from
+  the raw text. Independently decisive: **0/132** of those objects link to an
+  entity from the same extraction, so it would build **0 atoms** either way.
+- `present` — **split**: 36 of 210 real cases in the Geranzani dossier are OCR
+  garbage with `subject_raw == object_raw` (`'LJJP' | 'present' | 'LJJP'`), i.e.
+  not a relation at all.
+- `exhibited` — **split**: on both real sources (Giovanni Cerri, Pietro
+  Geranzani) the object is sometimes an exhibition title and sometimes a
+  gallery (`'Giovanni Cerri' | 'exhibited' | 'Galleria Cortina'`), and
+  `INSTITUTION` is **not** in `participated_in`'s range.
+- `exhibited at` — **split, and the losing branch is a repeat of a shipped
+  bug.** 49 real cases in `Bio Evangelisti EN.doc.md` are `located_at`-shaped
+  (exhibition → venue), but all 7 real cases in `cv_davide_genna.docx` have
+  **a PERSON as subject** (`'Davide Genna' | 'exhibited at' | 'Oasi'`) — which
+  is exactly the Task 22 Garibaldi `located_at` mis-application. `located_at`'s
+  domain excludes PERSON and **nothing enforces it** (see below), so mapping
+  this text would silently rebuild that bug.
+- `mostra` — not one shape: real subjects are variously the literal word
+  `Mostra`, a venue, and a show title.
+- `presente` — not a relation at all in its only real source: `object_raw` is
+  the word `presente` itself, used as a caption/label.
+
+**A limitation I found and did NOT fix** (deliberate scope call, pinned by a
+test so it cannot be forgotten): `validate_atom()` checks `object_type` against
+the predicate's **range** and never checks the subject against the **domain** —
+`gmv_atom_validator.py` has no reference to `"domain"` at all. So the
+person-subject counter-shape is **not** caught by any mechanical check: given a
+real linked venue it builds an atom. This is pre-existing (it applies to the
+already-mapped `was held at` / `presente in` too); teaching the validator about
+domains is not this task's job. `test_held_at_person_subject_is_not_mechanically_rejected_documents_domain_gap`
+asserts that current behaviour explicitly, with a docstring saying it is wrong.
+
+**Live proof (brief step 6) — real orchestrator, real unmocked classifier.**
+Ran `gmv_crawler_orchestrator.process_document()` end to end on the real
+Morales document, changing exactly one variable, which file
+`gmv_crawler_relation_atom_builder.PREDICATE_MAPPING_PATH` points at (the
+module's own documented source of the mapping; no function monkeypatched):
+
+| state | mapping | RELATION atoms | PREDICATE_TEXT_NOT_MAPPED |
+|---|---|---|---|
+| BEFORE | git HEAD, 12 entries | **0** | 182 |
+| AFTER | worktree, 13 entries | **7** | 106 |
+
+Seven real new atoms, verbatim:
+`'Equinox –' | located_at | 'William Holman Art Gallery' | object_type=INSTITUTION | ATOM-8f4080cedacb1156`
+`'Distance' | located_at | 'aArte Gallery' | object_type=INSTITUTION | ATOM-a6e3a15f99eecc16`
+`'Otherness' | located_at | 'aArte Gallery' | object_type=INSTITUTION | ATOM-0033712a9c0d0714`
+`'Vacas Migrantes' | located_at | 'Galleria Interno Ventidue Arte Contemporanea' | object_type=INSTITUTION | ATOM-9d752d6ca0a6ab4a`
+`'Movimiento' | located_at | 'Centro Cultural Recoleta' | object_type=INSTITUTION | ATOM-eb52b854c32822bc`
+`'Identidades' | located_at | 'Centro Cultural Recoleta' | object_type=INSTITUTION | ATOM-33691d709be0f8fd`
+`'Miradas urbanas' | located_at | 'Galleria Espacio de Arte' | object_type=INSTITUTION | ATOM-78189c626b0d3100`
+
+All 7 are `status=UNVERIFIED`, `confidence=0.5`, `asserted_by=crawler_llm_extraction`.
+
+**Negative control, same real pipeline** — the other real variant of the same
+biography (`...EN - IT Ernesto Morales.doc.md`, which emits the bare text `held`
+for these very same facts) built **6** RELATION atoms, every one from a
+**pre-existing** mapping (`resided_in` ×2, `curated_by` ×4) and **none** from
+the new entry; its 52 `held` cases stayed `PREDICATE_TEXT_NOT_MAPPED`
+(147 total unmapped). So the new entry does not leak onto the homonymous
+surface form — which is exactly why `held` is excluded rather than folded in.
+
+**Tests.** `tests/test_gmv_crawler_relation_atom_builder.py`: 4 verbatim real
+cases as fixtures; positive test pins all atom fields; a batch test re-pins
+"exactly one `classify_entity_types()` call per batch" on the new entry's real
+data; **two** negative tests — the homonym use (`'Ernesto Morales' | 'held at' |
+'Fort Knox, New York'`) is rejected `OBJECT_NOT_LINKED_TO_KNOWN_ENTITY` with
+the classifier never reached, and an out-of-range object type is rejected
+`VALIDATION_FAILED` (parametrized over `EXHIBITION`/`EVENT`/`PERSON`/`PROJECT`),
+never atom-ified just because the text matches. Plus `TASK36_EXCLUDED`, a
+regression guard that the 6 excluded texts stay unmapped and that their reasons
+remain recorded in the mapping file itself.
+
+`tests/test_crawler_predicate_mapping_proposals_draft.py` pinned the file to
+exactly 12 entries and had to be updated to 13 — that test is the mechanism
+that makes every added entry a deliberate, documented act, so I updated it and
+recorded the new entry in its existing chronological docstring rather than
+loosening the assertion.
+
+**Test/ruff baseline:** full suite **1381 passed, 1 failed** — the single
+failure is the pre-existing `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`
+(8 `personal_absolute_path` findings, in files this task did not touch).
+**Verified pre-existing, not assumed**: stashing my changes and re-running that
+one test on a clean HEAD reproduces the failure while
+`test_crawler_predicate_mapping_proposals_draft.py` passes, so exactly one
+failure is pre-existing. `ruff check .` clean.
+
+**Scope of my own evidence, stated honestly.** All 76 `held at` cases come from
+**ONE** source document — the brief asked for "several (not just one)" real
+documents per candidate, and for this one candidate that could not be met,
+because `held at` occurs in exactly one document in the whole rejection queue
+(re-derived per source_id, not assumed). What the same biography's two other
+real variants show is that they emit the bare text `held` for the very same
+facts — i.e. the surface form is extractor-dependent, which is both why the
+mapping is valuable (it rescues a whole class of real facts) and why I did not
+treat `held` as its synonym. This single-document scope is written into the
+mapping entry's own `verified_against` rather than left for someone else to
+discover.

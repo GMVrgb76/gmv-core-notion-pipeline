@@ -168,14 +168,24 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
     di' -> critical_text_by, 'lived' -> resided_in), no further registry
     change needed. Entry 12 ('lives and works in' -> resided_in) is a
     third synonym surface form of the same real relation, verified
-    against two real cases (Emanueia Volpe, Davide Genna). The real
+    against two real cases (Emanueia Volpe, Davide Genna). 2026-10-05: a
+    13th entry ('held at' -> located_at) was added by OpenCode under Task 36,
+    after examining SEVEN high-frequency exhibition-participation candidates
+    from the rejection queue against real source documents and mapping exactly
+    one of them: 76 real cases from one real biography, 63 distinct subjects,
+    every one an exhibition/show title with ZERO person subjects, 67 distinct
+    objects all being real venues -- and six candidates deliberately NOT
+    mapped ('held', 'present', 'exhibited', 'exhibited at', 'mostra',
+    'presente'), each for a concrete reason recorded in that file's own
+    'note_on_task36_exclusions' and pinned by
+    tests/test_gmv_crawler_relation_atom_builder.py::TASK36_EXCLUDED. The real
     invariant this test protects is unchanged: every raw_predicate_text
     here is one that was actually verified against real data (even if
     the first proposed predicate_id was itself wrong and had to be
     corrected), never silently multiplying beyond what a human checked."""
     governance = json.loads(GOVERNANCE_PATH.read_text(encoding="utf-8"))
     mappings = governance["mappings"]
-    assert len(mappings) == 12, f"expected exactly the 12 known-verified entries, got {len(mappings)}"
+    assert len(mappings) == 13, f"expected exactly the 13 known-verified entries, got {len(mappings)}"
     by_text = {m["raw_predicate_text"]: m["predicate_id"] for m in mappings}
     assert by_text == {
         "was held at": "located_at",
@@ -190,4 +200,5 @@ def test_governance_mapping_file_still_has_only_the_known_verified_entries() -> 
         "testi critici di": "critical_text_by",
         "lived": "resided_in",
         "lives and works in": "resided_in",
+        "held at": "located_at",
     }
