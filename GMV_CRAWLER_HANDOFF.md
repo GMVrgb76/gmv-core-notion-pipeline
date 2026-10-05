@@ -2154,4 +2154,110 @@ section is the one place it writes.
   the nightly crawler also owns and which already held 262 lines. Dump-
   ing 96 Notion-derived names into a human's live review queue is a
   decision for the human, not a side effect of a proof run; the CLI's
-  default is that shared queue whenever they want it.
+  default is that shared queue whenever they want it. (Superseded the same
+  day by Task 38 below — the human decided the queue side effect is fine
+  and coverage must not wait on the registry.)
+
+- **2026-10-05 — Task 38 done: the Notion canon export no longer gates on GMV
+  registry resolution; ALL 442 real Area35 Notion pages are now exported
+  (brief `opencode_task_38.md`). This SUPERSEDES Task 37's central design
+  decision — it is a redesign the human asked for, not a bug fix, and the
+  Task 37 docstring now describes the new contract plainly instead of
+  pretending the old gate was a defect.**
+
+  Read in full before writing anything: the current
+  `10_API/gmv_notion_canon_export.py` and
+  `tests/test_gmv_notion_canon_export.py` (not Task 37's commit message),
+  `adapter_notion.py` (`_query_pagine()`/`_record()`/`_corpo()`),
+  `gmv_crawler_entity_resolver.py`
+  (`resolve_entity_gmv_id()`/`propose_entity_identity()`/`_load_entity_registry()`),
+  `gmv_crawler_entity_identity_proposal_queue.py`, `secure_storage.py`, the
+  real `~/.gmv_core/area35-qa/config.json` (its `entita` shape), and
+  `00_CONFIG/gmv_entity_registry.json`.
+
+  **What changed.** (1) `export_notion_page_to_canon()` no longer returns a
+  skip result: it always writes, and an unresolved name now yields a file
+  WITHOUT `gmv_id`/`entity_type`/`canonical_name` (keys ABSENT — never
+  `null`/`""`) plus an `EntityIdentityProposal` handed back for the caller
+  to queue. (2) File names are `<notion_page_id>.md` for every page, so two
+  Notion pages can no longer collide the way two pages resolving to one
+  `gmv_id` could. (3) `notion_kind` (the raw `config.json` `entita` key:
+  `artista`/`mostra`/`persona`/`istituzione`/`opera`/`sponsor`) and
+  `notion_title` are required frontmatter fields on every file. (4) `main()`
+  appends through `append_entity_identity_proposals()` to the SHARED queue
+  by default and never lets a queue failure cost a canon file (verified by a
+  test with an unwritable queue path: all files still on disk, exit 1, error
+  on stderr). (5) `notion_title` is rendered from the raw title property the
+  caller already passes, NOT from `record["titolo"]`, so
+  `adapter_notion._record()`'s literal `"(senza titolo) <id>"` placeholder is
+  structurally unable to reach a required field. (6) A page Notion left
+  untitled is still FILED, with `notion_title: ''`, and is never proposed.
+
+  **Deliberate non-decisions kept:** no Notion-`notion_kind` → governed
+  `entity_type` mapping (still Group B — the two vocabularies stay disjoint
+  on disk); `notion_kind` is recorded verbatim and never validated against
+  `VALID_ENTITY_TYPES`. Frontmatter field order still mirrors the real
+  `03_STATE/ombra/GMV-000001.md` first five keys, with the three optional
+  ones removed from the middle rather than moved to the end — asserted
+  against that real file.
+
+  **Real live run, 2026-10-05, `--now 2026-10-05T12:30:00Z`, no
+  `--proposal-queue` (so the shared queue):** re-derived the page counts
+  before writing anything — **442** pages across all six data sources
+  (artista 102, mostra 95, persona 41, istituzione 42, opera 149, sponsor
+  13), **442 distinct page ids**, so filename collisions are impossible by
+  construction rather than assumed. Result: **442 canon files**,
+  **6 resolved / 436 unresolved**, **1 untitled** page, **0 files** containing
+  the `(senza titolo)` placeholder, and `notion_kind`'s distribution in the
+  files matching the per-data-source counts exactly. The old six
+  `GMV-00000N.md` files were NOT replaced by the run; verified all six new
+  `<page_id>.md` files have byte-identical bodies to their old counterparts,
+  then removed the six stale `GMV-*.md` files explicitly — `03_STATE/area35_canon/`
+  now holds exactly 442 files, one per real page, no duplicates.
+
+  **The queue really grew this time** (the thing Task 37 deliberately did
+  NOT do): `01_RUNTIME/gmv_crawler/entity_identity_proposal_queue.jsonl` went
+  262 → **697** lines (+435), verified 435 lines / 435 distinct `source_id`s /
+  0 blank `raw_name`s / no resolved name among them. Four names appear on two
+  pages each (`Pietro Finelli`, `Andy Warhol`, `Luo Qi`, `Autofiction`) —
+  the queue module deliberately does not deduplicate, so that is expected.
+
+  **Two real findings worth keeping.** (a) Task 37 reported "0 pages unnamed"
+  — true only because it ran `--entities artista`; across all six data sources
+  there is exactly **one** untitled page
+  (`3cf5a429-a028-803f-8049-eec794ae15c0`, a `mostra` row with an empty body
+  too). So the untitled branch is a REAL case in the real data, not a
+  hypothetical, and the decision to file it was a live one. (b) `entity_name`
+  is now the source of BOTH entity resolution and `notion_title`, which is
+  what makes the placeholder structurally impossible — but it also means a
+  caller that passes a name different from the page's title gets a file
+  whose `notion_title` is that name. The CLI never does; the function's
+  docstring says so explicitly.
+
+  **Hard wall held:** still no import of any Monad/atom/ledger module (the
+  `ast` test is unchanged in spirit), still `atomic_write_text` only, still
+  nothing written outside the caller's `target_dir`. NEW path-safety work
+  required by the rename: the page id IS Notion-controlled text and now
+  becomes the file name, so `_SAFE_PAGE_ID` rejects traversal, absolute
+  paths, backslashes, dot-files, spaces/metacharacters, NUL and empty, and
+  `CanonExportError` covers those plus a blank `notion_kind` and a partial
+  identity. `render_canon_markdown()` refuses any partial
+  `gmv_id`/`entity_type`/`canonical_name` set rather than writing a file
+  that half-claims to know an entity.
+
+  **Test/ruff:** `tests/test_gmv_notion_canon_export.py` rewritten to the new
+  contract (Q1-Q19 in its docstring), 20 → 23 tests. Full suite **1384
+  passed, 1 failed** — the same pre-existing
+  `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`;
+  baseline before this task was 1381/1, and the +3 matches the test-count
+  delta exactly. `ruff check .` clean. `check_runtime_git_policy` still
+  reports the same **8** `personal_absolute_path` findings (4 in
+  `automation/`, 4 in `opencode_task_21.md`/`opencode_task_32.md`), re-checked
+  with this task's two files staged — zero from either.
+
+  **Could not verify / not done:** whether GBrain actually ingests
+  `03_STATE/area35_canon/` — `~/.gmv_scripts/gbrain_morning_sync.sh` does list
+  that directory in its `SOURCE_DIRS`, but per the brief the re-sync is the
+  directing session's manual step and I did not run it. No backup mirror for
+  this folder, no scheduler, no `11_CLI/gmv` subcommand, no change to the
+  registry (verified byte-identical before/after the real run).
