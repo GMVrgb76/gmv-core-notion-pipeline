@@ -129,6 +129,130 @@ from gmv_crawler_relation_atom_builder import (  # noqa: E402 -- reused, not rei
     build_relation_atoms,
 )
 
+# The pre-extraction non-prose gate (2026-10-05, opencode_task_35.md).
+#
+# A `.csv` manifest is not prose by construction -- no amount of
+# predicate-mapping curation fixes a document that should never have
+# reached extract_candidates() at all. Real, counted evidence (against
+# the live 01_RUNTIME/gmv_crawler/registry.db, 3513 registered
+# locators): exactly 6 registered locators are `.csv`-sourced, being
+# just THREE distinct files, each present twice -- as the original and
+# as its AnyDoc conversion `10_md_processed_files/00_master__*.csv.md`:
+# `01_artists/geranzani_pietro/00_master/source_manifest.csv`,
+# `01_artists/nazeraj_erjon/00_master/source_manifest.csv` and
+# `01_artists/gasparini_gian_piero/09_temp_import/gp contact.csv`. The
+# two manifests' real output is the largest single unmapped-predicate
+# cluster in the live rejection_queue.jsonl: MOVE_CANONICAL (400) /
+# MOVE_TEMP_IMPORT (225) / MOVE_DUPLICATE (47) = 672 rows, every one a
+# file-management/dedup status value from a manifest row read as a
+# sentence.
+#
+# `.json` is in this set for the same structural reason and NOT because
+# a real one has been seen failing: gmv_evidence_pipeline._extract()'s
+# own plain-text branch reads `{.txt, .md, .html, .csv, .json}` as text
+# with `errors="strict"` and no per-format branch, so a `.json` file
+# reaching this gate is bytes-dumped into the prompt rather than
+# rejected upstream. DISCLOSED, not hidden: of the 35 real `.json`
+# locators in the registry, ZERO can reach here today -- every one lives
+# under `10_gmv_run_audit/`, which the nightly script's own
+# TEXT_SUBFOLDER_MARKERS filter (`/00_master/`, `/03_testi/`,
+# `/10_md_processed_files/`) already excludes, so this extension is a
+# guard for the day that changes, not a fix for an observed failure. It
+# is included on the same "a structured-data serialization is not prose"
+# grounds as `.csv`, and it is the ONE extension here that has no live
+# failure behind it.
+#
+# Deliberately NOT in this set, and each a real exclusion rather than an
+# oversight:
+# - `.xlsx`/`.pptx`/`.doc`/`.pages`/images/video: never reach here at
+#   all -- gmv_evidence_pipeline.SUPPORTED does not list them, so
+#   extract_document() already returns UNSUPPORTED_FORMAT upstream. The
+#   gate has nothing to catch there and inventing a rule for them would
+#   be untestable dead code.
+# - `.md`: the format this pipeline's real prose mostly arrives in
+#   (527 registered `.md` locators). Never gated.
+# - `.html`: 1 real locator (`99_ai_working/.../dawson-scenari-preview.html`),
+#   also excluded upstream by TEXT_SUBFOLDER_MARKERS. It is a rendered
+#   document format and CAN legitimately carry prose, so it is not
+#   treated as non-prose by extension even if that filter ever changes.
+# - `.yaml`/`.yml`: 2 real locators (`dawson_dennis/object.yaml`,
+#   `garibaldi_federico/object.yaml`), neither in SUPPORTED, so both
+#   already fail upstream extraction exactly like `.xlsx` does.
+#
+# Measured against the real registry, this set gates 41 of 3513
+# locators -- the 6 CSVs plus the 35 JSONs -- and zero of the prose
+# ones. Both facts are asserted against the real DB in
+# tests/test_gmv_crawler_orchestrator.py, not left as a claim here.
+NON_PROSE_SUFFIXES = (".csv", ".json")
+
+# The pre-extraction gate's own stable `document_type` verdict
+# (opencode_task_35.md). Deliberately NOT one of
+# classify_document().DOCUMENT_TYPES and deliberately not a new
+# ProcessDocumentResult field: the field already exists and is already
+# "why did this document take the path it took", so a caller reading a
+# stored result can tell this case apart from every classified type
+# without a second mechanism to keep in sync. Asserted against the real
+# DOCUMENT_TYPES list in the tests, so a future edit there can never
+# silently make this verdict ambiguous.
+NON_PROSE_DOCUMENT_TYPE = "non_prose"
+
+# The folder whose AnyDoc conversions carry the ORIGINAL file's extension
+# inside their own name, per gmv_evidence_pipeline._anydoc_md_path()'s
+# real naming rule: `root/"10_MD_PROCESSED_FILES"/("__".join(parts) +
+# ".md")`, i.e. every path separator becomes a literal `__`. Checked on
+# the locator as a whole, case-insensitively (real locators arrive both
+# lower- and upper-cased from different connector sweeps).
+PROCESSED_MD_FOLDER = "10_md_processed_files"
+
+
+def _original_file_name(source_id: str) -> str:
+    """The name this locator's bytes really have, undoing the AnyDoc
+    conversion's `__`-joining when there is one.
+
+    A converted file keeps its source extension INSIDE its own name --
+    `09_temp_import__gp contact.csv.md` is a `.csv`, not a `.md` -- and
+    half the real non-prose locators (3 of the 6 counted above) are
+    exactly this shape. Reading the outer `.md` alone would classify a
+    converted manifest as prose and let it through.
+
+    Only the last `__`-separated segment is used, which is the exact
+    inverse of `"__".join(parts)` for every path the real converter
+    produces (a `/` becomes `__`, so the final component is always last).
+    Anything with no `__` in it, or a non-processed-folder locator, is
+    returned as its own basename -- deliberately fail-open, so an
+    unexpected name shape can never cause a prose document to be gated.
+    """
+    name = source_id.rsplit("/", 1)[-1]
+    if not name.lower().endswith(".md"):
+        return name
+    if f"/{PROCESSED_MD_FOLDER}/" not in source_id.lower():
+        return name
+    stem = name[: -len(".md")]
+    if "__" not in stem:
+        return name
+    return stem.rsplit("__", 1)[-1]
+
+
+def _is_non_prose_source(source_id: str) -> bool:
+    """True when `source_id`'s real underlying extension is one of
+    NON_PROSE_SUFFIXES -- i.e. the document is a structured-data
+    serialization, not prose, regardless of whether it reached here as
+    the original file or as its AnyDoc `.md` conversion.
+
+    Purely deterministic (suffix on the name), by the same
+    "deterministic-first" principle as the real-estate pipeline's
+    is_generic_regulatory_reference()/is_construction_safety_document()
+    (10_API/gmv_property_extract_templates.py, another worktree of this
+    same repo) -- deliberately NOT a classify_document() call: those
+    detectors answer "is this document in domain", which is a content
+    question; this one answers "was this ever prose", which the file
+    extension already answers unambiguously, and asking a model to
+    re-derive it would cost a network call to learn nothing the name
+    did not already say.
+    """
+    name = _original_file_name(source_id)
+    return name.lower().endswith(NON_PROSE_SUFFIXES)
+
 
 @dataclass(frozen=True, slots=True)
 class ProcessDocumentResult:
@@ -140,6 +264,19 @@ class ProcessDocumentResult:
     a caller inspecting a stored result later should never have to
     re-classify a document just to know why it went through the price/
     contract/entities-claims path it did.
+
+    `document_type` has exactly one value that is NOT
+    classify_document()'s verdict: `NON_PROSE_DOCUMENT_TYPE`
+    ("non_prose", 2026-10-05), set by the deterministic
+    `_is_non_prose_source()` gate that runs before classification even
+    happens, for a source whose real extension is a structured-data
+    serialization (see NON_PROSE_SUFFIXES for the real counts and the
+    real `MOVE_CANONICAL`-type noise it removes). Every payload field
+    below is empty for it, and `classify_document()` was never called.
+    It is deliberately not one of `classify_document().DOCUMENT_TYPES`,
+    so "was this document ever classified?" stays answerable from this
+    one field alone -- asserted against the real DOCUMENT_TYPES list in
+    the tests rather than left as a claim.
 
     `price_entries`/`price_rejected` are populated only for
     `document_type == "price_list"`, and `atoms`/`rejected`/
@@ -380,7 +517,29 @@ def process_document(
           repository; proposing an identity for every unresolvable noun
           phrase would flood the queue with fragments. Stated plainly
           here so the feature is not read as broader than it is.
+
+    0. The deterministic non-prose gate (2026-10-05, `opencode_task_35.md`),
+       which runs BEFORE everything else below and therefore before
+       `classify_document()` and `extract_candidates()` are ever called:
+       a source whose real extension is a structured-data serialization
+       (`NON_PROSE_SUFFIXES`, see the module-level comment for the real
+       counts) returns here with `document_type ==
+       NON_PROSE_DOCUMENT_TYPE` and every payload field empty, costing
+       ZERO model calls instead of the two a real classification would
+       have made. Same deterministic-first gate shape already shipped in
+       this repository's real-estate pipeline
+       (10_API/gmv_property_extract_templates.py::_skip_reason(), another
+       worktree of this repo), not a new pattern. Everything else is
+       populated empty because there is nothing to extract, so there is
+       nothing to propose, reject or queue either.
     """
+    if _is_non_prose_source(document.source_id):
+        return ProcessDocumentResult(
+            document_type=NON_PROSE_DOCUMENT_TYPE,
+            atoms=(), rejected=(), entity_type_proposals_needing_verification=(),
+            extraction_rejected=(), all_entities=(), entity_identity_proposals=(),
+        )
+
     classification = classify_document(document.text, endpoint=endpoint, model=model, timeout=timeout)
     document_type = classification["document_type"]
 

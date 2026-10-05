@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -914,3 +915,233 @@ def test_process_document_country_filter_also_covers_the_work_subject_loop(
         ("dimensions", "Montenegro"),
         ("dimensions", "Il bacio"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# The pre-extraction non-prose gate (2026-10-05, opencode_task_35.md).
+#
+# Follows the same mocking convention already established above:
+# monkeypatch.setattr(orchestrator, "<stage>", <raiser>) for the stages
+# that must NEVER run, so "was it called" is proven by a loud failure
+# rather than by an assertion about an empty result (which an unrelated
+# bug could produce just as well).
+# ---------------------------------------------------------------------------
+
+# Real locators, verbatim from the live 01_RUNTIME/gmv_crawler/registry.db,
+# not invented for the test. ALL SIX real CSV-sourced locators in that
+# registry (3513 rows total) -- three distinct source files, each present
+# both as the original and as its real AnyDoc `.md` conversion, which is
+# why the conversion shape is half the list. The first two files are the
+# ones that produced the 672 MOVE_CANONICAL/MOVE_TEMP_IMPORT/MOVE_DUPLICATE
+# rows in the live rejection_queue.jsonl; their completeness here is
+# checked against the real DB by
+# test_detector_gates_every_real_csv_locator_and_no_real_prose_one.
+REAL_CSV_LOCATORS = (
+    "/gmv_master_system/01_area35_master/01_artists/geranzani_pietro/00_master/source_manifest.csv",
+    "/gmv_master_system/01_area35_master/01_artists/nazeraj_erjon/00_master/source_manifest.csv",
+    # Same two files, as their real AnyDoc conversions -- half the real
+    # non-prose locators are this shape, and reading only the outer ".md"
+    # would let every one of them through.
+    "/gmv_master_system/01_area35_master/01_artists/geranzani_pietro/10_md_processed_files/00_master__source_manifest.csv.md",
+    "/gmv_master_system/01_area35_master/01_artists/nazeraj_erjon/10_md_processed_files/00_master__source_manifest.csv.md",
+    # The one non-manifest CSV (a contacts table -- still not prose), again
+    # in both its two real shapes.
+    "/gmv_master_system/01_area35_master/01_artists/gasparini_gian_piero/09_temp_import/gp contact.csv",
+    "/gmv_master_system/01_area35_master/01_artists/gasparini_gian_piero/10_md_processed_files/09_temp_import__gp contact.csv.md",
+)
+
+
+def _make_document_for(source_id: str, text: str = "colonna;MOVE_CANONICAL;target") -> ExtractionDocument:
+    return ExtractionDocument(
+        source_id=source_id, source_hash=GOOD_HASH, status="SUCCESS",
+        extractor="text", text=text,
+    )
+
+
+@pytest.mark.parametrize("locator", REAL_CSV_LOCATORS)
+def test_real_csv_manifest_never_reaches_classification_or_extraction(
+    locator: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE guarantee of this gate, for each of the 5 real locators:
+    neither classify_document() nor extract_candidates() is ever called.
+    Both are stubbed to raise, so a regression that lets a manifest
+    through fails the test instead of silently re-queueing the same
+    MOVE_CANONICAL noise it exists to remove."""
+    def _fail(*a, **k):
+        raise AssertionError(f"non-prose source {locator!r} must never reach classification/extraction")
+
+    monkeypatch.setattr(orchestrator, "classify_document", _fail)
+    monkeypatch.setattr(orchestrator, "extract_candidates", _fail)
+    monkeypatch.setattr(orchestrator, "extract_contract_summary", _fail)
+    monkeypatch.setattr(orchestrator, "extract_price_entries", _fail)
+
+    result = process_document(_make_document_for(locator), evidence_ids=("EV-1",), now=NOW)
+
+    assert result.document_type == orchestrator.NON_PROSE_DOCUMENT_TYPE
+    # Every payload empty: nothing to extract means nothing to propose,
+    # reject, price or contract-summarize.
+    assert result.atoms == ()
+    assert result.rejected == ()
+    assert result.extraction_rejected == ()
+    assert result.all_entities == ()
+    assert result.entity_type_proposals_needing_verification == ()
+    assert result.entity_identity_proposals == ()
+    assert result.price_entries == ()
+    assert result.price_rejected == ()
+    assert result.contract_summary is None
+
+
+def test_non_prose_verdict_is_not_one_of_the_real_document_types() -> None:
+    """Asserted against the REAL classify_document().DOCUMENT_TYPES list,
+    not against a copy of it, so a future edit there can never silently
+    make this verdict ambiguous -- which would break the one-field answer
+    to "was this document ever classified?"."""
+    from gmv_crawler_document_classifier import DOCUMENT_TYPES
+
+    assert orchestrator.NON_PROSE_DOCUMENT_TYPE not in DOCUMENT_TYPES
+
+
+def test_real_prose_documents_are_completely_unaffected(
+    monkeypatch: pytest.MonkeyPatch, _empty_entity_registry: None,
+) -> None:
+    """The other half of the guarantee: real prose locators, in the exact
+    three shapes the real registry holds (original, AnyDoc `.md`
+    conversion, plain text), still go through classification and
+    extraction untouched. If the gate ever degraded into "anything in
+    10_md_processed_files" or "anything without a recognised prose
+    extension", these would silently produce nothing."""
+    seen: list[str] = []
+    entities = (make_entity("Some Institution"),)
+    propositions = (make_proposition("Some Show", "was held at", "Some Institution", ref="CLAIM-P1"),)
+
+    def _record_classify(text, **k):
+        seen.append(text)
+        return {"document_type": "biography", "confidence": "high"}
+
+    # Same convention as the relation tests above: a `located_at`-shaped
+    # proposition would otherwise reach the real classify_entity_types()
+    # and try a real network call (caught live below as a 60s TIMEOUT).
+    def _fake_classify(batch_entities, **k):
+        return tuple(
+            EntityTypeProposal(
+                entity_name=e.name, entity_type="INSTITUTION",
+                confidence="HIGH", source="MODEL_INFERENCE", needs_verification=True,
+            )
+            for e in batch_entities
+        )
+
+    monkeypatch.setattr(orchestrator, "classify_document", _record_classify)
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: (entities, propositions, ()))
+    monkeypatch.setattr("gmv_crawler_relation_atom_builder.classify_entity_types", _fake_classify)
+
+    prose_locators = (
+        # Real shapes from the registry. The AnyDoc one is the adversarial
+        # case: its name ends in ".csv" one segment BEFORE the ".md", so
+        # only a correct `_original_file_name()` unwrap leaves it prose.
+        "/gmv_master_system/01_area35_master/01_artists/bonfanti_manuel/10_md_processed_files/09_temp_import__2026_04_not what it seems.docx.md",
+        "/gmv_master_system/01_area35_master/01_artists/bertola_francesco/10_md_processed_files/09_temp_import__francesco bertola intima listino.pdf.md",
+        "/gmv_master_system/01_area35_master/01_artists/dawson_dennis/object.yaml",
+        "/gmv_master_system/01_area35_master/01_artists/dawson_dennis/99_ai_working/project_2026_07_29/work/dawson-scenari-preview.html",
+        "/gmv_master_system/01_area35_master/99_exports/mutualart_2026/01_federico_garibaldi/federico garibaldi/federico garibaldi.md",
+    )
+    for locator in prose_locators:
+        result = process_document(
+            _make_document_for(locator, text="prose about an artist"),
+            evidence_ids=("EV-1",), now=NOW,
+        )
+        assert result.document_type == "biography", locator
+        assert len(seen) == prose_locators.index(locator) + 1, locator
+
+    # Underscored by the real ontology registry's own WORK-domain lookup
+    # downstream, so this is not merely "it did not crash".
+    assert len(seen) == len(prose_locators)
+
+
+def test_gate_is_extension_only_and_never_reads_the_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deterministic-only guarantee (hard constraint 1 of the task
+    brief), proven adversarially: the gate's verdict for a real CSV
+    locator is byte-identical whatever the document text says, INCLUDING
+    text that is pure, well-formed prose. A content-sensitive rule would
+    pass this only if it ignored content entirely, which is the claim
+    under test -- a `.csv` is gated for what it IS, not what it says."""
+    locator = REAL_CSV_LOCATORS[0]
+    monkeypatch.setattr(orchestrator, "extract_candidates", lambda *a, **k: ((), (), ()))
+
+    prose_text = (
+        "Federico Garibaldi nacque a Chiavari nel 1807. Il suo primo "
+        "esilio ebbe fine a Montevideo. Poi torno in Italia e si "
+        "dedico alla guerra."
+    )
+    assert orchestrator._is_non_prose_source(locator) is True
+    result = process_document(
+        _make_document_for(locator, text=prose_text), evidence_ids=("EV-1",), now=NOW,
+    )
+    assert result.document_type == orchestrator.NON_PROSE_DOCUMENT_TYPE
+    assert result.atoms == ()
+
+
+@pytest.mark.parametrize("source_id,expected", [
+    # (real CSV, gated)
+    (REAL_CSV_LOCATORS[0], True),
+    (REAL_CSV_LOCATORS[2], True),
+    # Real prose shapes, never gated -- including a `.md` whose name
+    # contains dots, which is where a naive `split(".")[-1]` would break.
+    ("/a/b/federico garibaldi.md", False),
+    ("/a/10_md_processed_files/09_temp_import__x.docx.md", False),
+    ("/a/10_md_processed_files/09_temp_import__x.pdf.md", False),
+    # A ".csv" appearing mid-name is not an extension.
+    ("/a/10_md_processed_files/09_temp_import__notes.csv di ricerca.txt.md", False),
+    # Upper-cased real locator shape (the registry really holds both
+    # cases, from different connector sweeps).
+    ("/GMV_MASTER_SYSTEM/01_AREA35_MASTER/01_ARTISTS/GERANZANI_PIETRO/00_MASTER/SOURCE_MANIFEST.CSV", True),
+    ("/A/10_MD_PROCESSED_FILES/00_MASTER__SOURCE_MANIFEST.CSV.MD", True),
+    # Fail-open: an odd name shape must never gate, not even by accident.
+    ("/a/b/manifest", False),
+    ("", False),
+])
+def test_is_non_prose_source_cases(source_id: str, expected: bool) -> None:
+    """Unit-level truth table for the detector, including the adversarial
+    near-miss shapes (a `.csv` that is not the extension; an empty and a
+    dotless source_id). The mid-name case is the real one to get right:
+    `split(".")[-1]` on `notes.csv di ricerca.txt.md` unwrapped by
+    `_original_file_name()` gives `notes.csv di ricerca.txt` -> not
+    gated, while a substring check on ".csv" anywhere would wrongly gate
+    it and lose a real text."""
+    assert orchestrator._is_non_prose_source(source_id) is expected
+
+
+def test_detector_gates_every_real_csv_locator_and_no_real_prose_one() -> None:
+    """Keeps REAL_CSV_LOCATORS honest against the REAL registry instead of
+    against a hand-maintained list of extensions: every `.csv`-sourced
+    locator the live registry actually holds is gated, and NO locator
+    whose underlying file is prose (.pdf/.docx/.doc/.txt/.md/.html) is.
+
+    Read-only: opens the committed registry.db with `mode=ro` so this test
+    cannot itself create the sqlite file the write-authorization and
+    sqlite-connection boundary tests police elsewhere.
+    """
+    db = Path(__file__).resolve().parents[1] / "01_RUNTIME" / "gmv_crawler" / "registry.db"
+    if not db.is_file():
+        pytest.skip(f"real registry not present at {db}")
+    with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as con:
+        locators = [row[0] for row in con.execute("SELECT canonical_locator FROM crawler_source_registry")]
+    assert locators, "real registry returned no locators at all"
+
+    real_csv = {
+        loc for loc in locators
+        if orchestrator._original_file_name(loc).lower().endswith(".csv")
+    }
+    assert real_csv, "no real CSV locator found -- the gate's premise is unverified"
+    for loc in real_csv:
+        assert orchestrator._is_non_prose_source(loc), loc
+    # The list the parametrized test above drives is exactly this set, so
+    # a NEW real CSV manifest appearing in the archive cannot slip past
+    # this gate untested.
+    assert set(REAL_CSV_LOCATORS) == real_csv
+
+    for loc in locators:
+        underlying = orchestrator._original_file_name(loc).lower()
+        if underlying.endswith((".pdf", ".docx", ".doc", ".txt", ".md", ".html")):
+            assert not orchestrator._is_non_prose_source(loc), loc
