@@ -2408,3 +2408,73 @@ mapping is valuable (it rescues a whole class of real facts) and why I did not
 treat `held` as its synonym. This single-document scope is written into the
 mapping entry's own `verified_against` rather than left for someone else to
 discover.
+
+- **2026-10-06 — Task 39 done: real Area35 exhibition dates written into
+  gbrain's timeline (opencode brief `opencode_task_39.md`), new module
+  `10_API/gmv_area35_canon_timeline.py` + `tests/test_gmv_area35_canon_timeline.py`
+  (20 tests).** gbrain's own `extract timeline --infer-dates` found all 95
+  real `type: event` pages under `03_STATE/area35_canon/` but produced zero
+  entries (Italian month names + en-dash ranges unparseable), so the canon
+  files themselves are the only structured date source. Baseline was read
+  from the real pages before coding: the verbatim label catalogue (day-
+  capable `Date`/`Date Area35`/`Date canoniche`/`Date della mostra`/
+  `Date in proprietà`/`Date pubbliche Area35`/`Data`/`Data documentata`/
+  `Data esposizione`/`Data registrata`/`Periodo*`/`Apertura documentata`,
+  year-only `Anno`/`Anno indicato`/`Datazione archivistica`, the rejected
+  `Date candidate`/`Date documentate / in conflitto`/`Date NAMI`/`Durata`/…),
+  the grammar of the real ranges ("9 novembre 2015-17 gennaio 2016",
+  "13-19 febbraio 2015", "27 febbraio-5 marzo 2015", prose marker phrases
+  `date canoniche`/`aperta dal`/`apertura il`/…), and the real ambiguous
+  shapes (Oasi/GREY STREET/untitled = no date; 12 Shoes et al. = year-only;
+  Nuove Sinestesie = only a rejected label; Whitelight = prose explicitly
+  flagged in conflict). Dry run on the 95 real pages: **77 APPLY (day-level),
+  1 month-only, 11 year-only, 6 skipped** (4 no-date, 1 only rejected label,
+  1 prose flagged non-canonical); 77+1+11+6 = 95. Month/year pages are
+  REPORTED, never written (`timeline-add` demands YYYY-MM-DD; no fabricated
+  dates). `--apply` writes exactly one `gbrain timeline-add` per day-level
+  page with `--detail` (verbatim line) + `--source` + `--request-id uuid4`.
+  Task brief say-so verified in real code: `timeline-add --help` confirms the
+  signature and idempotency on replay; the write-target provenance from the
+  brief was MY invented `gmv-area35-canon` and it did not exist.
+
+  **Three empirical findings at apply time (all three would have shipped
+  wrong on assumption):** (1) `timeline-add` CANNOT run while `gbrain serve
+  --http` is live — every call fails `Error [storage_error]: The persistence
+  owner could not complete this request` (single-writer engine). Twice
+  confirmed: 77/77 failed with serve up, then 77/77 written with serve
+  stopped. (2) `--source` must name a REGISTERED source; `gbrain sources list`
+  shows exactly one, `default` (455 pages, the canon folder imported there by
+  the morning sync), so the module now takes `--source` (default `default`)
+  and `run_apply()` passes it through. (3) My provisioning trial add to
+  "prove" idempotency wrote a WRONG entry — I aimed "In itinere 2012" at slug
+  `3d15a429-a028-8127-8398-f37925c58743`, which the real extractor proves is
+  `Viewing room Guido Rocca — Area35 Art Gallery 2022` (single day
+  2022-11-08); I caught it by checking the module's own row before trusting
+  my memory. There is no CLI to delete a timeline entry, so the revert was
+  `gbrain put <slug> --force` from the canon file (put replaces the whole
+  page; timeline back to empty, content byte-identical, canon file on disk
+  untouched), confirmed via `gbrain get --json` showing `"timeline": ""`.
+
+  **Result, live, serve stopped, real CLI:** `--apply --gbrain .../gbrain
+  --source default` printed `apply: 77 timeline entries written`, zero
+  failures. Verification read-back (77 separate `gbrain get --json`, serve
+  restarted and healthy on :3131): 77/77 pages have a Timeline containing
+  their exact row.start; the trial page now holds only its one correct
+  2022-11-08 entry. `pkill -f "gbrain serve --http"` → apply → restart is
+  exactly the morning-sync stop/restart pattern (`gbrain_morning_sync.sh`),
+  and the serve was left running.
+
+  **Test/ruff baseline:** full suite **1405 passed, 1 failed** — the same
+  pre-existing `tests/security/test_runtime_git_policy.py::test_current_tracked_tree_passes_policy`
+  (its 8 `personal_absolute_path` findings are all in `automation/` +
+  `opencode_task_21.md`/`opencode_task_32.md`, none in this task's files;
+  checked with both files staged). `ruff check .` clean. The module keeps
+  the EIC-10 wall (no sqlite3, no DML, no Monad/atom import — pinned by an
+  `ast` test) and reads the canon files, not gbrain, so the read path avoids
+  the single-writer conflict by construction.
+
+  NOT done / could not verify: the 11 year-only pages were not written (that
+  is the task's rule, not a limitation); no Run Ledger integration; whether a
+  future `gbrain extract timeline` now sees the 77 entries was not re-run
+  after the writes. Commits `9a3f2b05` (module + tests, dry run) and
+  `4eaeb0f4` (source fix) are pushed on this branch.
