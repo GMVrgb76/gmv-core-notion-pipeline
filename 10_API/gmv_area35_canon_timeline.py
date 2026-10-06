@@ -74,7 +74,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CANON_DIR = REPO_ROOT / "03_STATE" / "area35_canon"
-SOURCE_SLUG = "gmv-area35-canon"
+SOURCE_SLUG = "default"
 
 _MONTH = (
     r"(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|"
@@ -421,7 +421,7 @@ def build_rows(canon_dir: Path) -> list[_Extraction]:
     ]
 
 
-def render_report(extractions: list[_Extraction]) -> str:
+def render_report(extractions: list[_Extraction], source: str = SOURCE_SLUG) -> str:
     rows = [e.row for e in extractions]
     head = (
         f"{'SLUG':<13} {'TITLE':<40} {'PREC':<6} {'START':<12} {'END':<12} "
@@ -430,7 +430,7 @@ def render_report(extractions: list[_Extraction]) -> str:
     line_width = 13 + 40 + 6 + 12 + 12 + 34 + 22 + 34 + 1
     lines = [
         "Area35 canon event pages -> gbrain timeline (dry run)",
-        f"pages: {len(rows)}   source: {SOURCE_SLUG}   write path: gbrain timeline-add <slug> YYYY-MM-DD <text>",
+        f"pages: {len(rows)}   source: {source}   write path: gbrain timeline-add <slug> YYYY-MM-DD <text>",
         "",
         head,
         "-" * line_width,
@@ -475,7 +475,7 @@ def render_report(extractions: list[_Extraction]) -> str:
     return "\n".join(lines)
 
 
-def run_apply(rows: list[Row], gbrain: str) -> tuple[int, list[str]]:
+def run_apply(rows: list[Row], gbrain: str, source: str = SOURCE_SLUG) -> tuple[int, list[str]]:
     ok = 0
     failures: list[str] = []
     for row in rows:
@@ -487,7 +487,7 @@ def run_apply(rows: list[Row], gbrain: str) -> tuple[int, list[str]]:
         summary += f" [{row.source}]"
         argv = [
             gbrain, "timeline-add", row.slug, row.start, summary,
-            "--source", SOURCE_SLUG, "--detail", row.raw,
+            "--source", source, "--detail", row.raw,
             "--request-id", str(uuid.uuid4()),
         ]
         result = subprocess.run(  # noqa: S603 - fixed argv from module constants + a slug read from a canon filename; no shell
@@ -508,6 +508,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--canon-dir", default=str(CANON_DIR), help="canon folder (read-only input)")
     parser.add_argument("--gbrain", default="gbrain", help="gbrain CLI binary")
+    parser.add_argument("--source", default=SOURCE_SLUG, help="gbrain provenance source id (must exist; the canon pages live in 'default')")
     parser.add_argument("--apply", action="store_true", help="write entries via gbrain timeline-add (default: dry-run)")
     args = parser.parse_args(argv)
 
@@ -515,11 +516,11 @@ def main(argv: list[str] | None = None) -> int:
     if not canon_dir.is_dir():
         parser.error(f"canon dir not found: {canon_dir}")
     extractions = build_rows(canon_dir)
-    print(render_report(extractions))
+    print(render_report(extractions, args.source))
     print()
 
     if args.apply:
-        ok, failures = run_apply([e.row for e in extractions], args.gbrain)
+        ok, failures = run_apply([e.row for e in extractions], args.gbrain, args.source)
         print(f"apply: {ok} timeline entries written")
         if failures:
             for failure in failures:

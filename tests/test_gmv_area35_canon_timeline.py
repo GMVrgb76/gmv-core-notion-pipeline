@@ -319,7 +319,7 @@ def test_apply_makes_exactly_one_call_per_day_page(
 
     monkeypatch.setattr(timeline.subprocess, "run", fake_run)
 
-    ok, failures = timeline.run_apply(rows, "gbrain")
+    ok, failures = timeline.run_apply(rows, "gbrain", source="gmv-area35-canon")
     day_rows = [r for r in rows if r.apply]
     assert failures == []
     assert ok == len(day_rows) == 2
@@ -327,7 +327,7 @@ def test_apply_makes_exactly_one_call_per_day_page(
         assert argv[0] == "gbrain"
         assert argv[1] == "timeline-add"
         assert len(argv[3]) == 10 and argv[3].count("-") == 2
-        assert "--source" in argv and "gmv-area35-canon" in argv
+        assert argv[argv.index("--source") + 1] == "gmv-area35-canon"
         assert "--detail" in argv
         assert "--request-id" in argv
     assert [argv[2] for argv in calls] == ["slug-1", "slug-2"]
