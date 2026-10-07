@@ -181,3 +181,87 @@ Fatti verificati per la proposta "GMV Crawler":
 - **Nessuna traccia di "crawler" nel repo**: nessun `crawler.sqlite`, nessuna cartella `20_REGISTRY/`, nessun file/stringa "crawler" in nessun path tracciato (verificato con grep case-insensitive su tutto l'albero, esclusi `.git/`). Il lavoro non è iniziato altrove nel repo.
 - Confermati esistenti e coerenti con la v0.2: `gmv_core/migration_sql/001_baseline.sql`→`008_oid_type_consistency.sql` (8 file, sequenziali); `10_API/backup_service.py` (recovery set, sha256, `verify_backup`/`create_backup`/`restore_check`); `10_API/secure_storage.py` (`atomic_write_bytes`, `require_private`, scritture atomiche); `tests/` con sottocartelle `characterization/compatibility/recovery/security/migrations` (più molte altre non citate dalla v0.2: `identity/objects/relations/resources/queue/search/services/observability/cli`).
 - `00_CONFIG/GMV_GOVERNANCE_INDEX.md` in questo repo copre SOLO i documenti di prodotto/sprint pre-Sprint-002; per lo stato operativo corrente/ADR/freeze rimanda a `00_CONFIG/PROJECT_STATUS.md` §5 come indice più completo — consultarlo prima di dichiarare "nessun documento di governance copre X".
+
+## Consultazione: export Notion → terzo tier parallelo a 03_STATE/ombra/ (verificato 2026-10-05)
+
+Richiesta: dove materializzare un export di pagine Notion Area35 (sintesi+verifica
+web, "canon operativo" ma non EIC-verificato atomo-per-atomo) in una cartella
+parallela ai Monad, per un futuro import in GBrain come terzo tier di contenuto.
+Solo raccomandazione, nessuna implementazione.
+
+- **Correzione/aggiornamento di una nota precedente (2026-08-29): GBrain esiste
+  davvero ora**, come MCP server HTTP esterno (`~/.claude.json` →
+  `mcpServers.gbrain`, `127.0.0.1:3131`), confermato in
+  `GMV_CRAWLER_PIPELINE_AUDIT_2026-10-04.md` §6 (lettura diretta, stessa
+  sessione precedente, non assunzione). **Resta però esplicitamente NON
+  verificato se GBrain sia oggi davvero puntato su `03_STATE/ombra/`** (§6/§10
+  dello stesso audit, verifica dichiarata fuori scope lì). Qualunque proposta
+  di "terzo tier verso GBrain" non può presumere un meccanismo di ingestion già
+  esistente da estendere con una seconda cartella sorgente — va prima
+  verificata la configurazione reale lato GBrain.
+- **Meccanismo di lettura Notion già esistente da riusare (non ancora
+  individuato in consultazioni precedenti di questa memoria)**: `adapter_notion.py`
+  e `notion_extract.py`, entrambi alla radice del repo, dichiaratamente
+  "sola lettura" (nessuna scrittura Notion), usano `credentials.py` per il
+  token, producono `rows.json` (gitignored, riga 13 di `.gitignore`) con le
+  property delle pagine Notion e, con `--with-bodies`, anche il corpo testo
+  della pagina (`_corpo()`, via `/blocks/{page_id}/children`). Questo è il
+  precedente architetturale per qualunque futura lettura via API Notion — non
+  scrivere un nuovo client Notion da zero. Nessuno dei due produce però file
+  markdown per-entità: solo un JSON tabellare unico (`rows.json`), quindi un
+  export "una cartella/un file per entità" resterebbe comunque un passo nuovo
+  (trasformazione rows.json → file), non duplicato da nulla di esistente.
+- **`03_STATE/` è confermato "never Git"** sia da `SOURCE_RUNTIME_BOUNDARIES.md`
+  righe 51-52 (classe "Live state", backup "dopo S002-20; mai Git") sia da
+  `.gitignore` riga 23 (`/03_STATE/`, pattern letterale, non specifico a
+  `ombra/`). Qualunque sottocartella nuova sotto `03_STATE/` eredita
+  automaticamente questa classe senza bisogno di una nuova riga di governance
+  separata — stesso trattamento già riservato esplicitamente a
+  `03_STATE/ombra/` (riga 52, "non una nuova classe/top-level path").
+- **Novità rispetto a quanto risultava nell'audit dello stesso giorno
+  (`GMV_CRAWLER_PIPELINE_AUDIT_2026-10-04.md` §9, "03_STATE/ombra/ ha no
+  scheduled backup")**: esiste ora `10_API/gmv_monad_backup.py` +
+  `tests/test_gmv_monad_backup.py` (commit "Task 30 backup", stesso giorno,
+  probabilmente dopo l'audit). È un mirror MANUALE standalone (nessun cron/
+  LaunchAgent, deliberatamente disaccoppiato da `backup_service.py` e da
+  `gmv_monad_materializer.py`), copia ogni `*.md` di `03_STATE/ombra/` verso
+  `~/.gmv_backups/ombra/` via `secure_storage.atomic_write_text` (mai
+  `shutil.copy`), destinazione sempre `Path.home()`-relativa (mai hardcoded,
+  per `scripts/check_runtime_git_policy.py`). **Non contraddice l'affermazione
+  "nessun backup schedulato"**: è un meccanismo disponibile ma non automatico,
+  e dichiaratamente "a current-state mirror, not a versioned archive" (una
+  sola copia, nessun manifest/retention/verifica). Qualunque nuova cartella
+  Notion-export sotto `03_STATE/` erediterebbe lo stesso gap reale, e lo
+  stesso pattern (`gmv_monad_backup.py`) sarebbe il riferimento corretto se si
+  decidesse di aggiungere un mirror analogo, non un meccanismo nuovo.
+- **Precedente diretto per un terzo valore di vocabolario epistemico, utile
+  come riferimento per un futuro `status: canon_unaudited` o simile**: il
+  campo `EPISTEMIC_LEVEL` del SOURCES manifest dei Monad riusa deliberatamente
+  (commit `19896528`, decisione 2026-09-26) il vocabolario già esistente
+  `SUPPORTED_BY_ARCHIVE`/`SUPPORTED_BY_WEB` di `gmv_evidence_pipeline.py`
+  (`ARCHIVE`/`WEB`), con assegnazione **meccanica per-connettore** (mai a
+  giudizio del LLM, mai per-documento). Lo stesso principio si applica a
+  qualunque nuovo "tier" di contenuto: il valore di stato va deciso una volta,
+  documentato in un posto unico, e assegnato deterministicamente dallo stadio
+  produttore — non lasciato come stringa libera inventata ad-hoc nel
+  frontmatter di un singolo modulo.
+- **EIC-10 è la regola più direttamente rilevante per il rischio di
+  confusione fra canon Notion e atomi EIC-verificati**: "Derived GMV Masters
+  are assertions, not primary evidence. They may guide retrieval but cannot
+  alone upgrade uncertain claims to VALID" (`00_CONFIG/EPISTEMIC_INGESTION_RULES_v0.2.json`).
+  Una pagina Notion di sintesi (compilata da documenti + verifica web, non
+  verificata atomo-per-atomo) è esattamente un "derived Master" in questo
+  senso: non può mai comparire come SOURCE primaria in un SOURCES manifest di
+  Monad, né giustificare da sola la promozione di un atomo a VALID. Vale
+  insieme a EIC-01 (mai aumentare la certezza epistemica in ingestion) e
+  EIC-09 (ogni atomo VALID dev'essere difendibile da evidenza esplicita).
+- **Frontmatter Monad reale** (letto `03_STATE/ombra/GMV-000001.md`):
+  `schema: GMV_KNOWLEDGE_MONAD_V1` / `gmv_id` / `entity_type` / `canonical_name`
+  / `status` — campi congelati da `GMV_KNOWLEDGE_MONAD_SPEC_v1.0` §20;
+  `entity_type` validato contro le classi CORE/DOMAIN di
+  `GMV_ONTOLOGY_REGISTRY_v0.1.json` (`entity_type_is_governed`, regola
+  `M-SCHEMA02` in `gmv_monad_materializer.py`). Un futuro export Notion non
+  dovrebbe mai dichiararsi `schema: GMV_KNOWLEDGE_MONAD_V1` (non è un Monad,
+  non ha atomi EIC-validati) — serve un identificatore di schema proprio,
+  pur riusando lo stesso `gmv_id` del registro per permettere il confronto
+  entità-per-entità richiesto dall'utente.

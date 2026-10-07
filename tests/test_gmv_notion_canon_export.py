@@ -56,6 +56,11 @@ claim, each attacked directly rather than re-read:
   Q16 `notion_kind` is Notion's own raw label and is NEVER mapped onto the
       governed `entity_type` vocabulary (Group B, not decided)
       -> test_notion_kind_is_the_raw_notion_label_and_is_never_mapped
+  Q20 trailing `title`/`type` keys exist for gbrain's own importer, mirror
+      notion_title/notion_kind through NOTION_KIND_TO_GBRAIN_TYPE, and are a
+      DIFFERENT, explicitly-scoped mapping from Q16's (entity_type is still
+      untouched)
+      -> test_trailing_title_and_type_keys_feed_gbrains_importer_not_entity_type
   Q17 the renderer refuses a partial identity rather than writing a file that
       claims to know an entity
       -> test_renderer_refuses_a_partial_identity
@@ -201,6 +206,8 @@ def test_known_registry_entity_writes_the_expected_file(target_dir: Path) -> Non
         "notion_kind": "artista",
         "notion_title": "Federico Garibaldi",
         "exported_at": NOW,
+        "title": "Federico Garibaldi",
+        "type": "person",
     }
     assert text == (
         "---\n"
@@ -213,6 +220,8 @@ def test_known_registry_entity_writes_the_expected_file(target_dir: Path) -> Non
         "notion_kind: artista\n"
         "notion_title: Federico Garibaldi\n"
         f"exported_at: '{NOW}'\n"
+        "title: Federico Garibaldi\n"
+        "type: person\n"
         "---\n"
         "\n"
         "# NOTION TITLE\n"
@@ -241,7 +250,9 @@ def test_written_frontmatter_is_exact_and_not_the_monad_schema(target_dir: Path)
 
     assert monad_keys == ["schema", "gmv_id", "entity_type", "canonical_name", "status"]
     assert canon_keys[:5] == monad_keys
-    assert canon_keys[5:] == ["source_notion_page_id", "notion_kind", "notion_title", "exported_at"]
+    assert canon_keys[5:] == [
+        "source_notion_page_id", "notion_kind", "notion_title", "exported_at", "title", "type",
+    ]
     assert frontmatter_of(result.target_path)["schema"] != "GMV_KNOWLEDGE_MONAD_V1"
     assert "# ATOMS" not in result.target_path.read_text(encoding="utf-8")
 
@@ -253,6 +264,7 @@ def test_written_frontmatter_is_exact_and_not_the_monad_schema(target_dir: Path)
     )
     assert frontmatter_keys(unresolved.target_path) == [
         "schema", "status", "source_notion_page_id", "notion_kind", "notion_title", "exported_at",
+        "title", "type",
     ]
 
 
@@ -326,6 +338,8 @@ def test_unresolved_name_is_still_filed_and_still_proposed(target_dir: Path) -> 
         "notion_kind": "mostra",
         "notion_title": "Tizio Quarkus",
         "exported_at": NOW,
+        "title": "Tizio Quarkus",
+        "type": "event",
     }
 
     proposal = result.proposal
@@ -598,6 +612,7 @@ def test_hostile_notion_text_and_page_ids_cannot_escape_the_target_dir(target_di
     assert front["source_notion_page_id"] == "deadbeef-0000-0000-0000-000000000001"
     assert set(front) == {
         "schema", "status", "source_notion_page_id", "notion_kind", "notion_title", "exported_at",
+        "title", "type",
     }
 
     # The resolved path keeps the registry's own strings in the identity
@@ -612,6 +627,7 @@ def test_hostile_notion_text_and_page_ids_cannot_escape_the_target_dir(target_di
     assert set(front) == {
         "schema", "gmv_id", "entity_type", "canonical_name", "status",
         "source_notion_page_id", "notion_kind", "notion_title", "exported_at",
+        "title", "type",
     }
 
     for bad_id in (hostile, "/etc/passwd", "a/b", "a\\b", "..", ".", ".hidden", "a b", "a\0b", ""):
@@ -848,6 +864,50 @@ def test_notion_kind_is_the_raw_notion_label_and_is_never_mapped(target_dir: Pat
         target_dir, now=NOW, notion_kind="ARTIST", registry=registry,
     )
     assert frontmatter_of(passthrough.target_path)["notion_kind"] == "ARTIST"
+
+
+def test_trailing_title_and_type_keys_feed_gbrains_importer_not_entity_type(target_dir: Path) -> None:
+    """Q20: `title`/`type` are new, LAST keys, mirroring notion_title/notion_kind
+    through NOTION_KIND_TO_GBRAIN_TYPE -- for gbrain's own generic importer,
+    which otherwise renders every canon file as `type: concept` with the
+    literal placeholder "NOTION TITLE" as its title (see that constant's
+    docstring). This is a separate, explicitly-scoped mapping from Q16's:
+    `entity_type` stays registry-only and untouched, for both the resolved and
+    the unresolved page."""
+    registry = make_registry([GARIBALDI_ENTRY])
+    for kind, expected_type in canon.NOTION_KIND_TO_GBRAIN_TYPE.items():
+        page_id = f"deadbeef-0000-0000-0000-{abs(hash('q20-' + kind)) % 10**12:012d}"
+        result = canon.export_notion_page_to_canon(
+            make_record(id=page_id, titolo=f"Pagina {kind}"),
+            f"Pagina {kind}", target_dir, now=NOW, notion_kind=kind, registry=registry,
+        )
+        front = frontmatter_of(result.target_path)
+        assert front["type"] == expected_type
+        assert front["title"] == f"Pagina {kind}"
+        assert front["notion_kind"] == kind, "the raw label is still recorded verbatim, unmapped"
+        assert "entity_type" not in front, "Q16's guarantee must survive this addition"
+
+    # An unknown/unmapped notion_kind degrades to its own lowercased string
+    # rather than raising -- the six real labels are covered, but a seventh
+    # Notion data source added later must not crash the export over a type tag.
+    exotic = canon.export_notion_page_to_canon(
+        make_record(id="deadbeef-0000-0000-0000-00000000aaaa", titolo="Exotic"),
+        "Exotic", target_dir, now=NOW, notion_kind="DatabaseFutura", registry=registry,
+    )
+    assert frontmatter_of(exotic.target_path)["type"] == "databasefutura"
+
+    # The resolved page keeps entity_type (registry, governed) AND gets the
+    # new type (gbrain, ungoverned) -- the two coexist, neither overwrites the
+    # other, exactly as the module docstring's 2026-10-05 update says.
+    resolved = canon.export_notion_page_to_canon(
+        make_record(), "Federico Garibaldi", target_dir,
+        now=NOW, notion_kind="artista", registry=registry,
+    )
+    front = frontmatter_of(resolved.target_path)
+    assert front["entity_type"] == "ARTIST"
+    assert front["type"] == "person"
+    assert front["canonical_name"] == "Federico Garibaldi"
+    assert front["title"] == "Federico Garibaldi"
 
 
 def test_renderer_refuses_a_partial_identity() -> None:

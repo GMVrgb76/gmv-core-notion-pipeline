@@ -107,6 +107,18 @@ Grounding, read in full before writing this module:
   by leaving them unmapped: a human comparing the two vocabularies needs the
   real Notion label more than this module needs a normalized one.
 
+  **Update, 2026-10-05: a second, separate mapping now exists, and it is not
+  this one.** `title`/`type` are new trailing frontmatter keys, derived from
+  `notion_title`/`notion_kind` via `NOTION_KIND_TO_GBRAIN_TYPE`, added so
+  gbrain's own markdown importer -- which expects exactly those two key names
+  and otherwise falls back to a placeholder title and `type: concept` for
+  every file -- can categorize canon snapshots. This targets gbrain's own
+  lowercase display taxonomy, a vocabulary disjoint from `entity_type`, and it
+  is a knowing, explicit bypass of the paragraph above's "must not invent" for
+  that one consumer: `entity_type` itself is untouched, still registry-only,
+  still absent from 436 of 442 real pages. See `NOTION_KIND_TO_GBRAIN_TYPE`'s
+  own docstring for the full reasoning and the date it was decided.
+
 - **`canonical_name` and `entity_type` come from the REGISTRY entry, never from
   Notion.** The governed value can only ever be asserted for a page that
   resolved, and then it is copied out of a human-curated entry rather than
@@ -256,6 +268,38 @@ NOTION_CANON_SCHEMA_ID = "GMV_NOTION_CANON_SNAPSHOT_V1"
 #: `gmv_evidence_pipeline`'s `SUPPORTED_BY_ARCHIVE`/`SUPPORTED_BY_WEB` tier is
 #: declared once and assigned mechanically per connector.
 CANON_STATUS = "canon_unaudited"
+
+#: `title`/`type` are gbrain's OWN generic markdown-import frontmatter keys
+#: (consumed by its `inferType`/`inferTitle` fallback path when a file already
+#: has frontmatter but none under those exact names) -- NOT a new GMV field,
+#: and explicitly NOT `entity_type`. Without them, gbrain's importer falls
+#: back to "type: concept" for every canon file and to the first literal `#`
+#: heading as title, which for this format is always the placeholder text
+#: "NOTION TITLE" (the real title is one line below it, see
+#: `render_canon_markdown`'s `# NOTION TITLE\n{notion_title}` section) --
+#: confirmed live on 2026-10-05 against gbrain's own vendored
+#: `frontmatter-inference.ts`/markdown importer.
+#:
+#: `NOTION_KIND_TO_GBRAIN_TYPE` is a DELIBERATE, EXPLICIT bypass of the Q16
+#: decision ("`notion_kind` is Notion's own raw label and is NEVER mapped onto
+#: the governed `entity_type` vocabulary") -- the user chose this in session on
+#: 2026-10-05 specifically so gbrain's own retrieval/listing tools (`list_pages
+#: type=person`, counts, etc.) have something queryable, after confirming the
+#: alternative (growing `00_CONFIG/gmv_entity_registry.json` through the real
+#: `confirm_new_entity()` human-review workflow) was out of scope for today.
+#: This mapping targets gbrain's lowercase display taxonomy, a DIFFERENT
+#: vocabulary from GMV's governed `entity_type` (ARTIST/INSTITUTION/...); it
+#: carries no claim that a page's identity was verified, only that gbrain can
+#: now categorize unaudited canon snapshots usefully. `entity_type` itself
+#: stays untouched, registry-only, exactly as Q16 still requires.
+NOTION_KIND_TO_GBRAIN_TYPE: dict[str, str] = {
+    "artista": "person",
+    "persona": "person",
+    "istituzione": "institution",
+    "mostra": "event",
+    "opera": "artwork",
+    "sponsor": "organization",
+}
 
 #: Canonical on-disk directory, the CLI default only -- `export_notion_page_to_canon()`
 #: takes an explicit `target_dir` from its caller, the same deliberate
@@ -426,6 +470,12 @@ def render_canon_markdown(
     frontmatter["notion_kind"] = notion_kind
     frontmatter["notion_title"] = notion_title
     frontmatter["exported_at"] = now
+    # Appended last, deliberately: gbrain's own import-facing keys, derived
+    # from the two fields above and never reordered into the GMV-governed
+    # prefix. See NOTION_KIND_TO_GBRAIN_TYPE for why this exists and what it
+    # does NOT claim.
+    frontmatter["title"] = notion_title
+    frontmatter["type"] = NOTION_KIND_TO_GBRAIN_TYPE.get(notion_kind.strip().lower(), notion_kind.strip().lower())
     yaml_block = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).rstrip("\n")
     return "\n".join([
         "---",
