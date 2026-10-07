@@ -2478,3 +2478,87 @@ discover.
   future `gbrain extract timeline` now sees the 77 entries was not re-run
   after the writes. Commits `9a3f2b05` (module + tests, dry run) and
   `4eaeb0f4` (source fix) are pushed on this branch.
+
+- **2026-10-07 — Task 40 done: the Notion canon export and the Area35 timeline
+  apply now run automatically inside the 07:00 morning sync (brief
+  `opencode_task_40.md`, marked "DRAFT TASK" but read as the instruction).
+  Deliverable is the live script `~/.gmv_scripts/gbrain_morning_sync.sh`,
+  which is OUTSIDE the repo and has no tracked copy (`git ls-files | grep
+  morning` → empty), so this commit is the work-log entry only: no repo code
+  changed. Backup of the pre-edit script:
+  `~/.gmv_scripts/gbrain_morning_sync.sh.bak-task40`.
+
+  **Read first, as the brief required:** the real script in full (53 lines);
+  `~/Library/LaunchAgents/com.gmv.gbrain.morningsync.plist` (confirms daily
+  Hour=7/Minute=0, calls that script directly, `RunAtLoad=false`, no extra
+  env); the export's real argparse; the timeline module's argparse
+  (`--apply --canon-dir --gbrain --source`); `~/.gmv_core/area35-qa/config.json`
+  (all six `entita` keys present, each with `notion_database_id`); and a grep
+  proving neither module contains `input()`/`getpass()`/`prompt`/`confirm`.
+
+  **Two facts the brief did not contain, both from reading the real code:**
+  (1) the export CLI has `--now` **required** (it never reads a clock itself),
+  so a bare `--config/--token-file` invocation would have died in argparse —
+  the script now passes `$(date -u +%Y-%m-%dT%H:%M:%SZ)` per run. (2) The
+  export's default `--proposal-queue` is the SHARED human review queue
+  (`01_RUNTIME/gmv_crawler/entity_identity_proposal_queue.jsonl`) and that
+  queue deliberately does not deduplicate (Task 8/9 semantics), so a daily
+  plain run would append ~435 identical unresolved names to it every morning,
+  burying the crawler's genuinely new proposals. **Deliberate deviation from
+  the brief's literal flags:** the automated run points `--proposal-queue` at
+  `~/.gmv_core/area35-qa/sync_identity_proposals.jsonl` instead. Verified
+  both sides: shared queue untouched by all three of today's runs (mtime
+  2026-10-05 23:01, 1132 lines), dedicated file holds exactly the 435.
+  Reversible by deleting one flag — **needs human sign-off, flagged here.**
+
+  **Live-system discovery that reframes Task 39's "deployed" status:**
+  `gbrain import` of an already-imported canon page **wipes the `timeline`
+  that `timeline-add` wrote.** Task 39's 77 entries (verified 77/77 on the
+  2026-10-06 evening) were all gone by this afternoon — the only event
+  between was the 07:00 morning sync's import step (log line
+  `[2026-10-07 07:00:01]`; pages show `updated_at`/`ingested_at` =
+  `2026-10-07T05:00:05Z` with `timeline: ''`; 12/12 random canon pages empty).
+  This is exactly why the brief orders the timeline step AFTER the import
+  step, and it now works by construction: each morning import wipes, step 3
+  re-applies, net state converges. **Consequence worth a structural review by
+  the directing session:** any MANUAL timeline edit made directly in gbrain on
+  a canon (`source=default`) page is erased the next morning — only entries
+  the extractor derives from the canon markdown survive a day.
+
+  **The script now has four logged, non-aborting steps** (each writes
+  OK/FAILED into `~/.gbrain/logs/morning_sync.log`; a failure never stops the
+  rest; serve always ends up running): 1/4 export (BEFORE `pkill` — it talks
+  only to the Notion API + disk, so the server stays up as long as possible),
+  2/4 imports (Dropbox constitution + canon, serve stopped), 3/4 timeline
+  apply (`--apply --source default --gbrain <abs path>`, serve still stopped),
+  4/4 serve restart (token still read fresh from `~/.zshrc`, nothing
+  hardcoded). The four outer commands the brief reserved — `pkill`, the import
+  loop, the token grep, `nohup ... serve --http ... & disown` — are
+  byte-unchanged apart from surrounding log lines.
+
+  **Verification, every run executed for real under `< /dev/null>` to
+  reproduce launchd's stdin:** (a) *Clean full run* `SCRIPT_RC=0`: export
+  `442 schede canon scritte ... (6 con gmv_id, 436 senza); 435 proposte in
+  coda; 1 pagine senza titolo` in 2m24s — the six entity counts (102+95+41+
+  42+149+13) sum to exactly 442, matching the brief's baseline (442 pages /
+  95 events); import `442 pages imported, 0 errors, 461 chunks`; apply
+  `apply: 77 timeline entries written`; step 4/4 OK, `pgrep` sees the serve.
+  (b) *Failure injection* — real token file renamed to `.bak-task40` first:
+  `step 1/4 FAILED (rc=2): continuing with the canon files already on disk`,
+  then steps 2/4, 3/4 and 4/4 all still ran and `SCRIPT_RC=0`; token
+  restored. (c) *Second clean full run (idempotency)*: export again 442/435,
+  apply again `77 timeline entries written`, and the Viewing room entry is
+  byte-identical to before, plus a global count over all 442 canon slugs via
+  parallel `gbrain get --json`: **77 with timeline, 365 empty** — exactly
+  apply's count, no duplicates or orphans after three apply passes today.
+  (d) Non-interactivity: grep-clean modules, and `launchd_stdout.log`/
+  `launchd_stderr.log` are still 0 bytes.
+
+  NOT verified / flagged: no real launchd invocation has fired yet (next
+  scheduled 07:00 is tomorrow — my runs reproduce it except cwd and PATH);
+  Notion reachability assumed healthy today; the sync now runs ~1.5 min longer
+  (serve stops at +2m31 instead of +0m02) — acceptable but noted; the CLI
+  prints `UPGRADE_AVAILABLE 0.60.71.0 -> 0.60.102.0` every run and I did NOT
+  self-upgrade (tested only on 0.60.71.0); full suite + ruff re-run clean as
+  before (1405 passed + the same 1 pre-existing failure,
+  `test_current_tracked_tree_passes_policy`, unrelated to this task).
