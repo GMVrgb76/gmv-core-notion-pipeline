@@ -36,7 +36,7 @@ def slugify(text: str, limit: int = 60) -> str:
 
 
 def short_hash(value: str) -> str:
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
+    return hashlib.sha1(value.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
 
 
 def yq(value: str) -> str:

@@ -92,12 +92,12 @@ class Candidate:
 
     @property
     def filename(self) -> str:
-        return hashlib.sha1(self.key.encode("utf-8")).hexdigest()[:16] + ".eml"
+        return hashlib.sha1(self.key.encode("utf-8"), usedforsecurity=False).hexdigest()[:16] + ".eml"
 
 
 def osascript_runner(script: str, args: list[str]) -> str:
-    result = subprocess.run(
-        ["osascript", "-", *args], input=script, text=True, capture_output=True, timeout=600
+    result = subprocess.run(  # noqa: S603  # gmv-floor-ok: fixed /usr/bin/osascript argv, no shell, script is a module constant
+        ["/usr/bin/osascript", "-", *args], input=script, text=True, capture_output=True, timeout=600
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"osascript rc={result.returncode}")
