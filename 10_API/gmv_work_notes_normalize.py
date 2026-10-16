@@ -11,12 +11,15 @@ import datetime as dt
 import hashlib
 import json
 import re
+import subprocess
 import sys
+import tempfile
 import unicodedata
 from email import policy
 from email.parser import BytesParser
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Callable
 
 NOTE_EXTS = {".md", ".txt"}
 NON_MAIL_EXTS = {".json", ".md", ".txt", ".part", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".docx", ".xlsx", ".zip", ".mbox"}
@@ -27,6 +30,12 @@ REPLY_MARKERS = (
     re.compile(r"^confidentiality notice", re.I),
 )
 HTML_SNIFF = re.compile(r"\s*<(!doctype html|html[\s>])", re.I)
+PDFTOTEXT = "/opt/homebrew/bin/pdftotext"
+MIN_TEXT_CHARS = 200
+PART_CHARS = 50_000
+ATTACH_DIR = "mail-lavoro-allegati"
+DEFAULT_CACHE = Path.home() / ".gmv_runtime" / "work_notes_cache"
+PdfText = Callable[[bytes], "str | None"]
 GENERATED_KEYS = {"title", "type", "tags", "date", "source_kind", "source_hash"}
 
 
@@ -151,11 +160,87 @@ def is_bulk(msg) -> bool:
     return bool(msg.get("List-Unsubscribe")) or precedence in ("bulk", "list", "junk")
 
 
+def clean_layout(text: str) -> str:
+    text = text.replace("\f", "\n\n")
+    text = "\n".join(re.sub(r" {4,}", "   ", line.rstrip()) for line in text.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def extract_pdf_text(data: bytes) -> str | None:
+    """Text layer via pdftotext; None when the tool fails (retry next run), "" for image-only PDFs."""
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+        tmp.write(data)
+        tmp.flush()
+        try:
+            result = subprocess.run(  # noqa: S603  # gmv-floor-ok: fixed pdftotext argv, no shell, input is a temp file path
+                [PDFTOTEXT, "-layout", tmp.name, "-"], capture_output=True, timeout=120
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+    if result.returncode != 0:
+        return None
+    return clean_layout(result.stdout.decode("utf-8", "replace"))
+
+
+def make_cached_pdf_text(cache_dir: Path | None, extractor: PdfText = extract_pdf_text) -> PdfText:
+    def get(data: bytes) -> str | None:
+        key = hashlib.sha1(data, usedforsecurity=False).hexdigest()
+        cached = cache_dir / f"{key}.txt" if cache_dir else None
+        if cached is not None and cached.exists():
+            return cached.read_text(encoding="utf-8")
+        text = extractor(data)
+        if text is not None and cached is not None:
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_text(text, encoding="utf-8")
+        return text
+
+    return get
+
+
+def split_text(text: str, limit: int = PART_CHARS) -> list[str]:
+    parts: list[str] = []
+    current = ""
+    for para in text.split("\n\n"):
+        while len(para) > limit:
+            if current:
+                parts.append(current)
+                current = ""
+            parts.append(para[:limit])
+            para = para[limit:]
+        if current and len(current) + len(para) + 2 > limit:
+            parts.append(current)
+            current = ""
+        current = f"{current}\n\n{para}" if current else para
+    if current:
+        parts.append(current)
+    return parts
+
+
+def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str) -> list[tuple[str, str]]:
+    key = short_hash(hashlib.sha1(data, usedforsecurity=False).hexdigest())
+    parts = split_text(text)
+    pages = []
+    for i, body in enumerate(parts, 1):
+        suffix = f"-p{i}" if len(parts) > 1 else ""
+        title = f"{filename} (allegato a: {mail_subject})" + (f" - parte {i}/{len(parts)}" if len(parts) > 1 else "")
+        fm = render_frontmatter({
+            "title": title,
+            "type": "source",
+            "tags": ["allegato-mail"],
+            "source_kind": "eml_attachment_pdf",
+            "source_hash": key,
+            "attachment_filename": filename,
+        })
+        name = f"{ATTACH_DIR}/{slugify(filename)}-{key}{suffix}.md"
+        pages.append((name, f"{fm}\n\n# {title}\n\n{body}\n"))
+    return pages
+
+
 class NotMail(Exception):
     pass
 
 
-def normalize_mail(path: Path, skip_bulk: bool) -> tuple[str, str] | None:
+def normalize_mail(path: Path, skip_bulk: bool, pdf_text: PdfText | None = None) -> tuple[list[tuple[str, str, bool]], int] | None:
     msg = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
     if not (msg.get("From") or msg.get("Subject")):
         raise NotMail(path.name)
@@ -177,11 +262,26 @@ def normalize_mail(path: Path, skip_bulk: bool) -> tuple[str, str] | None:
         if part.get_content_type() == "text/html" or HTML_SNIFF.match(text):
             text = html_to_text(text)
     body = strip_quoted(text)
-    attachments = [
-        part.get_filename() or "(senza nome)"
-        for part in msg.walk()
-        if not part.is_multipart() and part.get_content_disposition() == "attachment"
-    ]
+    extra_pages: list[tuple[str, str, bool]] = []
+    attachment_lines: list[str] = []
+    no_text = 0
+    for part in msg.walk():
+        if part.is_multipart() or part.get_content_disposition() != "attachment":
+            continue
+        filename = part.get_filename() or "(senza nome)"
+        text = None
+        if pdf_text is not None and filename.lower().endswith(".pdf"):
+            text = pdf_text(part.get_payload(decode=True) or b"")
+            if text is None or len(text) < MIN_TEXT_CHARS:
+                no_text += 1
+                attachment_lines.append(f"- {filename} (scansione o testo non estraibile, contenuto non importato)")
+                continue
+            pages = attachment_pages(filename, part.get_payload(decode=True), text, subject)
+            extra_pages += [(n, c, True) for n, c in pages]
+            links = ", ".join(f"[[{n[:-3]}]]" for n, _ in pages)
+            attachment_lines.append(f"- {filename}: {links}")
+        else:
+            attachment_lines.append(f"- {filename} (non importato)")
     key = message_id or short_hash(f"{subject}|{date}|{sender}|{text}")
     in_reply_to = str(msg.get("In-Reply-To") or "").strip()
 
@@ -200,19 +300,23 @@ def normalize_mail(path: Path, skip_bulk: bool) -> tuple[str, str] | None:
     if in_reply_to:
         fields["in_reply_to"] = in_reply_to
     out = [render_frontmatter(fields), "", f"# {subject}", "", body or "(corpo vuoto)"]
-    if attachments:
-        out += ["", "## Allegati (non importati)", *[f"- {a}" for a in attachments]]
+    if attachment_lines:
+        out += ["", "## Allegati", *attachment_lines]
     name = f"mail-lavoro/{date}-{slugify(subject)}-{short_hash(key)}.md"
-    return name, "\n".join(out).rstrip() + "\n"
+    return [(name, "\n".join(out).rstrip() + "\n", False), *extra_pages], no_text
 
 
-def run(root: Path, skip_bulk: bool = False) -> dict[str, int]:
+def run(root: Path, skip_bulk: bool = False, pdf_text: PdfText | None = None) -> dict[str, int]:
     inbox_note, inbox_mail, out_dir = root / "inbox/note", root / "inbox/mail", root / "gbrain"
-    stats = {"written": 0, "unchanged": 0, "skipped_bulk": 0, "not_mail": 0, "errors": 0}
+    stats = {"written": 0, "unchanged": 0, "skipped_bulk": 0, "not_mail": 0, "errors": 0, "attachment_pages": 0, "attachments_no_text": 0}
     seen: dict[str, Path] = {}
 
-    def emit(name: str, content: str, src: Path) -> None:
-        if name in seen:
+    def emit(name: str, content: str, src: Path, attachment: bool = False) -> None:
+        if attachment:
+            if name in seen:
+                return
+            stats["attachment_pages"] += 1
+        elif name in seen:
             print(f"WARN: {src} collapses onto {seen[name]} (same output {name})", file=sys.stderr)
         seen[name] = src
         stats["written" if write_if_changed(out_dir / name, content) else "unchanged"] += 1
@@ -230,11 +334,14 @@ def run(root: Path, skip_bulk: bool = False) -> dict[str, int]:
             if not p.is_file() or p.name.startswith(".") or p.suffix.lower() in NON_MAIL_EXTS:
                 continue
             try:
-                result = normalize_mail(p, skip_bulk)
+                result = normalize_mail(p, skip_bulk, pdf_text)
                 if result is None:
                     stats["skipped_bulk"] += 1
                 else:
-                    emit(*result, p)
+                    pages, no_text = result
+                    stats["attachments_no_text"] += no_text
+                    for name, content, is_attachment in pages:
+                        emit(name, content, p, is_attachment)
             except NotMail:
                 stats["not_mail"] += 1
                 print(f"WARN not a mail, skipped: {p}", file=sys.stderr)
@@ -248,8 +355,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, required=True, help="NOTE_E_MAIL_LAVORO folder")
     ap.add_argument("--skip-bulk", action="store_true", help="skip mail with List-Unsubscribe/bulk headers (also drops transactional mail sent via marketing platforms)")
+    ap.add_argument("--no-attachments", action="store_true", help="do not extract PDF attachment text")
+    ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE, help="PDF text cache (outside Dropbox)")
     args = ap.parse_args(argv)
-    stats = run(args.root, args.skip_bulk)
+    pdf_text = None if args.no_attachments else make_cached_pdf_text(args.cache_dir)
+    stats = run(args.root, args.skip_bulk, pdf_text)
     print(json.dumps(stats))
     return 1 if stats["errors"] else 0
 

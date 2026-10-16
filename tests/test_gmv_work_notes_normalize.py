@@ -72,7 +72,7 @@ def test_originals_untouched_and_rerun_idempotent(tmp_path):
     before = src.read_bytes()
     assert wn.run(root)["written"] == 1
     second = wn.run(root)
-    assert second == {"written": 0, "unchanged": 1, "skipped_bulk": 0, "not_mail": 0, "errors": 0}
+    assert second == {"written": 0, "unchanged": 1, "skipped_bulk": 0, "not_mail": 0, "errors": 0, "attachment_pages": 0, "attachments_no_text": 0}
     assert src.read_bytes() == before
 
 
@@ -277,3 +277,93 @@ def test_plain_text_mentioning_html_tag_midway_is_untouched(tmp_path):
     _eml(root / "inbox/mail/1.eml", body="Usa il tag <html> nel template.")
     wn.run(root)
     assert "<html>" in _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+
+
+LONG_TEXT = "Clausola contrattuale numero uno. " * 20
+
+
+def _fake_pdf(texts):
+    return lambda data: texts.get(data)
+
+
+def test_pdf_attachment_becomes_separate_linked_page(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="contratto.pdf")
+    stats = wn.run(root, pdf_text=_fake_pdf({b"x": LONG_TEXT}))
+    assert stats["attachment_pages"] == 1 and stats["attachments_no_text"] == 0
+    att = _out(root, "mail-lavoro-allegati")[0]
+    body = att.read_text(encoding="utf-8")
+    assert 'type: "source"' in body and 'tags: ["allegato-mail"]' in body
+    assert "Clausola contrattuale" in body and "contratto.pdf (allegato a: Preventivo cantiere)" in body
+    mail = _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+    assert f"[[mail-lavoro-allegati/{att.stem}]]" in mail
+    assert "Clausola contrattuale" not in mail
+
+
+def test_scanned_pdf_is_flagged_and_not_imported(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="scan.pdf")
+    stats = wn.run(root, pdf_text=_fake_pdf({b"x": "   "}))
+    assert stats["attachment_pages"] == 0 and stats["attachments_no_text"] == 1
+    assert _out(root, "mail-lavoro-allegati") == []
+    assert "scan.pdf (scansione" in _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+
+
+def test_extractor_failure_counts_as_no_text_not_error(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="a.pdf")
+    stats = wn.run(root, pdf_text=_fake_pdf({}))
+    assert stats["attachments_no_text"] == 1 and stats["errors"] == 0
+
+
+def test_same_attachment_in_two_mails_yields_one_page(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="a.pdf", msg_id="<1@x>", subject="Uno")
+    _eml(root / "inbox/mail/2.eml", attachment="a.pdf", msg_id="<2@x>", subject="Due")
+    stats = wn.run(root, pdf_text=_fake_pdf({b"x": LONG_TEXT}))
+    assert stats["attachment_pages"] == 1 and len(_out(root, "mail-lavoro-allegati")) == 1
+    assert len(_out(root, "mail-lavoro")) == 2
+
+
+def test_long_attachment_is_split_into_parts():
+    text = "\n\n".join(f"Paragrafo {i} " + "x" * 900 for i in range(120))
+    parts = wn.split_text(text, limit=20_000)
+    assert len(parts) > 1 and all(len(p) <= 20_000 for p in parts)
+    assert "\n\n".join(parts) == text
+
+
+def test_oversized_single_paragraph_is_hard_split():
+    parts = wn.split_text("y" * 25_000, limit=10_000)
+    assert [len(p) for p in parts] == [10_000, 10_000, 5_000]
+
+
+def test_pdf_text_cache_avoids_second_extraction(tmp_path):
+    calls = []
+
+    def extractor(data):
+        calls.append(1)
+        return "testo"
+
+    get = wn.make_cached_pdf_text(tmp_path / "cache", extractor)
+    assert get(b"abc") == "testo" and get(b"abc") == "testo"
+    assert len(calls) == 1
+
+
+def test_failed_extraction_is_not_cached(tmp_path):
+    results = iter([None, "ok"])
+    get = wn.make_cached_pdf_text(tmp_path / "cache", lambda d: next(results))
+    assert get(b"abc") is None
+    assert get(b"abc") == "ok"
+
+
+def test_clean_layout_collapses_blank_lines_and_page_breaks():
+    out = wn.clean_layout("a      b   \n\n\n\n\fpagina due\n")
+    assert out == "a   b\n\npagina due"
+
+
+def test_without_extractor_attachments_are_only_listed(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="c.pdf")
+    stats = wn.run(root)
+    assert stats["attachment_pages"] == 0 and stats["attachments_no_text"] == 0
+    assert "- c.pdf (non importato)" in _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
