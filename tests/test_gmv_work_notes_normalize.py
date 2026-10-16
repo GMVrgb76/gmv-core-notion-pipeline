@@ -260,3 +260,20 @@ def test_forwarded_message_content_is_kept(tmp_path):
     _eml(root / "inbox/mail/1.eml", body=body)
     wn.run(root)
     assert "Contenuto importante inoltrato" in _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+
+
+def test_html_mislabelled_as_plain_text_is_converted(tmp_path):
+    root = _root(tmp_path)
+    html = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0//EN"><html><head><style>p{}</style></head><body><p>Documentazione <b>firmata</b></p></body></html>'
+    _eml(root / "inbox/mail/1.eml", body=html)
+    wn.run(root)
+    out = _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+    assert "Documentazione firmata" in out
+    assert "<html" not in out.lower() and "DOCTYPE" not in out and "p{}" not in out
+
+
+def test_plain_text_mentioning_html_tag_midway_is_untouched(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", body="Usa il tag <html> nel template.")
+    wn.run(root)
+    assert "<html>" in _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")

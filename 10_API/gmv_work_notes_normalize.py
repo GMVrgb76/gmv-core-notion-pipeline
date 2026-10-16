@@ -26,6 +26,7 @@ REPLY_MARKERS = (
     re.compile(r"^sent with proton mail", re.I),
     re.compile(r"^confidentiality notice", re.I),
 )
+HTML_SNIFF = re.compile(r"\s*<(!doctype html|html[\s>])", re.I)
 GENERATED_KEYS = {"title", "type", "tags", "date", "source_kind", "source_hash"}
 
 
@@ -173,7 +174,7 @@ def normalize_mail(path: Path, skip_bulk: bool) -> tuple[str, str] | None:
     text = ""
     if part is not None:
         text = part.get_content()
-        if part.get_content_type() == "text/html":
+        if part.get_content_type() == "text/html" or HTML_SNIFF.match(text):
             text = html_to_text(text)
     body = strip_quoted(text)
     attachments = [
