@@ -31,11 +31,16 @@ REPLY_MARKERS = (
 )
 HTML_SNIFF = re.compile(r"\s*<(!doctype html|html[\s>])", re.I)
 PDFTOTEXT = "/opt/homebrew/bin/pdftotext"
+PDFINFO = "/opt/homebrew/bin/pdfinfo"
 MIN_TEXT_CHARS = 200
 PART_CHARS = 50_000
 ATTACH_DIR = "mail-lavoro-allegati"
 DEFAULT_CACHE = Path.home() / ".gmv_runtime" / "work_notes_cache"
-PdfText = Callable[[bytes], "str | None"]
+OCR_PYTHON = Path.home() / ".gmv_core" / ".venv-paddleocr" / "bin" / "python3"
+OCR_SCRIPT = Path(__file__).parent / "ocr_paddleocr_pdf.py"
+OCR_TIMEOUT_BASE, OCR_TIMEOUT_PER_PAGE, OCR_TIMEOUT_MAX = 60, 45, 1800
+PdfText = Callable[[bytes], "tuple[str, str] | None"]
+Ocr = Callable[[bytes], "str | None"]
 GENERATED_KEYS = {"title", "type", "tags", "date", "source_kind", "source_hash"}
 
 
@@ -182,17 +187,83 @@ def extract_pdf_text(data: bytes) -> str | None:
     return clean_layout(result.stdout.decode("utf-8", "replace"))
 
 
-def make_cached_pdf_text(cache_dir: Path | None, extractor: PdfText = extract_pdf_text) -> PdfText:
-    def get(data: bytes) -> str | None:
-        key = hashlib.sha1(data, usedforsecurity=False).hexdigest()
-        cached = cache_dir / f"{key}.txt" if cache_dir else None
-        if cached is not None and cached.exists():
-            return cached.read_text(encoding="utf-8")
-        text = extractor(data)
-        if text is not None and cached is not None:
-            cached.parent.mkdir(parents=True, exist_ok=True)
-            cached.write_text(text, encoding="utf-8")
+def pdf_page_count(data: bytes) -> int:
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+        tmp.write(data)
+        tmp.flush()
+        try:
+            out = subprocess.run(  # noqa: S603  # gmv-floor-ok: fixed pdfinfo argv, no shell, input is a temp file path
+                [PDFINFO, tmp.name], capture_output=True, timeout=30
+            ).stdout.decode("utf-8", "replace")
+        except (subprocess.TimeoutExpired, OSError):
+            return 1
+    for line in out.splitlines():
+        if line.startswith("Pages:"):
+            return max(int(line.split()[-1]), 1)
+    return 1
+
+
+def ocr_pdf_text(data: bytes, pages: int | None = None) -> str | None:
+    """PaddleOCR in its isolated venv (see GMV_OCR_PADDLEOCR.md); None on any failure."""
+    if not OCR_PYTHON.is_file():
+        return None
+    pages = pages or pdf_page_count(data)
+    timeout = min(OCR_TIMEOUT_BASE + OCR_TIMEOUT_PER_PAGE * pages, OCR_TIMEOUT_MAX)
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+        tmp.write(data)
+        tmp.flush()
+        try:
+            result = subprocess.run(  # noqa: S603  # gmv-floor-ok: fixed venv python + repo script argv, no shell, input is a temp file path
+                [str(OCR_PYTHON), str(OCR_SCRIPT), tmp.name, "--lang", "it", "--dpi", "200"],
+                capture_output=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+    if result.returncode != 0:
+        return None
+    return clean_layout(result.stdout.decode("utf-8", "replace"))
+
+
+def make_budgeted_ocr(max_pages: int, ocr: Callable[[bytes, int], "str | None"] = ocr_pdf_text,
+                      page_count: Callable[[bytes], int] = pdf_page_count) -> Ocr:
+    """OCR callable that stops (returns None) once `max_pages` pages were spent in this run."""
+    left = [max_pages]
+
+    def run_ocr(data: bytes) -> str | None:
+        pages = page_count(data)
+        if pages > left[0]:
+            return None
+        left[0] -= pages
+        return ocr(data, pages)
+
+    return run_ocr
+
+
+def make_cached_pdf_text(cache_dir: Path | None, extractor: Callable[[bytes], "str | None"] = extract_pdf_text,
+                         ocr: Ocr | None = None) -> PdfText:
+    """pdftotext first (cached); image-only PDFs fall through to a cached, budgeted OCR."""
+
+    def cached(sub: str, key: str, produce: Callable[[], "str | None"]) -> "str | None":
+        path = cache_dir / sub / f"{key}.txt" if cache_dir else None
+        if path is not None and path.exists():
+            return path.read_text(encoding="utf-8")
+        text = produce()
+        if text is not None and path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
         return text
+
+    def get(data: bytes) -> "tuple[str, str] | None":
+        key = hashlib.sha1(data, usedforsecurity=False).hexdigest()
+        text = cached("text", key, lambda: extractor(data))
+        if text is None:
+            return None
+        if len(text) >= MIN_TEXT_CHARS or ocr is None:
+            return text, "pdftotext"
+        ocr_text = cached("ocr", key, lambda: ocr(data))
+        if ocr_text is None:
+            return text, "pdftotext"
+        return ocr_text, "ocr"
 
     return get
 
@@ -216,7 +287,7 @@ def split_text(text: str, limit: int = PART_CHARS) -> list[str]:
     return parts
 
 
-def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str) -> list[tuple[str, str]]:
+def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str, method: str = "pdftotext") -> list[tuple[str, str]]:
     key = short_hash(hashlib.sha1(data, usedforsecurity=False).hexdigest())
     parts = split_text(text)
     pages = []
@@ -227,9 +298,10 @@ def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str) -
             "title": title,
             "type": "source",
             "tags": ["allegato-mail"],
-            "source_kind": "eml_attachment_pdf",
+            "source_kind": "eml_attachment_pdf" if method == "pdftotext" else "eml_attachment_pdf_ocr",
             "source_hash": key,
             "attachment_filename": filename,
+            **({"extraction": "ocr"} if method == "ocr" else {}),
         })
         name = f"{ATTACH_DIR}/{slugify(filename)}-{key}{suffix}.md"
         pages.append((name, f"{fm}\n\n# {title}\n\n{body}\n"))
@@ -271,12 +343,13 @@ def normalize_mail(path: Path, skip_bulk: bool, pdf_text: PdfText | None = None)
         filename = part.get_filename() or "(senza nome)"
         text = None
         if pdf_text is not None and filename.lower().endswith(".pdf"):
-            text = pdf_text(part.get_payload(decode=True) or b"")
-            if text is None or len(text) < MIN_TEXT_CHARS:
+            extracted = pdf_text(part.get_payload(decode=True) or b"")
+            if extracted is None or len(extracted[0]) < MIN_TEXT_CHARS:
                 no_text += 1
                 attachment_lines.append(f"- {filename} (scansione o testo non estraibile, contenuto non importato)")
                 continue
-            pages = attachment_pages(filename, part.get_payload(decode=True), text, subject)
+            text, method = extracted
+            pages = attachment_pages(filename, part.get_payload(decode=True), text, subject, method)
             extra_pages += [(n, c, True) for n, c in pages]
             links = ", ".join(f"[[{n[:-3]}]]" for n, _ in pages)
             attachment_lines.append(f"- {filename}: {links}")
@@ -356,9 +429,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", type=Path, required=True, help="NOTE_E_MAIL_LAVORO folder")
     ap.add_argument("--skip-bulk", action="store_true", help="skip mail with List-Unsubscribe/bulk headers (also drops transactional mail sent via marketing platforms)")
     ap.add_argument("--no-attachments", action="store_true", help="do not extract PDF attachment text")
+    ap.add_argument("--ocr-max-pages", type=int, default=0, help="OCR image-only PDFs, at most N pages per run (0 = off)")
     ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE, help="PDF text cache (outside Dropbox)")
     args = ap.parse_args(argv)
-    pdf_text = None if args.no_attachments else make_cached_pdf_text(args.cache_dir)
+    ocr = make_budgeted_ocr(args.ocr_max_pages) if args.ocr_max_pages > 0 else None
+    pdf_text = None if args.no_attachments else make_cached_pdf_text(args.cache_dir, ocr=ocr)
     stats = run(args.root, args.skip_bulk, pdf_text)
     print(json.dumps(stats))
     return 1 if stats["errors"] else 0

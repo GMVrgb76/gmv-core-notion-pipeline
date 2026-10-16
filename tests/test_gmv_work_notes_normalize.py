@@ -1,4 +1,6 @@
 import sys
+
+import pytest
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -283,7 +285,7 @@ LONG_TEXT = "Clausola contrattuale numero uno. " * 20
 
 
 def _fake_pdf(texts):
-    return lambda data: texts.get(data)
+    return lambda data: (texts[data], "pdftotext") if data in texts else None
 
 
 def test_pdf_attachment_becomes_separate_linked_page(tmp_path):
@@ -345,7 +347,7 @@ def test_pdf_text_cache_avoids_second_extraction(tmp_path):
         return "testo"
 
     get = wn.make_cached_pdf_text(tmp_path / "cache", extractor)
-    assert get(b"abc") == "testo" and get(b"abc") == "testo"
+    assert get(b"abc") == ("testo", "pdftotext") and get(b"abc") == ("testo", "pdftotext")
     assert len(calls) == 1
 
 
@@ -353,7 +355,7 @@ def test_failed_extraction_is_not_cached(tmp_path):
     results = iter([None, "ok"])
     get = wn.make_cached_pdf_text(tmp_path / "cache", lambda d: next(results))
     assert get(b"abc") is None
-    assert get(b"abc") == "ok"
+    assert get(b"abc") == ("ok", "pdftotext")
 
 
 def test_clean_layout_collapses_blank_lines_and_page_breaks():
@@ -367,3 +369,58 @@ def test_without_extractor_attachments_are_only_listed(tmp_path):
     stats = wn.run(root)
     assert stats["attachment_pages"] == 0 and stats["attachments_no_text"] == 0
     assert "- c.pdf (non importato)" in _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+
+
+def _ocr_get(tmp_path, ocr, base=""):
+    return wn.make_cached_pdf_text(tmp_path / "cache", lambda d: base, ocr=ocr)
+
+
+def test_image_only_pdf_falls_through_to_ocr_and_is_cached(tmp_path):
+    calls = []
+
+    def ocr(data):
+        calls.append(1)
+        return "Testo riconosciuto dall'OCR"
+
+    get = _ocr_get(tmp_path, ocr)
+    assert get(b"scan") == ("Testo riconosciuto dall'OCR", "ocr")
+    assert get(b"scan") == ("Testo riconosciuto dall'OCR", "ocr")
+    assert len(calls) == 1
+
+
+def test_ocr_not_invoked_when_text_layer_is_enough(tmp_path):
+    get = _ocr_get(tmp_path, lambda d: pytest.fail("OCR must not run"), base="x" * wn.MIN_TEXT_CHARS)
+    assert get(b"doc")[1] == "pdftotext"
+
+
+def test_ocr_failure_is_not_cached_and_keeps_text_layer_result(tmp_path):
+    results = iter([None, "Riconosciuto al secondo tentativo"])
+    get = _ocr_get(tmp_path, lambda d: next(results))
+    assert get(b"scan") == ("", "pdftotext")
+    assert get(b"scan") == ("Riconosciuto al secondo tentativo", "ocr")
+
+
+def test_budgeted_ocr_stops_when_pages_are_spent():
+    spent = []
+    run_ocr = wn.make_budgeted_ocr(3, ocr=lambda d, pages: spent.append(pages) or "t", page_count=lambda d: 2)
+    assert run_ocr(b"a") == "t"
+    assert run_ocr(b"b") is None
+    assert spent == [2]
+
+
+def test_ocr_page_becomes_attachment_page_marked_as_ocr(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="scan.pdf")
+    get = _ocr_get(tmp_path, lambda d: "Avviso condominiale. " * 20)
+    stats = wn.run(root, pdf_text=get)
+    assert stats["attachment_pages"] == 1 and stats["attachments_no_text"] == 0
+    body = _out(root, "mail-lavoro-allegati")[0].read_text(encoding="utf-8")
+    assert 'extraction: "ocr"' in body and 'source_kind: "eml_attachment_pdf_ocr"' in body
+
+
+def test_budget_exhausted_leaves_scan_flagged_for_next_run(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="scan.pdf")
+    exhausted = wn.make_budgeted_ocr(0, ocr=lambda d, p: "mai", page_count=lambda d: 1)
+    stats = wn.run(root, pdf_text=_ocr_get(tmp_path, exhausted))
+    assert stats["attachment_pages"] == 0 and stats["attachments_no_text"] == 1
