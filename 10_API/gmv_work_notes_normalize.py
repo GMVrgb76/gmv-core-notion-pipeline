@@ -287,7 +287,12 @@ def split_text(text: str, limit: int = PART_CHARS) -> list[str]:
     return parts
 
 
-def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str, method: str = "pdftotext") -> list[tuple[str, str]]:
+def header_line(sender: str, recipients: str, date: str) -> str:
+    to = recipients if len(recipients) <= 300 else recipients[:300] + "…"
+    return f"**Da:** {sender} | **A:** {to} | **Data:** {date}"
+
+
+def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str, method: str = "pdftotext", mail_line: str = "") -> list[tuple[str, str]]:
     key = short_hash(hashlib.sha1(data, usedforsecurity=False).hexdigest())
     parts = split_text(text)
     pages = []
@@ -304,7 +309,8 @@ def attachment_pages(filename: str, data: bytes, text: str, mail_subject: str, m
             **({"extraction": "ocr"} if method == "ocr" else {}),
         })
         name = f"{ATTACH_DIR}/{slugify(filename)}-{key}{suffix}.md"
-        pages.append((name, f"{fm}\n\n# {title}\n\n{body}\n"))
+        context = f"**Allegato alla mail:** {mail_subject}\n{mail_line}\n\n" if mail_line else ""
+        pages.append((name, f"{fm}\n\n# {title}\n\n{context}{body}\n"))
     return pages
 
 
@@ -349,7 +355,7 @@ def normalize_mail(path: Path, skip_bulk: bool, pdf_text: PdfText | None = None)
                 attachment_lines.append(f"- {filename} (scansione o testo non estraibile, contenuto non importato)")
                 continue
             text, method = extracted
-            pages = attachment_pages(filename, part.get_payload(decode=True), text, subject, method)
+            pages = attachment_pages(filename, part.get_payload(decode=True), text, subject, method, header_line(sender, recipients, date))
             extra_pages += [(n, c, True) for n, c in pages]
             links = ", ".join(f"[[{n[:-3]}]]" for n, _ in pages)
             attachment_lines.append(f"- {filename}: {links}")
@@ -372,7 +378,7 @@ def normalize_mail(path: Path, skip_bulk: bool, pdf_text: PdfText | None = None)
         fields["message_id"] = message_id
     if in_reply_to:
         fields["in_reply_to"] = in_reply_to
-    out = [render_frontmatter(fields), "", f"# {subject}", "", body or "(corpo vuoto)"]
+    out = [render_frontmatter(fields), "", f"# {subject}", "", header_line(sender, recipients, date), "", body or "(corpo vuoto)"]
     if attachment_lines:
         out += ["", "## Allegati", *attachment_lines]
     name = f"mail-lavoro/{date}-{slugify(subject)}-{short_hash(key)}.md"
