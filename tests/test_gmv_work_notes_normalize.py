@@ -424,3 +424,28 @@ def test_budget_exhausted_leaves_scan_flagged_for_next_run(tmp_path):
     exhausted = wn.make_budgeted_ocr(0, ocr=lambda d, p: "mai", page_count=lambda d: 1)
     stats = wn.run(root, pdf_text=_ocr_get(tmp_path, exhausted))
     assert stats["attachment_pages"] == 0 and stats["attachments_no_text"] == 1
+
+
+def test_mail_has_searchable_sender_recipients_date_line_after_title(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml")
+    wn.run(root)
+    out = _out(root, "mail-lavoro")[0].read_text(encoding="utf-8")
+    body = out.split("---\n", 2)[2]
+    assert "# Preventivo cantiere" in body
+    assert "**Da:** Mario Rossi <mario@example.com> | **A:** me@proton.me | **Data:** 2026-10-14" in body
+    assert body.index("**Da:**") < body.index("vedi sotto")
+
+
+def test_long_recipient_list_is_truncated_in_header():
+    line = wn.header_line("a@x", ", ".join(f"p{i}@example.com" for i in range(100)), "2026-10-14")
+    assert len(line) < 450 and line.endswith("**Data:** 2026-10-14") and "…" in line
+
+
+def test_attachment_page_names_the_mail_it_belongs_to(tmp_path):
+    root = _root(tmp_path)
+    _eml(root / "inbox/mail/1.eml", attachment="contratto.pdf")
+    wn.run(root, pdf_text=_fake_pdf({b"x": LONG_TEXT}))
+    body = _out(root, "mail-lavoro-allegati")[0].read_text(encoding="utf-8")
+    assert "**Allegato alla mail:** Preventivo cantiere" in body
+    assert "**Da:** Mario Rossi <mario@example.com>" in body
